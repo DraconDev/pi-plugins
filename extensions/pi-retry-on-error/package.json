@@ -1,0 +1,30 @@
+{
+  "name": "pi-retry-on-error",
+  "version": "1.0.0",
+  "description": "pi extension that automatically retries transient LLM provider errors (e.g. \"No healthy provider available\", 4xx/5xx, timeouts) by re-sending the user's last message, so unreliable gateways are tolerated transparently.",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "clean": "echo 'nothing to clean'",
+    "build": "echo 'nothing to build'",
+    "check": "echo 'nothing to check'"
+  },
+  "keywords": [
+    "pi",
+    "extension",
+    "retry",
+    "resilience",
+    "provider",
+    "error",
+    "unreliable",
+    "ai",
+    "llm"
+  ],
+  "author": "",
+  "license": "MIT",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

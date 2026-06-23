@@ -11,9 +11,12 @@ pi-plugins/
 ├── LICENSE                              MIT
 ├── README.md                            this file
 ├── extensions/
-│   └── pi-chrome-auto-auth/             auto-authorizes pi-chrome for the session lifetime
+│   ├── pi-chrome-auto-auth/             auto-authorizes pi-chrome for the session lifetime
+│   ├── pi-auto-review/                  automated project review — scans, writes TODO.md, auto-fixes
+│   └── pi-retry-on-error/               retries transient LLM provider errors transparently
 └── skills/
-    └── chrome-extension-dev/            load/reload/manage unpacked Chrome extensions in dev
+    ├── chrome-extension-dev/            load/reload/manage unpacked Chrome extensions in dev
+    └── pi-search-skill/                 unlimited local key-less web search via search-daemon
 ```
 
 ## What's in here
@@ -28,6 +31,27 @@ starts with `chrome_*` tools already authorized, no 15-minute re-authorization p
 - See [extensions/pi-chrome-auto-auth/README.md](./extensions/pi-chrome-auto-auth/README.md) for
   install, security model, and disabling instructions.
 
+### `extensions/pi-auto-review`
+
+Automated project review for Pi — scans for problems, writes TODO.md, and optionally auto-fixes in
+bounded fix loops. The `autoReview` config block in `~/.pi/agent/settings.json` was previously
+ Dormant (the extension was not installed). Now that it's included here and registered in
+`packages`, the config takes effect.
+
+- Registered in `packages` as `../../Dev/pi-plugins/extensions/pi-auto-review`.
+- Has its own `.pi/settings.json` with detailed `focusAreas` (TypeScript errors, missing types,
+  broken imports, dead code, FIXME/HACK comments, security issues).
+- See [extensions/pi-auto-review/README.md](./extensions/pi-auto-review/README.md) for details.
+
+### `extensions/pi-retry-on-error`
+
+A Pi extension that automatically retries the user's last message when an LLM provider returns a
+transient error (HTTP 5xx, network timeouts, "model overloaded", etc.). Transparent to the user —
+retries happen silently up to a configurable limit.
+
+- Registered in `packages` as `../../Dev/pi-plugins/extensions/pi-retry-on-error`.
+- See [extensions/pi-retry-on-error/README.md](./extensions/pi-retry-on-error/README.md) for details.
+
 ### `skills/chrome-extension-dev`
 
 A Pi skill that auto-loads into context when the AI is working on Chrome extension development.
@@ -41,24 +65,27 @@ modes (xdotool broken, portal picker, picker unfocused).
   procedure and [skills/chrome-extension-dev/references/](./skills/chrome-extension-dev/references/)
   for environment-specific notes.
 
+### `skills/pi-search-skill`
+
+Unlimited, local, key-less web search via search-daemon (Rust) + SearXNG or DuckDuckGo fallback.
+No API keys required.
+
+- Auto-discovered from `~/.pi/agent/skills/pi-search-skill/` (its own git repo) AND from
+  `skills: ["../../Dev/pi-plugins/skills"]` (this monorepo). Pi deduplicates by name.
+- See [skills/pi-search-skill/SKILL.md](./skills/pi-search-skill/SKILL.md) for setup and usage.
+
 ## What's deliberately NOT here
 
 The following are DraconDev-authored pi extensions/skills that exist elsewhere and are NOT
-consolidated into this repo. Listed for inventory completeness only — do not move them here
-without an explicit decision.
+consolidated into this repo. Listed for inventory completeness only.
 
 | Item | Where it lives | Notes |
 |---|---|---|
-| `pi-search-skill` | `~/.pi/agent/skills/pi-search-skill/` | Own git repo at `DraconDev/pi-search-skill`. Currently active (auto-discovered). |
 | `mmx-cli` skill | `~/.pi/agent/skills/mmx-cli/SKILL.md` | Loose, no git. Currently active (auto-discovered). |
-| `pi-auto-review` | `DraconDev/pi-auto-review` (github) | Cloned to `~/.pi/agent/git/github.com/DraconDev/pi-auto-review` but NOT in `settings.json` — the `autoReview` config block in settings.json is currently dormant. |
-| `pi-global-context-limit` | `DraconDev/pi-global-context-limit` (github) + a loose local copy at `~/.pi/agent/extensions/global-context-limit/` | Not installed. The `globalContextLimit: 200000` setting is dormant. |
+| `pi-global-context-limit` | `DraconDev/pi-global-context-limit` (github) + loose copy at `~/.pi/agent/extensions/global-context-limit/` | Not installed. The `globalContextLimit: 200000` setting is dormant. |
 | `pi-mmx-assets` | `chat/pi-mmx-assets/` | Loose, not installed. |
-| `pi-retry-on-error` | `chat/pi-retry-on-error/` | Loose, not installed. |
 
 ### Explicitly excluded (NOT ours, NOT to be moved here)
-
-These look like they might be candidates but are confirmed third-party or unverified provenance:
 
 - `pi-kilo-code-provider` (chat/) — no DraconDev stamp, not ours
 - `pi-openadapter-provider` (chat/) — no DraconDev stamp, not ours

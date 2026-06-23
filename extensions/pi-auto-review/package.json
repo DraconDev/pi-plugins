@@ -1,0 +1,42 @@
+{
+  "name": "pi-auto-review",
+  "version": "1.7.3",
+  "description": "Automated project review for Pi — scans for problems, writes TODO.md, and optionally auto-fixes in bounded fix loops",
+  "keywords": [
+    "pi-package",
+    "auto-review",
+    "code-quality"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "echo 'Nothing to build — Pi loads TypeScript directly'",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint extensions/**/*.ts",
+    "lint:fix": "eslint extensions/**/*.ts --fix",
+    "clean": "rm -rf node_modules coverage"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/auto-review.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.4",
+    "@typescript-eslint/parser": "^8.59.4",
+    "@vitest/coverage-v8": "^4.1.6",
+    "eslint": "^10.4.0",
+    "vitest": "^4.1.6"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dracon/pi-auto-review"
+  },
+  "author": "Dracon"
+}

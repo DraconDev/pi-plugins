@@ -1,0 +1,23 @@
+{
+  "extensions": [
+    "./extensions"
+  ],
+  "autoReview": {
+    "todoPath": "TODO.md",
+    "autoFix": true,
+    "maxFixRounds": 3,
+    "onRalphDone": true,
+    "onAgentEnd": false,
+    "onSessionStart": false,
+    "focusAreas": [
+      "TypeScript compilation errors",
+      "Missing type annotations or implicit any",
+      "Broken imports or missing dependencies",
+      "Dead code or unreachable branches",
+      "FIXME/HACK comments indicating known bugs",
+      "Inconsistencies between package.json and actual code",
+      "Missing error handling (catch blocks that swallow errors)",
+      "Security issues (hardcoded paths, eval usage)"
+    ]
+  }
+}
