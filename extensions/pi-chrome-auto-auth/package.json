@@ -1,0 +1,34 @@
+{
+	"name": "pi-chrome-auto-auth",
+	"version": "0.1.0",
+	"description": "Pi extension that auto-authorizes pi-chrome for the lifetime of each Pi session by pre-setting the persistent auth state on globalThis before pi-chrome's extension factory reads it. Bypasses the 15-minute re-authorization prompt.",
+	"type": "module",
+	"main": "index.ts",
+	"scripts": {
+		"clean": "echo 'nothing to clean'",
+		"build": "echo 'nothing to build'",
+		"check": "echo 'nothing to check'"
+	},
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"extension",
+		"pi-chrome",
+		"chrome",
+		"browser",
+		"browser-automation",
+		"auto-auth",
+		"authorize",
+		"loopback-bridge"
+	],
+	"author": {
+		"name": "DraconDev"
+	},
+	"license": "MIT",
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	}
+}
