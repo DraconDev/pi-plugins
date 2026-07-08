@@ -104,6 +104,3 @@ tasks*.json
 !rustfmt.toml
 !state/events/*.jsonl
 # --- END DRACON MANAGED BLOCK ---
-
-# Pi session artifacts — not source code, not assets, not config
-.pi/
