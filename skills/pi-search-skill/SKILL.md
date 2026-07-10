@@ -31,11 +31,11 @@ docker compose up -d
 # 3. Start the daemon (foreground or as a systemd unit)
 ./target/release/search-daemon
 
-# Daemon listens on http://127.0.0.1:8765 by default.
+# Daemon listens on http://127.0.0.1:28473 by default.
 # Override: SEARCH_DAEMON_BIND / SEARCH_DAEMON_SEARXNG_URL env vars.
 ```
 
-The skill defaults to `http://127.0.0.1:8765` for the daemon. To point it elsewhere, set `PI_SEARCH_DAEMON_URL` in your shell or `~/.pi/settings.json`'s `env` block.
+The skill defaults to `http://127.0.0.1:28473` for the daemon. To point it elsewhere, set `PI_SEARCH_DAEMON_URL` in your shell or `~/.pi/settings.json`'s `env` block.
 
 ## Usage
 
@@ -75,8 +75,8 @@ The helper:
 
 - If results are stale or empty, check daemon + SearXNG health:
   ```bash
-  curl -s http://127.0.0.1:8765/healthz
-  curl -s http://127.0.0.1:8765/readyz   # 503 if SearXNG is down
+  curl -s http://127.0.0.1:28473/healthz
+  curl -s http://127.0.0.1:28473/readyz   # 503 if SearXNG is down
   ```
 - For precise technical queries, pass `--max-results 5` to keep the context window small.
 - The daemon caches identical queries for 60 seconds. Repeats are free.
