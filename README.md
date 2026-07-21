@@ -13,6 +13,7 @@ pi-plugins/
 ├── extensions/
 │   ├── pi-chrome-auto-auth/             auto-authorizes pi-chrome for the session lifetime
 │   ├── pi-auto-review/                  automated project review — scans, writes TODO.md, auto-fixes
+│   ├── pi-global-context-limit/         caps every model's contextWindow to one configurable limit
 │   └── pi-retry-on-error/               retries transient LLM provider errors transparently
 └── skills/
     ├── chrome-extension-dev/            load/reload/manage unpacked Chrome extensions in dev
@@ -52,6 +53,24 @@ retries happen silently up to a configurable limit.
 - Registered in `packages` as `../../Dev/pi-plugins/extensions/pi-retry-on-error`.
 - See [extensions/pi-retry-on-error/README.md](./extensions/pi-retry-on-error/README.md) for details.
 
+### `extensions/pi-global-context-limit`
+
+Caps every model's `contextWindow` to a single configurable limit regardless of provider — native,
+`models-store.json`, or extension-registered via `pi.registerProvider`. Provides a `globalContextLimit`
+setting in `~/.pi/agent/settings.json` and `/context-limit [N|rebuild|clear]` slash commands for
+runtime control.
+
+The tricky bit: pi v0.80.8+ deep-freezes models registered via `models.json` / `models-store.json`,
+AND each extension gets its own `pi` object with its own pre-bind `registerProvider` stub — so a
+monkey-patch on one extension's `pi` never sees another extension's `registerProvider` call. The
+workaround this extension uses is to write `modelOverrides` into `~/.pi/agent/models.json`,
+applied at compose time in `provider-composer.js`. It auto-scans installed extensions under
+`~/.pi/agent/extensions/` and `~/.pi/agent/npm/node_modules/pi-*/` for `pi.registerProvider` calls
+so no manual editing of `models.json` is needed.
+
+- Registered in `packages` as `../../Dev/pi-plugins/extensions/pi-global-context-limit`.
+- See [extensions/pi-global-context-limit/README.md](./extensions/pi-global-context-limit/README.md) for details.
+
 ### `skills/chrome-extension-dev`
 
 A Pi skill that auto-loads into context when the AI is working on Chrome extension development.
@@ -82,7 +101,6 @@ consolidated into this repo. Listed for inventory completeness only.
 | Item | Where it lives | Notes |
 |---|---|---|
 | `mmx-cli` skill | `~/.pi/agent/skills/mmx-cli/SKILL.md` | Loose, no git. Currently active (auto-discovered). |
-| `pi-global-context-limit` | `DraconDev/pi-global-context-limit` (github) + loose copy at `~/.pi/agent/extensions/global-context-limit/` | Not installed. The `globalContextLimit: 200000` setting is dormant. |
 | `pi-mmx-assets` | `chat/pi-mmx-assets/` | Loose, not installed. |
 
 ### Explicitly excluded (NOT ours, NOT to be moved here)
