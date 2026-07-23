@@ -1,0 +1,30 @@
+{
+  "name": "pi-plugin-list-selector-modlist",
+  "version": "0.1.0",
+  "description": "Named Pi profiles for switching active tools and extension packages.",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "clean": "echo 'nothing to clean'",
+    "build": "echo 'nothing to build'",
+    "check": "echo 'Pi loads index.ts directly; validation is documented in README.md'"
+  },
+  "keywords": [
+    "pi",
+    "pi-package",
+    "pi-extension",
+    "extension",
+    "profile",
+    "tools",
+    "modlist"
+  ],
+  "author": {
+    "name": "DraconDev"
+  },
+  "license": "MIT",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
