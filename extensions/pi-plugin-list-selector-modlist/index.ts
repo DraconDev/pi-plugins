@@ -222,11 +222,12 @@ function targetPackagesForProfile(
 	return deduplicatePackages([...unmanaged, ...profile.extensions.filter((source) => !isSelfPackage(source)), currentSelf]);
 }
 
-function loadConfig(cwd: string): LoadedConfig {
+function loadConfig(cwd: string, projectTrusted: boolean): LoadedConfig {
 	const globalPath = globalConfigPath();
 	const projectPath = projectConfigPath(cwd);
 	const globalResult = parseConfig(globalPath);
-	const projectResult = parseConfig(projectPath);
+	const projectExists = projectTrusted && existsSync(projectPath);
+	const projectResult = projectExists ? parseConfig(projectPath) : { config: { profiles: {} }, errors: [] };
 	return {
 		config: {
 			profiles: { ...globalResult.config.profiles, ...projectResult.config.profiles },
@@ -235,7 +236,7 @@ function loadConfig(cwd: string): LoadedConfig {
 		errors: [...globalResult.errors, ...projectResult.errors],
 		globalPath,
 		projectPath,
-		projectExists: existsSync(projectPath),
+		projectExists,
 	};
 }
 
@@ -292,8 +293,8 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 		});
 	}
 
-	function refreshConfig(cwd: string): void {
-		loaded = loadConfig(cwd);
+	function refreshConfig(ctx: ExtensionContext): void {
+		loaded = loadConfig(ctx.cwd, ctx.isProjectTrusted());
 	}
 
 	function configuredPackages(): PackageSource[] {
@@ -354,7 +355,7 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 	}
 
 	async function switchProfile(name: string, ctx: ExtensionCommandContext): Promise<void> {
-		refreshConfig(ctx.cwd);
+		refreshConfig(ctx);
 		const profile = loaded.config.profiles[name];
 		if (!profile) {
 			const names = Object.keys(loaded.config.profiles).sort().join(", ") || "(none defined)";
@@ -404,7 +405,7 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 	}
 
 	async function showSelector(ctx: ExtensionCommandContext): Promise<void> {
-		refreshConfig(ctx.cwd);
+		refreshConfig(ctx);
 		const names = Object.keys(loaded.config.profiles).sort();
 		if (names.length === 0) {
 			ctx.ui.notify(`No modlists defined. Add profiles to ${loaded.globalPath}`, "warning");
@@ -477,7 +478,7 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 		};
 		globalResult.config.default ??= name;
 		writeJsonAtomic(globalConfigPath(), globalResult.config);
-		refreshConfig(ctx.cwd);
+		refreshConfig(ctx);
 		activeName = name;
 		pi.appendEntry<ModlistState>(STATE_ENTRY_TYPE, { name });
 		updateStatus(ctx);
@@ -502,8 +503,15 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 		const name = labels.get(selected);
 		if (!name) return;
 
-		writeJsonAtomic(loaded.projectPath, { default: name });
-		refreshConfig(ctx.cwd);
+		if (ctx.isProjectTrusted()) {
+			writeJsonAtomic(loaded.projectPath, { default: name });
+		} else {
+			ctx.ui.notify(
+				`Modlist "${name}" active for this session only (project not trusted; selection not saved)`,
+				"info",
+			);
+		}
+		refreshConfig(ctx);
 		setActiveProfile(name, ctx, true);
 
 		const profile = loaded.config.profiles[name];
@@ -541,7 +549,7 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 				return;
 			}
 			if (input === "list") {
-				refreshConfig(ctx.cwd);
+				refreshConfig(ctx);
 				const lines = Object.entries(loaded.config.profiles)
 					.sort(([left], [right]) => left.localeCompare(right))
 					.map(([name, profile]) => `${name === activeName ? "*" : " "} ${name} — ${describeProfile(profile)}`);
@@ -549,7 +557,7 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 				return;
 			}
 			if (input === "status") {
-				refreshConfig(ctx.cwd);
+				refreshConfig(ctx);
 				ctx.ui.notify(statusText(), "info");
 				return;
 			}
@@ -565,7 +573,7 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 	pi.on("session_start", async (event: SessionStartEvent, ctx) => {
 		try {
 			ensureInitialConfig();
-			refreshConfig(ctx.cwd);
+			refreshConfig(ctx);
 			notifyConfigErrors(ctx);
 
 			const restored = restoreProfileName(ctx);
