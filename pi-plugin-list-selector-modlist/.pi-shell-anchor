@@ -1,0 +1,1 @@
+Anchor to keep the agent shell CWD stable between commands. Delete at session end.
