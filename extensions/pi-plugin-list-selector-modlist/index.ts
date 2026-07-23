@@ -5,6 +5,7 @@ import {
 	readFileSync,
 	renameSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -126,8 +127,9 @@ function parseConfig(path: string): { config: ModlistConfig; errors: string[] } 
 function writeJsonAtomic(path: string, value: unknown): void {
 	mkdirSync(dirname(path), { recursive: true });
 	const temporaryPath = `${path}.modlist-${process.pid}-${Date.now()}.tmp`;
+	const mode = existsSync(path) ? statSync(path).mode & 0o777 : 0o600;
 	try {
-		writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+		writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode });
 		renameSync(temporaryPath, path);
 	} finally {
 		if (existsSync(temporaryPath)) rmSync(temporaryPath, { force: true });
@@ -191,11 +193,23 @@ function deduplicatePackages(packages: PackageSource[]): PackageSource[] {
 	return result;
 }
 
+function packageSourceKey(source: PackageSource): string {
+	if (typeof source === "string") return `string:${source}`;
+	return JSON.stringify({
+		source: source.source,
+		autoload: source.autoload,
+		extensions: source.extensions,
+		skills: source.skills,
+		prompts: source.prompts,
+		themes: source.themes,
+	});
+}
+
 function packageSetsMatch(left: PackageSource[], right: PackageSource[]): boolean {
-	const leftNames = new Set(left.map(packageSourceName));
-	const rightNames = new Set(right.map(packageSourceName));
-	if (leftNames.size !== rightNames.size) return false;
-	return [...leftNames].every((name) => rightNames.has(name));
+	const leftSources = new Set(left.map(packageSourceKey));
+	const rightSources = new Set(right.map(packageSourceKey));
+	if (leftSources.size !== rightSources.size) return false;
+	return [...leftSources].every((source) => rightSources.has(source));
 }
 
 function toolSetsMatch(left: string[], right: string[]): boolean {
@@ -227,7 +241,9 @@ function loadConfig(cwd: string, projectTrusted: boolean): LoadedConfig {
 	const projectPath = projectConfigPath(cwd);
 	const globalResult = parseConfig(globalPath);
 	const projectExists = projectTrusted && existsSync(projectPath);
-	const projectResult = projectExists ? parseConfig(projectPath) : { config: { profiles: {} }, errors: [] };
+	const projectResult: { config: ModlistConfig; errors: string[] } = projectExists
+		? parseConfig(projectPath)
+		: { config: { profiles: {} }, errors: [] };
 	return {
 		config: {
 			profiles: { ...globalResult.config.profiles, ...projectResult.config.profiles },
@@ -386,6 +402,7 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 				`Switch to modlist "${name}" and reload Pi resources?`,
 				added.length > 0 ? `\nEnable: ${added.join(", ")}` : "",
 				removed.length > 0 ? `\nDisable: ${removed.join(", ")}` : "",
+				added.length === 0 && removed.length === 0 ? "\nPackage resource filters will change." : "",
 			].join("");
 			if (!(await ctx.ui.confirm("Change extension packages", details))) return;
 		}
