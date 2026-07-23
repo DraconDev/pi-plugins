@@ -1,30 +1,42 @@
 {
-  "name": "pi-plugin-list-selector-modlist",
-  "version": "0.1.0",
-  "description": "Named Pi profiles for switching active tools and extension packages.",
-  "type": "module",
-  "main": "index.ts",
-  "scripts": {
-    "clean": "echo 'nothing to clean'",
-    "build": "echo 'nothing to build'",
-    "check": "echo 'Pi loads index.ts directly; validation is documented in README.md'"
-  },
-  "keywords": [
-    "pi",
-    "pi-package",
-    "pi-extension",
-    "extension",
-    "profile",
-    "tools",
-    "modlist"
-  ],
-  "author": {
-    "name": "DraconDev"
-  },
-  "license": "MIT",
-  "pi": {
-    "extensions": [
-      "./index.ts"
-    ]
-  }
+	"name": "pi-plugin-list-selector-modlist",
+	"version": "0.1.0",
+	"description": "Named Pi profiles (modlists) for switching active tools and extension packages. Tool changes apply instantly; extension-package changes show a diff, require confirmation, update settings.json, and reload Pi resources.",
+	"type": "module",
+	"main": "index.ts",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/dracon/pi-plugins",
+		"directory": "extensions/pi-plugin-list-selector-modlist"
+	},
+	"homepage": "https://github.com/dracon/pi-plugins/tree/main/extensions/pi-plugin-list-selector-modlist",
+	"bugs": {
+		"url": "https://github.com/dracon/pi-plugins/issues"
+	},
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"extension",
+		"profile",
+		"tools",
+		"modlist",
+		"selector",
+		"settings",
+		"packages"
+	],
+	"author": {
+		"name": "DraconDev"
+	},
+	"license": "MIT",
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"scripts": {
+		"clean": "echo 'nothing to clean'",
+		"build": "echo 'nothing to build'",
+		"check": "echo 'Pi loads index.ts directly; validation is documented in README.md'"
+	}
 }
