@@ -12,6 +12,7 @@ pi-plugins/
 ├── README.md                            this file
 ├── extensions/
 │   ├── pi-chrome-auto-auth/             auto-authorizes pi-chrome for the session lifetime
+│   ├── pi-plugin-list-selector-modlist/  named profiles for active tools and extension packages
 │   ├── pi-auto-review/                  automated project review — scans, writes TODO.md, auto-fixes
 │   ├── pi-global-context-limit/         caps every model's contextWindow to one configurable limit
 │   └── pi-retry-on-error/               retries transient LLM provider errors transparently
@@ -31,6 +32,19 @@ starts with `chrome_*` tools already authorized, no 15-minute re-authorization p
 - Registered as `packages[0]` in `~/.pi/agent/settings.json` so it loads before `npm:pi-chrome`.
 - See [extensions/pi-chrome-auto-auth/README.md](./extensions/pi-chrome-auto-auth/README.md) for
   install, security model, and disabling instructions.
+
+### `extensions/pi-plugin-list-selector-modlist`
+
+Named "modlist" profiles for displaying and switching Pi's active tools and extension packages.
+Tool changes apply immediately; extension-package changes show a diff, require confirmation, update
+only the global `packages` setting, and use Pi's supported resource reload. On first run it captures
+the current setup as `default`, while trusted projects can select or override profiles in
+`.pi/modlist.json`.
+
+- Registered in `packages` as `../../Dev/pi-plugins/extensions/pi-plugin-list-selector-modlist`.
+- Use `/modlist`, `/modlist status`, `/modlist list`, or `/modlist save <name>`.
+- See [extensions/pi-plugin-list-selector-modlist/README.md](./extensions/pi-plugin-list-selector-modlist/README.md)
+  for configuration, project behavior, and package-switching safeguards.
 
 ### `extensions/pi-auto-review`
 
