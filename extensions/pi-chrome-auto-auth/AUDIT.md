@@ -1,126 +1,214 @@
-# pi-chrome-auto-auth — Audit vs pi-chrome
+# Local-Extensions Audit vs Vendor / Sponsor Alternatives
 
 **Date:** 2026-07-24
-**pi-chrome version audited:** 0.15.46 (installed) / 0.15.63 (npm)
-**Extension version:** 0.1.0
+**Scope:** 5 local extensions under `/home/dracon/Dev/pi-plugins/extensions/` vs vendor/sponsor pi-coding-agent extensions on npm and pi.dev.
+**Audience:** DraconDev — to decide which local extensions to keep, replace, or remove.
+
+---
 
 ## TL;DR
 
-**Our `pi-chrome-auto-auth` extension is now subsumed by pi-chrome 0.15.46+.** The vendor package added first-class support for the exact behavior we implemented. **Recommendation: uninstall this extension, run `/chrome authorize indefinite` once.**
+| Local extension | Vendor superset exists? | Closest vendor alternative | Recommendation |
+|---|---|---|---|
+| **pi-chrome-auto-auth** | **YES** | `pi-chrome` 0.15.46+ has `/chrome authorize indefinite` + `persistAuth()` | **REMOVE** — vendor catches up |
+| **pi-auto-review** | **YES** (overlapping) | `pi-review-loop`, `pi-until-done`, `@zephyrdeng/pi-review`, `grok-build-pi` | **KEEP** — only one with TODO.md-driven convergence + auto-fix loop; closest vendor (`pi-review-loop`) is read-only / no convergence guard |
+| **pi-global-context-limit** | **PARTIAL** | `pi-lean-ctx`, `context-mode`, `@ooples/token-optimizer-mcp` | **KEEP** — different problem (single cap across providers vs token-saving routing) |
+| **pi-plugin-list-selector-modlist** | **NO** | None found on npm or pi.dev with our exact "named profile, footer chip, drift detection" combination | **KEEP** — unique value |
+| **pi-retry-on-error** | **YES** (overlapping) | `@narumitw/pi-retry` | **KEEP** — different focus (generic transient error retry vs narumitw's empty-detail/websocket-limit/stalled errors) |
 
-What we built (pre-0.15.46):
-```ts
-globalThis["__piChromeProfileBridgeAuth__"] = { until: "indefinite" };
-```
+**Bottom line:** 4 of 5 extensions have unique value. Only `pi-chrome-auto-auth` is now strictly subsumed.
 
-What pi-chrome now does natively:
-- `/chrome authorize indefinite` (picker item, line 1168; handler line 1096)
-- `persistAuth()` writes `{ until: "indefinite" }` to the **same** `globalState[PI_CHROME_AUTH_KEY]` key we write (line 700)
-- `chromeAuthorizedUntil` module-local state restored from that key on every `session_start` (line 691)
-- Auth survives `/reload` because of `persistAuth()` — the exact durability property our extension claimed as its differentiator
+---
 
-The only thing our extension added was:
-1. A one-time install toast (`pi-chrome auto-authenticated (indefinite)`)
-2. Belt-and-suspenders `agent_start` re-fire for the cold-start race
+## Methodology
 
-## What pi-chrome 0.15.46 actually exposes
+For each local extension I:
+1. Read the README + first 100 lines of its `index.ts` to enumerate its capability surface.
+2. Searched npm registry (`npm search` + `npm view`) for pi-extension packages with matching keywords.
+3. Searched the pi.dev package catalog (https://pi.dev/packages) for similar entries.
+4. Cross-referenced the installed npm packages under `~/.pi/agent/npm/node_modules/pi-*` to check whether we already have a vendor alternative loaded but unused.
+5. Verified vendor overlap by reading vendor README/description, NOT just keyword match.
 
-### `/chrome` picker subcommands (line 1213)
-```
-/chrome authorize [15m|30m|<minutes>|indefinite] — allow this Pi session to use chrome_* tools.
-/chrome revoke   — lock Chrome control.
-/chrome status   — one-line snapshot of connection, auth, and background setting.
-/chrome doctor   — full health check.
-/chrome onboard  — install the Chrome companion extension.
-/chrome background [on|off|status|toggle] — whether pi-chrome runs without focusing Chrome.
-```
+---
 
-The picker has "Indefinite" as a first-class option (line 1168). User picks it once and the session is authorized until revoked or Pi exits.
+## 1. `pi-chrome-auto-auth` (v0.1.0)
 
-### Auth persistence (the bit that mattered)
-```ts
-// index.ts:691-702
-const persistedAuth = globalState[PI_CHROME_AUTH_KEY];
-if (persistedAuth) {
-    if (persistedAuth.until === "indefinite" || persistedAuth.until > Date.now()) {
-        chromeAuthorizedUntil = persistedAuth.until;
-    } else {
-        delete globalState[PI_CHROME_AUTH_KEY];
-    }
-}
-const persistAuth = (): void => {
-    if (chromeAuthorizedUntil === undefined) delete globalState[PI_CHROME_AUTH_KEY];
-    else globalState[PI_CHROME_AUTH_KEY] = { until: chromeAuthorizedUntil };
-};
-```
+**What it does:** Pre-sets `globalThis["__piChromeProfileBridgeAuth__"] = { until: "indefinite" }` before pi-chrome reads it, so chrome_* tools work without `/chrome authorize` per session. Also re-fires `agent_start` to close a cold-start race.
 
-This is **exactly the contract** our extension relied on (per its own README, which quotes `index.ts` lines 686–693). The only differences:
+**Vendor superset:** `pi-chrome` 0.15.46+ added:
+- `/chrome authorize indefinite` picker option (`index.ts:1168`, `index.ts:1096`)
+- `persistAuth()` writing `{ until: "indefinite" }` to `globalState[PI_CHROME_AUTH_KEY]` on every auth change (`index.ts:700`)
+- Restoration from that same key on every `session_start` (`index.ts:691`)
 
-| Capability | Our extension | pi-chrome 0.15.46 |
-|---|---|---|
-| Set `{ until: "indefinite" }` on `globalThis` | ✅ (in `agent_start` / `session_start`) | ✅ (via `/chrome authorize indefinite`) |
-| Auth survives `/reload` | ✅ (because we write before pi-chrome reads) | ✅ (via `persistAuth()` in the auth flow) |
-| Cold-start race fix | ✅ (we re-fire in `agent_start`) | ✅ (auth restored from `globalState` before tools register; `chromeToolsRegistered` guard prevents double-register) |
-| User-visible feedback | Toast on first install | Toast on every `/chrome authorize` invocation |
-| Reversible | Edit `index.ts` or remove package | `/chrome revoke` or `15m`/`30m` |
+This is **exactly** what our extension does, plus native UI. The cold-start race closure (`agent_start` re-fire) is now redundant because the restore happens before tool registration.
 
-## Cold-start race — re-examined
+**Recommendation: REMOVE.** Run `/chrome authorize indefinite` once per fresh session.
 
-Our README claimed:
-> pi-chrome's `session_start` handler is async (because of `await bridge.start()`) and can race with the first agent turn — chrome_* tools appear registered but not active.
+---
 
-That race description was accurate for pi-chrome ≤ 0.15.27 (the version we had installed). The 0.15.46 `session_start` (line 912) restores `chromeAuthorizedUntil` from `globalState` **before** registering tools, then activates them synchronously. So:
+## 2. `pi-auto-review` (v1.7.3)
 
-- If auth is persisted (which `/chrome authorize indefinite` does), there's no race.
-- If auth is not persisted, the user has to `/chrome authorize` before any tool call — which is the correct, intended UX.
+**What it does:** Event-driven review loop. After work completes (Ralph loop done / agent end / session start), scans the project for problems, writes them to `TODO.md`, and optionally auto-fixes in bounded fix loops with **divergence detection** (bails if re-review finds MORE items than before).
 
-Our `agent_start` belt-and-suspenders fix is harmless when auth is persisted (it sees tools already active and does nothing) and slightly harmful when auth is missing (it would force-activate tools the user never authorized). The latter is unlikely in practice but is a real privilege escalation if a future pi-chrome version changes the restore order.
+**Vendor alternatives surveyed:**
 
-## What we should do
+| Package | Version | What it does | Overlap with ours |
+|---|---|---|---|
+| `pi-review-loop` | 0.4.4 | Automated code review loop | High — but read-only; no `TODO.md`, no auto-fix, no convergence guard |
+| `@zephyrdeng/pi-review` | 0.11.0 | Isolated AI-powered code/plan reviews from CLI | Medium — runs in isolation; one-shot, not looped |
+| `pi-until-done` | 0.3.1 | Evidence-driven `/until-done` goal loops with TDD planning + mise verification + mandatory LLM judge | Medium — different scope (per-session goal vs project-level TODO), has its own judge but lacks our convergence guard |
+| `@lnilluv/pi-ralph-loop` | 2.0.0 | Pi-native ralph loop with mid-turn supervision | Low — ralph loop is the trigger, not the review; doesn't scan for problems |
+| `pi-autoresearch` | 1.6.2 | Autonomous experiment loop (run, measure, keep/discard) | None — different domain (ML experiments vs project review) |
+| `grok-build-pi` | 0.1.1 | Grok Build bridge — review, critique, delegation, background runs, session transfer | Low — review is one feature among many, not the focus |
 
-### Recommended action
-1. **Uninstall `pi-chrome-auto-auth`** from `~/.pi/agent/settings.json` packages list.
-2. **Run `/chrome authorize indefinite`** once per fresh Pi session (or set it as a `session_start` script if your workflow demands zero prompts).
-3. **Remove the package** from the pi-plugins monorepo (or archive it under `archive/`).
+**Differentiation points of `pi-auto-review` that no vendor matches:**
+- **TODO.md-driven format** — fixed marker convention (`_Items found: N_`) enables item-counting across rounds
+- **Bounded fix loop with max rounds** (default 3)
+- **Divergence detection** — if re-review finds MORE problems, bails immediately
+- **Triggers** — `onRalphDone` / `onAgentEnd` / `onSessionStart`, configurable independently
+- **Cooldown** (default 120s) to prevent review spam
+- **Custom prompts per round** with `{round}` / `{maxRounds}` / `{previousItems}` / `{focusAreas}` placeholders
 
-### When our extension would still be useful
-- **Pre-0.15.46 environments**: If a user is stuck on pi-chrome ≤ 0.15.27 for some reason, the extension does provide value. Worth noting in the README's "Compatibility" section.
-- **Custom auth duration**: Our extension hard-codes `"indefinite"`. pi-chrome's picker offers 15m/30m/custom/indefinite. The vendor approach is strictly more flexible.
-- **Cross-package write ordering hack**: Our extension relies on package-load order (it must load before pi-chrome). pi-chrome's native approach removes this fragility entirely.
+**Recommendation: KEEP.** No vendor package combines all four: TODO.md format + bounded fix loop + divergence detection + trigger configurability.
 
-## Migration path
+---
 
-Before:
-```json
-{
-  "packages": [
-    "../../Dev/pi-plugins/extensions/pi-chrome-auto-auth",
-    "npm:pi-chrome"
-  ]
-}
-```
+## 3. `pi-global-context-limit` (v1.1.0)
 
-After:
-```json
-{
-  "packages": [
-    "npm:pi-chrome"
-  ]
-}
-```
+**What it does:** Caps every model's `contextWindow` to a single configurable number via `globalContextLimit` setting. Works across native providers (via in-memory mutation), the `models.json` user store (via `modelOverrides`), and extension-registered providers (auto-scans `pi.registerProvider` calls and writes overrides). Re-applies on `model_select` and `before_provider_request`.
 
-Then once per Pi session, run `/chrome authorize indefinite` (or pick "Indefinite" from the picker). The auth persists across `/reload` for the lifetime of that Pi install.
+**Vendor alternatives surveyed:**
+
+| Package | Version | What it does | Overlap with ours |
+|---|---|---|---|
+| `pi-lean-ctx` | 3.9.12 | Routes bash/read/grep/find/ls through an MCP bridge with persistent session cache; unchanged re-reads cost ~13 tokens | **Adjacent but different** — saves tokens on read traffic, not via context window cap |
+| `context-mode` | 1.0.169 | MCP plugin that saves 98% of context via sandboxed code execution + FTS5 knowledge base + intent-driven search | **Different** — token-saving via search/replace, not cap |
+| `@ooples/token-optimizer-mcp` | 5.2.0 | External caching + compression for Claude Code | **Different** — token-saving, not cap |
+| `@ooples/token-optimizer-mcp` etc. | — | Same family | — |
+
+**What `pi-lean-ctx` does NOT do that we do:**
+- Does not unify cap across providers (their model is "route reads through cache", not "set a single cap")
+- Does not write `modelOverrides` to `models.json`
+- Does not handle extension-registered providers that bypass the user store
+- Does not surface an `/context-limit` runtime override command
+
+**What they do that we don't:**
+- Token-saving on read traffic (up to 98%)
+- Persistent session cache
+
+**Recommendation: KEEP.** Different problem class. Could be complementary — install both if token budget is the dominant concern. `pi-lean-ctx` saves tokens; we ensure compaction triggers at the right point. They don't conflict.
+
+---
+
+## 4. `pi-plugin-list-selector-modlist` (v0.1.0)
+
+**What it does:** Named profiles ("modlists") for active tool set + extension package set. Tool changes apply instantly; package changes confirm + write settings.json + reload Pi resources. Footer chip `modlist:<name>`, `!` suffix on drift. Saves current setup as new profile with `/modlist save <name>`. Atomic JSON writes.
+
+**Vendor alternatives surveyed:** None found on npm or pi.dev with a comparable combination of:
+- Named profiles with both tools AND packages
+- Drift detection
+- Footer chip
+- Atomic writes
+- Confirmation prompt before package change + reload
+
+Closest related:
+- `pi-prompt-template-model` — model selector via prompt template, not profile
+- `@mjasnikovs/pi-task` — task/plan tool, not profile
+- `pi-mcp-adapter` — MCP server adapter, not profile
+- `pi-zentui` (already installed) — Starship-style statusline, overlaps with our footer chip *display* but not our profile switcher
+
+**Recommendation: KEEP.** Unique combination. No vendor alternative.
+
+---
+
+## 5. `pi-retry-on-error` (v1.0.0)
+
+**What it does:** Listens for assistant messages with `stopReason: "error"`, replaces the visible error with "Retrying (attempt N/M)..." notice, re-sends the user's last message via `pi.sendUserMessage({ deliverAs: "followUp" })`. Bounded by `PI_RETRY_MAX_RETRIES` (default 2). Resets counter on new user message or successful turn.
+
+**Vendor alternatives surveyed:**
+
+| Package | Version | What it does | Overlap with ours |
+|---|---|---|---|
+| `@narumitw/pi-retry` | 0.28.0 | "Retries empty-detail, Codex websocket-limit, and stalled provider errors" | **High but specialized** — narumitw's targets 3 specific error shapes; ours is generic-any-error |
+
+**Differentiation:**
+- Ours is provider-agnostic and catches any `stopReason: "error"` (HTTP 5xx, network timeout, model overloaded, generic 400)
+- Ours uses `pi.sendUserMessage` with `deliverAs: "followUp"` for safe re-queue without race conditions
+- Ours preserves the original error message in session on final failure
+- Ours uses `ctx.ui.notify` for visible feedback on every retry
+- `PI_RETRY_MAX_RETRIES` and `PI_RETRY_DELAY_MS` env vars (configurable per session)
+
+`@narumitw/pi-retry` is broader in *what* it retries (3 specific error shapes including the niche Codex websocket-limit case) but narrower in *when* it triggers (specific error patterns, not generic `stopReason: "error"`).
+
+**Recommendation: KEEP.** Complementary to narumitw's package — could be installed together, ours catches what narumitw misses (generic 4xx/5xx/timeouts). They don't overlap on the 3 narumitw-specific error shapes.
+
+---
+
+## Cross-cutting findings
+
+### 1. We already have vendor alternatives installed but not enabled
+
+From `~/.pi/agent/npm/node_modules/pi-*` (not in our active settings.json packages but available):
+
+| Installed but unused | Could replace (partially) |
+|---|---|
+| `pi-review-loop` | `pi-auto-review` (read-only variant) |
+| `@lnilluv/pi-ralph-loop` | ralph-loop trigger for `pi-auto-review.onRalphDone` |
+| `pi-until-done` | alternative loop driver |
+| `pi-continue` | complementary to `pi-global-context-limit` (mid-turn compaction) |
+| `pi-invisible-continue` | alternative loop driver |
+
+Worth a follow-up: enable one of the ralph-loop drivers if `pi-auto-review.onRalphDone` isn't firing as expected. `@lnilluv/pi-ralph-loop` 2.0.0 has mid-turn supervision which is closer to a Ralph-Wiggum loop than a strict goal loop.
+
+### 2. `pi-zentui` (already installed, not enabled) overlaps with our footer chip
+
+`pi-zentui` is a Starship-style statusline + Opencode-style TUI. Our modlist footer chip is a tiny piece of that. If we enable `pi-zentui`, we could delegate the footer chip to it and shrink `pi-plugin-list-selector-modlist`. Not urgent — chip is 30 lines and works.
+
+### 3. `pi-minimax-m3-caching-fix` (already enabled)
+
+Wraps the built-in openai-compatible provider for MiniMax-M3 with passive caching. No vendor alternative on npm for this specific caching wrap. Keep.
+
+### 4. No vendor alternative found for `pi-chrome-auto-auth`
+
+I confirmed by searching `npm search "pi-extension auto-auth"` and `npm search "pi-extension chrome auth"`. The only hit was our own description of "auto-authenticated" in the AUDIT.md. The vendor (`pi-chrome`) absorbed this feature directly rather than spawning a sibling package.
+
+---
+
+## Vendor coverage by capability category
+
+| Capability | Vendor package(s) | Local extension | Status |
+|---|---|---|---|
+| Browser automation | `pi-chrome` 0.15.46, `pi-chrome-devtools`, `pi-agent-browser-native`, `pi-shazam`, `pi-readseek`, `grok-build-pi` | `pi-chrome-auto-auth` | **Vendor wins** — uninstall local |
+| Project review loop | `pi-review-loop`, `@zephyrdeng/pi-review`, `pi-until-done`, `grok-build-pi` | `pi-auto-review` | Local is strictly more capable (TODO.md + divergence) |
+| Context window cap | `pi-lean-ctx`, `context-mode`, `@ooples/token-optimizer-mcp` | `pi-global-context-limit` | Complementary, not overlapping |
+| Profile / modlist | (none found) | `pi-plugin-list-selector-modlist` | Local is unique |
+| LLM error retry | `@narumitw/pi-retry` | `pi-retry-on-error` | Complementary (different trigger scope) |
+| Goal/loop driver | `pi-goal-list-loop-audit` (us), `pi-goal-x`, `pi-until-done`, `@narumitw/pi-goal`, `pi-dgoal`, `pi-codex-goal`, `@lnilluv/pi-ralph-loop`, `pi-ralph`, `@jc4649/pi-ralph`, `pi-autoresearch` | (none locally) | We already consume `pi-goal-list-loop-audit` |
+| Subagents | `@tintinweb/pi-subagents`, `pi-subagents`, `pi-crew`, `pi-orch-extension` | (none locally) | We already consume `@tintinweb/pi-subagents` |
+
+---
+
+## What to action
+
+### Now
+1. **Remove `pi-chrome-auto-auth`** from `~/.pi/agent/settings.json` packages and from the `pi-plugins/extensions/` directory. Run `/chrome authorize indefinite` once.
+
+### Optional follow-up
+2. **Try `@lnilluv/pi-ralph-loop`** as the Ralph-loop driver that triggers `pi-auto-review.onRalphDone` — currently that hook may not fire if no Ralph loop is in play.
+3. **Enable `pi-lean-ctx`** alongside `pi-global-context-limit` for additional token savings on read traffic (orthogonal).
+4. **Decide between `pi-retry-on-error` and `@narumitw/pi-retry`** — if Codex-style websocket-limit errors are common, add narumitw; otherwise ours is sufficient. Could install both for full coverage.
+
+### Do NOT
+- Do not replace `pi-auto-review` with `pi-review-loop` — `pi-review-loop` has no TODO.md convention, no convergence guard, no bounded fix loop, no per-trigger configuration.
+- Do not replace `pi-global-context-limit` with `pi-lean-ctx` — different problem (cap vs save-on-read).
+- Do not replace `pi-plugin-list-selector-modlist` with anything — no vendor alternative exists.
+- Do not remove `pi-retry-on-error` in favor of `@narumitw/pi-retry` — different trigger scope (generic vs specific).
+
+---
 
 ## Evidence
 
-- `pi-chrome/extensions/chrome-profile-bridge/index.ts:691` — auth restore from `globalState[PI_CHROME_AUTH_KEY]`
-- `pi-chrome/extensions/chrome-profile-bridge/index.ts:700` — `persistAuth()` writes back
-- `pi-chrome/extensions/chrome-profile-bridge/index.ts:1096` — `authorizeHandler` accepts "indefinite" string
-- `pi-chrome/extensions/chrome-profile-bridge/index.ts:1168` — "Indefinite" picker menu item
-- `pi-chrome/extensions/chrome-profile-bridge/index.ts:1213` — `/chrome` command help text
-- `pi-chrome/CHANGELOG.md` — 0.15.x line: "persistAuth() syncs state back to globalThis, so the auth survives /reload"
-- Live test (this session): extension removed from load order, `/chrome authorize indefinite` works, all 19 chrome_* tools usable from first turn.
-
-## Conclusion
-
-The vendor caught up. Our extension's behavior is now a strict subset of pi-chrome's built-in `/chrome authorize indefinite` + `persistAuth()`. Keep the extension only as a fallback for legacy pi-chrome versions; otherwise delete it.
+- All file paths in `/home/dracon/Dev/pi-plugins/extensions/<name>/` were read (README + first 100 lines of index.ts).
+- All npm registry calls timestamped 2026-07-24.
+- pi.dev packages listing: https://pi.dev/packages (scraped 2026-07-24)
+- Line citations in pi-chrome's `index.ts` verified by reading the file at `/home/dracon/.npm-global/lib/node_modules/pi-chrome/extensions/chrome-profile-bridge/index.ts` lines 691, 700, 1096, 1168.
