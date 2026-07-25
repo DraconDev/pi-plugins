@@ -291,3 +291,14 @@ undefined
   ```
 
   This is the smoking gun: **without auto-auth, the chrome toolset is non-existent in a fresh pi process.** The user's hypothesis is empirically confirmed — `/chrome authorize indefinite` (which would set the auth manually) must be run in every fresh pi process to restore the tools, and since `persistAuth()` is in-memory only, the auth is lost on every process exit.
+
+- **Live TUI end-to-end test (2026-07-25):** Drove the actual pi TUI via pexpect PTY in two fresh pi processes. Phase 1: spawned pi with only `pi-chrome` loaded, invoked `/chrome authorize indefinite`, approved the confirmation dialog, observed status:
+  ```
+  ● Chrome Bridge (indefinite)
+  ⚠ Chrome extension v0.15.63 (pi-chrome v0.15.46, reload extension) · auth: authorized indefinitely · background: on
+  ```
+  Phase 2: exited, spawned a NEW fresh pi process (same command, no auto-auth extension). Observed status:
+  ```
+  ⚠ Chrome extension v0.15.63 (pi-chrome v0.15.46, reload extension) · auth: locked · background: on
+  ```
+  This is the definitive evidence: `/chrome authorize indefinite` works within a single pi process (after a Yes/No confirmation), but the authorization is **lost on process exit**. Each fresh pi process (new project) requires re-authorization. Our `pi-chrome-auto-auth` extension automates this re-authorization via its `session_start` handler with `event.reason === "startup"`.
