@@ -1,8 +1,10 @@
 # Local-Extensions Audit vs Vendor / Sponsor Alternatives
 
-**Date:** 2026-07-24
+**Date:** 2026-07-24 (revised after user push-back)
 **Scope:** 5 local extensions under `/home/dracon/Dev/pi-plugins/extensions/` vs vendor/sponsor pi-coding-agent extensions on npm and pi.dev.
 **Audience:** DraconDev — to decide which local extensions to keep, replace, or remove.
+
+**Revision note:** The original audit (now in section 1 below as the "superseded" analysis) concluded `pi-chrome-auto-auth` was subsumed by `pi-chrome` 0.15.46. **That was wrong.** The user correctly pointed out that `/chrome authorize indefinite` does not persist across fresh pi processes (new project). Empirical tests (probes via `-e`, isolated Node process writes) confirm this. The corrected analysis keeps all 5 extensions.
 
 ---
 
@@ -10,13 +12,13 @@
 
 | Local extension | Vendor superset exists? | Closest vendor alternative | Recommendation |
 |---|---|---|---|
-| **pi-chrome-auto-auth** | **YES** | `pi-chrome` 0.15.46+ has `/chrome authorize indefinite` + `persistAuth()` | **REMOVE** — vendor catches up |
+| **pi-chrome-auto-auth** | **NO** (in-memory only — see section 1) | `pi-chrome` 0.15.46 only persists auth across `/reload`, not across fresh pi processes | **KEEP** — solves the cross-process gap |
 | **pi-auto-review** | **YES** (overlapping) | `pi-review-loop`, `pi-until-done`, `@zephyrdeng/pi-review`, `grok-build-pi` | **KEEP** — only one with TODO.md-driven convergence + auto-fix loop; closest vendor (`pi-review-loop`) is read-only / no convergence guard |
 | **pi-global-context-limit** | **PARTIAL** | `pi-lean-ctx`, `context-mode`, `@ooples/token-optimizer-mcp` | **KEEP** — different problem (single cap across providers vs token-saving routing) |
 | **pi-plugin-list-selector-modlist** | **NO** | None found on npm or pi.dev with our exact "named profile, footer chip, drift detection" combination | **KEEP** — unique value |
 | **pi-retry-on-error** | **YES** (overlapping) | `@narumitw/pi-retry` | **KEEP** — different focus (generic transient error retry vs narumitw's empty-detail/websocket-limit/stalled errors) |
 
-**Bottom line:** 4 of 5 extensions have unique value. Only `pi-chrome-auto-auth` is now strictly subsumed.
+**Bottom line:** All 5 extensions have unique value. The original draft incorrectly concluded `pi-chrome-auto-auth` was subsumed by pi-chrome 0.15.46; empirical tests proved otherwise — `persistAuth()` only persists in-memory (across `/reload`), not across fresh pi processes (new project).
 
 ---
 
@@ -192,9 +194,33 @@ Worth a follow-up: enable one of the ralph-loop drivers if `pi-auto-review.onRal
 
 Wraps the built-in openai-compatible provider for MiniMax-M3 with passive caching. No vendor alternative on npm for this specific caching wrap. Keep.
 
-### 4. No vendor alternative found for `pi-chrome-auto-auth`
+### 4. Empirical persistence test confirms cross-process gap
 
-I confirmed by searching `npm search "pi-extension auto-auth"` and `npm search "pi-extension chrome auth"`. The only hit was our own description of "auto-authenticated" in the AUDIT.md. The vendor (`pi-chrome`) absorbed this feature directly rather than spawning a sibling package.
+Wrote a probe extension (`/tmp/probe-auth/`) that dumps `globalThis["__piChromeProfileBridgeAuth__"]` at module load and on `session_start`. Ran it via `--extension /tmp/probe-auth` in fresh `/tmp/pi-probe-*` directories with `--no-extensions` to bypass global packages.
+
+Results:
+
+```
+[probe-auth] at module load, cwd=/tmp/pi-probe-fresh-1055611, globalThis["__piChromeProfileBridgeAuth__"] = undefined
+[probe-auth] session_start reason=startup globalThis["__piChromeProfileBridgeAuth__"] = undefined
+```
+
+With auto-auth extension loaded:
+
+```
+[probe-auth] at module load, cwd=/tmp/pi-probe-fresh2-1069932, globalThis["__piChromeProfileBridgeAuth__"] = {"until":"indefinite"}
+[probe-auth] session_start reason=startup globalThis["__piChromeProfileBridgeAuth__"] = {"until":"indefinite"}
+```
+
+Cross-process Node test confirms the underlying mechanism:
+
+```
+$ node -e "globalThis['__piChromeProfileBridgeAuth__'] = { until: 'indefinite' }; process.exit(0)"
+$ node -e "console.log(globalThis['__piChromeProfileBridgeAuth__'])"
+undefined
+```
+
+`globalThis` writes do not survive process exit. `pi-chrome.persistAuth()` writes to globalThis only — confirmed by `grep -rnE "writeFile|writeJson|fs\.write" pi-chrome/` (only screenshot-related writes, no auth persistence). Our extension is required for cross-process / cross-project persistence.
 
 ---
 
@@ -202,7 +228,7 @@ I confirmed by searching `npm search "pi-extension auto-auth"` and `npm search "
 
 | Capability | Vendor package(s) | Local extension | Status |
 |---|---|---|---|
-| Browser automation | `pi-chrome` 0.15.46, `pi-chrome-devtools`, `pi-agent-browser-native`, `pi-shazam`, `pi-readseek`, `grok-build-pi` | `pi-chrome-auto-auth` | **Vendor wins** — uninstall local |
+| Browser automation | `pi-chrome` 0.15.46, `pi-chrome-devtools`, `pi-agent-browser-native`, `pi-shazam`, `pi-readseek`, `grok-build-pi` | `pi-chrome-auto-auth` | Local solves the **cross-process auth persistence** gap; vendor only persists in-memory |
 | Project review loop | `pi-review-loop`, `@zephyrdeng/pi-review`, `pi-until-done`, `grok-build-pi` | `pi-auto-review` | Local is strictly more capable (TODO.md + divergence) |
 | Context window cap | `pi-lean-ctx`, `context-mode`, `@ooples/token-optimizer-mcp` | `pi-global-context-limit` | Complementary, not overlapping |
 | Profile / modlist | (none found) | `pi-plugin-list-selector-modlist` | Local is unique |
@@ -215,14 +241,16 @@ I confirmed by searching `npm search "pi-extension auto-auth"` and `npm search "
 ## What to action
 
 ### Now
-1. **Remove `pi-chrome-auto-auth`** from `~/.pi/agent/settings.json` packages and from the `pi-plugins/extensions/` directory. Run `/chrome authorize indefinite` once.
+1. **KEEP `pi-chrome-auto-auth`** — the vendor `pi-chrome` does not persist auth across fresh pi processes (new project). Empirically verified. Our extension auto-asserts `session_start → event.reason === "startup"` on every fresh process, eliminating the manual `/chrome authorize indefinite` repetition.
 
 ### Optional follow-up
 2. **Try `@lnilluv/pi-ralph-loop`** as the Ralph-loop driver that triggers `pi-auto-review.onRalphDone` — currently that hook may not fire if no Ralph loop is in play.
 3. **Enable `pi-lean-ctx`** alongside `pi-global-context-limit` for additional token savings on read traffic (orthogonal).
 4. **Decide between `pi-retry-on-error` and `@narumitw/pi-retry`** — if Codex-style websocket-limit errors are common, add narumitw; otherwise ours is sufficient. Could install both for full coverage.
+5. **(Long-term) File a feature request with `pi-chrome`** to add disk persistence for chrome auth (e.g. `~/.pi/agent/chrome-auth.json` or `settings.json` `chromeAuth` field). If accepted, our extension could be removed.
 
 ### Do NOT
+- Do not remove `pi-chrome-auto-auth` — `pi-chrome`'s `/chrome authorize indefinite` only persists in-memory (across `/reload`), not across fresh pi processes (verified empirically).
 - Do not replace `pi-auto-review` with `pi-review-loop` — `pi-review-loop` has no TODO.md convention, no convergence guard, no bounded fix loop, no per-trigger configuration.
 - Do not replace `pi-global-context-limit` with `pi-lean-ctx` — different problem (cap vs save-on-read).
 - Do not replace `pi-plugin-list-selector-modlist` with anything — no vendor alternative exists.
@@ -235,4 +263,8 @@ I confirmed by searching `npm search "pi-extension auto-auth"` and `npm search "
 - All file paths in `/home/dracon/Dev/pi-plugins/extensions/<name>/` were read (README + first 100 lines of index.ts).
 - All npm registry calls timestamped 2026-07-24.
 - pi.dev packages listing: https://pi.dev/packages (scraped 2026-07-24)
-- Line citations in pi-chrome's `index.ts` verified by reading the file at `/home/dracon/.npm-global/lib/node_modules/pi-chrome/extensions/chrome-profile-bridge/index.ts` lines 691, 700, 1096, 1168.
+- Line citations in pi-chrome's `index.ts` verified at `/home/dracon/.npm-global/lib/node_modules/pi-chrome/extensions/chrome-profile-bridge/index.ts` lines 691 (auth restore), 700 (persistAuth), 1096 (authorizeHandler), 1168 (picker "Indefinite"), 912 (async session_start), 940 (session_shutdown deletes singleton only).
+- `globalState[PI_CHROME_AUTH_KEY]` is `globalThis["__piChromeProfileBridgeAuth__"]` — pure in-memory, no disk persistence. Confirmed by `grep -rnE "writeFile|writeJson|fs\.write" /home/dracon/.npm-global/lib/node_modules/pi-chrome/` returning only screenshot-related writes.
+- Extension loader uses `createJiti(import.meta.url, { moduleCache: false })` (loader.js:325) — no `vm.createContext`, all extensions share the pi process's `globalThis`.
+- Empirical probe via `/tmp/probe-auth/` extension: in a fresh pi process in `/tmp/pi-probe-fresh-*/`, with only `pi-chrome` loaded (no auto-auth), `globalThis["__piChromeProfileBridgeAuth__"]` is `undefined` at both module load and `session_start`. With auto-auth loaded, the key is `{"until":"indefinite"}` at both points.
+- Cross-process Node test: a `globalThis` write in process A does not appear in process B — confirms `persistAuth()`'s in-memory writes cannot survive process exit.
