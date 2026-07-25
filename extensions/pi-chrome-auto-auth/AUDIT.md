@@ -268,3 +268,26 @@ undefined
 - Extension loader uses `createJiti(import.meta.url, { moduleCache: false })` (loader.js:325) — no `vm.createContext`, all extensions share the pi process's `globalThis`.
 - Empirical probe via `/tmp/probe-auth/` extension: in a fresh pi process in `/tmp/pi-probe-fresh-*/`, with only `pi-chrome` loaded (no auto-auth), `globalThis["__piChromeProfileBridgeAuth__"]` is `undefined` at both module load and `session_start`. With auto-auth loaded, the key is `{"until":"indefinite"}` at both points.
 - Cross-process Node test: a `globalThis` write in process A does not appear in process B — confirms `persistAuth()`'s in-memory writes cannot survive process exit.
+- **End-to-end agent test (definitive):** Ran `pi -p "List ALL your tools"` in two fresh `/tmp` directories:
+
+  **Test 1 — ONLY pi-chrome loaded (no auto-auth):** Agent reports only `read`, `bash`, `edit`, `write`. Zero chrome tools. Cannot drive Chrome.
+  ```
+  I have access to these tools:
+  - read
+  - bash
+  - edit
+  - write
+  ```
+
+  **Test 2 — pi-chrome + auto-auth loaded:** Agent reports all 21 `chrome_*` tools.
+  ```
+  I have 25 tools available.
+  Chrome tools:
+  - chrome_launch, chrome_tab, chrome_snapshot, chrome_find, chrome_inspect,
+    chrome_navigate, chrome_evaluate, chrome_click, chrome_type, chrome_fill,
+    chrome_key, chrome_wait_for, chrome_list_console_messages, chrome_list_network_requests,
+    chrome_get_network_request, chrome_screenshot, chrome_hover, chrome_drag,
+    chrome_tap, chrome_scroll, chrome_upload_file
+  ```
+
+  This is the smoking gun: **without auto-auth, the chrome toolset is non-existent in a fresh pi process.** The user's hypothesis is empirically confirmed — `/chrome authorize indefinite` (which would set the auth manually) must be run in every fresh pi process to restore the tools, and since `persistAuth()` is in-memory only, the auth is lost on every process exit.
