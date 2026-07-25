@@ -33,16 +33,40 @@ For each local extension I:
 
 ## 1. `pi-chrome-auto-auth` (v0.1.0)
 
+**CORRECTION (2026-07-24):** The original audit concluded this extension was subsumed. **That conclusion was wrong.** After reading pi-chrome's `persistAuth()` and the extension loader's `createJiti(...)` invocation, the actual persistence boundary is **per pi process**, not per project on disk. The user was right to push back.
+
 **What it does:** Pre-sets `globalThis["__piChromeProfileBridgeAuth__"] = { until: "indefinite" }` before pi-chrome reads it, so chrome_* tools work without `/chrome authorize` per session. Also re-fires `agent_start` to close a cold-start race.
 
-**Vendor superset:** `pi-chrome` 0.15.46+ added:
+**What pi-chrome 0.15.46 added:**
 - `/chrome authorize indefinite` picker option (`index.ts:1168`, `index.ts:1096`)
 - `persistAuth()` writing `{ until: "indefinite" }` to `globalState[PI_CHROME_AUTH_KEY]` on every auth change (`index.ts:700`)
 - Restoration from that same key on every `session_start` (`index.ts:691`)
 
-This is **exactly** what our extension does, plus native UI. The cold-start race closure (`agent_start` re-fire) is now redundant because the restore happens before tool registration.
+**What pi-chrome 0.15.46 does NOT do (and why our extension is still needed):**
 
-**Recommendation: REMOVE.** Run `/chrome authorize indefinite` once per fresh session.
+`persistAuth()` writes to **`globalThis` only** — there is no disk persistence anywhere in pi-chrome (`grep -rnE "writeFile|writeJson|fs\.write" /home/dracon/.npm-global/lib/node_modules/pi-chrome/` returns zero hits in source). `globalThis` is the in-process object. It dies when the pi process exits.
+
+The extension loader at `dist/core/extensions/loader.js:325` uses `createJiti(import.meta.url, { moduleCache: false })` — jiti loads extension code into the **same Node.js process** as pi, with no `vm.createContext`. All extensions share the pi process's `globalThis`.
+
+This means:
+
+| Scenario | `pi-chrome-auto-auth` | `/chrome authorize indefinite` |
+|---|---|---|
+| Cold start, same project | ✅ Auto-set by `session_start` handler | ❌ Manual command needed |
+| `/reload` (same pi process) | ✅ Survives — handler re-asserts on `event.reason === "startup"` | ✅ Survives via `persistAuth()` |
+| **New project (new pi process)** | **✅ Auto-set** — the extension's `session_start` handler re-fires on every fresh pi process | **❌ Lost — user must run `/chrome authorize indefinite` again** |
+| Multiple parallel sessions in different cwds | ✅ Each session auto-auth'd | ❌ Each session must be authorized separately |
+| `pi -ne` (no extensions) | N/A — extension isn't loaded anyway | ✅ Manual command works |
+
+**The cross-process boundary is exactly why we wrote this extension.** The user's hypothesis was correct: in a multi-project workflow, `/chrome authorize indefinite` requires manual repetition per fresh pi process. Our extension automates the re-assertion by hooking `session_start` with `event.reason === "startup"`, which fires on every fresh pi process.
+
+**Side effect:** Our extension also closes a real cold-start race that pi-chrome 0.15.46 still has. pi-chrome's `session_start` handler is `async` (line 912, awaits `bridge.start()`), and `activateChromeTools()` inside it can lose the race with the first `agent_start`. Our `agent_start` re-fire catches that.
+
+**Recommendation: KEEP.** This extension is **NOT subsumed**. The vendor only solved in-process persistence (across `/reload`); we solved cross-process persistence (across fresh pi startups, which is what every new project triggers).
+
+### What WOULD make our extension subsumable
+
+If pi-chrome added disk persistence — e.g. wrote auth to `~/.pi/agent/chrome-auth.json` or a `chromeAuth` field in `~/.pi/agent/settings.json` — then `/chrome authorize indefinite` would survive fresh pi startups and our extension would no longer be needed. As of 0.15.46 (and even 0.15.63 in npm), this does not exist. The right next step would be to **propose this to the pi-chrome maintainer** as a feature request rather than remove our extension prematurely.
 
 ---
 
