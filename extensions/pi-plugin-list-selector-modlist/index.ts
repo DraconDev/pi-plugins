@@ -32,6 +32,7 @@ interface ModlistConfig {
 
 interface ModlistState {
 	name: string;
+	baseline?: PackageSource[];
 }
 
 interface LoadedConfig {
@@ -178,10 +179,10 @@ function packageSetsMatch(left: PackageSource[], right: PackageSource[]): boolea
 	return [...leftSources].every((source) => rightSources.has(source));
 }
 
-/** Compute the union of settings.json packages and the profile addons. */
-function mergeAddons(currentPackages: PackageSource[], addons: PackageSource[]): PackageSource[] {
-	const selfCurrent = currentPackages.find(isSelfPackage);
-	const withoutSelf = currentPackages.filter((source) => !isSelfPackage(source));
+/** Compute the union of a baseline (settings.json packages) and the profile addons. */
+function mergeAddons(baseline: PackageSource[], addons: PackageSource[]): PackageSource[] {
+	const selfCurrent = baseline.find(isSelfPackage);
+	const withoutSelf = baseline.filter((source) => !isSelfPackage(source));
 	const merged = [...withoutSelf, ...addons.filter((source) => !isSelfPackage(source))];
 	const seen = new Set<string>();
 	const result: PackageSource[] = [];
@@ -225,15 +226,16 @@ function ensureInitialConfig(): void {
 	});
 }
 
-function restoreProfileName(ctx: ExtensionContext): string | undefined {
-	let restored: string | undefined;
-	for (const entry of ctx.sessionManager.getBranch()) {
-		if (entry.type === "custom" && entry.customType === STATE_ENTRY_TYPE) {
-			const data = entry.data as ModlistState | undefined;
-			if (typeof data?.name === "string") restored = data.name;
+/** Walk session branch from latest to oldest, return the most recent modlist state. */
+function restoreProfileState(ctx: ExtensionContext): ModlistState | undefined {
+	const branch = ctx.sessionManager.getBranch();
+	for (let index = branch.length - 1; index >= 0; index--) {
+		const entry = branch[index];
+		if (entry?.type === "custom" && entry.customType === STATE_ENTRY_TYPE) {
+			return entry.data as ModlistState | undefined;
 		}
 	}
-	return restored;
+	return undefined;
 }
 
 function describeProfile(profile: ModlistProfile): string {
@@ -251,7 +253,7 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 		projectExists: false,
 	};
 	let activeName: string | undefined;
-	/** Snapshot of settings.json packages taken before the last switch, used to restore on `none`. */
+	/** Snapshot of settings.json packages captured before the current switch; enables revert. */
 	let preSwitchBaseline: PackageSource[] | undefined;
 
 	function refreshConfig(ctx: ExtensionContext): void {
@@ -266,14 +268,13 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 		}
 	}
 
-	/** Drift = settings.json is missing an addon or has an unexpected extra beyond settings+addons. */
 	function profileHasDrift(name: string): boolean {
 		const profile = loaded.config.profiles[name];
 		if (!profile) return true;
-		const current = configuredPackages();
-		const expected = mergeAddons(current, profile);
-		const expectedNoSelf = expected.filter((source) => !isSelfPackage(source));
-		return !packageSetsMatch(current, expectedNoSelf);
+		const baseline = preSwitchBaseline ?? configuredPackages();
+		const expected = mergeAddons(baseline, profile).filter((source) => !isSelfPackage(source));
+		const current = configuredPackages().filter((source) => !isSelfPackage(source));
+		return !packageSetsMatch(current, expected);
 	}
 
 	function updateStatus(ctx: ExtensionContext): void {
@@ -286,9 +287,9 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg(drift ? "warning" : "accent", text));
 	}
 
-	function setActiveProfile(name: string, ctx: ExtensionContext, persist: boolean): void {
+	function setActiveProfile(name: string, ctx: ExtensionContext, persist: boolean, baseline?: PackageSource[]): void {
 		activeName = name;
-		if (persist) pi.appendEntry<ModlistState>(STATE_ENTRY_TYPE, { name });
+		if (persist) pi.appendEntry<ModlistState>(STATE_ENTRY_TYPE, { name, baseline });
 		updateStatus(ctx);
 	}
 
@@ -313,12 +314,14 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 			return;
 		}
 
-		// Capture the baseline before this switch so `none` can later restore it.
+		// The baseline is the snapshot taken before the previous switch, or the current
+		// settings.json packages if this is the first switch in the session. Switching to
+		// `none` with addons=[] then restores that exact baseline.
 		const baselineForThisSwitch = preSwitchBaseline ?? currentPackages;
 
 		const targetPackages = mergeAddons(baselineForThisSwitch, profile);
-		const targetNoSelf = targetPackages.filter((source) => !isSelfPackage(source));
 		const baselineNoSelf = baselineForThisSwitch.filter((source) => !isSelfPackage(source));
+		const targetNoSelf = targetPackages.filter((source) => !isSelfPackage(source));
 		const packagesChanged = !packageSetsMatch(baselineNoSelf, targetNoSelf);
 
 		if (packagesChanged) {
@@ -326,19 +329,19 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 				ctx.ui.notify(`Switching to "${name}" changes extension packages and requires interactive confirmation`, "error");
 				return;
 			}
-			const currentNames = new Set(baselineNoSelf.map(packageSourceName));
+			const baselineNames = new Set(baselineNoSelf.map(packageSourceName));
 			const targetNames = new Set(targetNoSelf.map(packageSourceName));
-			const added = [...targetNames].filter((item) => !currentNames.has(item));
-			const removed = [...currentNames].filter((item) => !targetNames.has(item));
+			const added = [...targetNames].filter((item) => !baselineNames.has(item));
+			const removed = [...baselineNames].filter((item) => !targetNames.has(item));
 			const details = [
 				`Switch to modlist "${name}" and reload Pi resources?`,
 				added.length > 0 ? `\nAdd: ${added.join(", ")}` : "",
-				removed.length > 0 ? `\nRemove (settings.json only — your baseline is preserved elsewhere): ${removed.join(", ")}` : "",
+				removed.length > 0 ? `\nRemove (revert to pre-switch baseline): ${removed.join(", ")}` : "",
 			].join("");
 			if (!(await ctx.ui.confirm("Change extension packages", details))) return;
 		}
 
-		setActiveProfile(name, ctx, true);
+		setActiveProfile(name, ctx, true, baselineForThisSwitch);
 		if (!packagesChanged) {
 			ctx.ui.notify(profile.length === 0 ? `Modlist "${name}" active (no addon changes)` : `Modlist "${name}" active`, "info");
 			return;
@@ -346,7 +349,6 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 
 		try {
 			writeGlobalPackages(targetPackages);
-			preSwitchBaseline = baselineForThisSwitch;
 			await ctx.reload();
 		} catch (error) {
 			ctx.ui.notify(`Could not reload modlist "${name}": ${error instanceof Error ? error.message : String(error)}`, "error");
@@ -441,10 +443,10 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 			ensureInitialConfig();
 			refreshConfig(ctx);
 			notifyConfigErrors(ctx);
-			preSwitchBaseline = undefined;
 
-			const restored = restoreProfileName(ctx);
-			const requestedName = restored ?? loaded.config.default ?? "none";
+			const restored = restoreProfileState(ctx);
+			preSwitchBaseline = restored?.baseline;
+			const requestedName = restored?.name ?? loaded.config.default ?? "none";
 			if (loaded.config.profiles[requestedName]) {
 				activeName = requestedName;
 			} else {
