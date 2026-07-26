@@ -320,19 +320,21 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 		const baselineForThisSwitch = preSwitchBaseline ?? currentPackages;
 
 		const targetPackages = mergeAddons(baselineForThisSwitch, profile);
-		const baselineNoSelf = baselineForThisSwitch.filter((source) => !isSelfPackage(source));
+		const currentNoSelf = currentPackages.filter((source) => !isSelfPackage(source));
 		const targetNoSelf = targetPackages.filter((source) => !isSelfPackage(source));
-		const packagesChanged = !packageSetsMatch(baselineNoSelf, targetNoSelf);
+		// packagesChanged compares the LIVE settings.json (currentNoSelf) to the target.
+		// The baseline only matters as the source for what `none` reverts TO.
+		const packagesChanged = !packageSetsMatch(currentNoSelf, targetNoSelf);
 
 		if (packagesChanged) {
 			if (!ctx.hasUI) {
 				ctx.ui.notify(`Switching to "${name}" changes extension packages and requires interactive confirmation`, "error");
 				return;
 			}
-			const baselineNames = new Set(baselineNoSelf.map(packageSourceName));
+			const currentNames = new Set(currentNoSelf.map(packageSourceName));
 			const targetNames = new Set(targetNoSelf.map(packageSourceName));
-			const added = [...targetNames].filter((item) => !baselineNames.has(item));
-			const removed = [...baselineNames].filter((item) => !targetNames.has(item));
+			const added = [...targetNames].filter((item) => !currentNames.has(item));
+			const removed = [...currentNames].filter((item) => !targetNames.has(item));
 			const details = [
 				`Switch to modlist "${name}" and reload Pi resources?`,
 				added.length > 0 ? `\nAdd: ${added.join(", ")}` : "",
