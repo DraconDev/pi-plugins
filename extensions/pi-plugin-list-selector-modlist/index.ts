@@ -1,7 +1,6 @@
 import {
 	existsSync,
 	mkdirSync,
-	readdirSync,
 	readFileSync,
 	renameSync,
 	rmSync,
@@ -22,14 +21,9 @@ const CONFIG_FILE_NAME = "modlist.json";
 const STATE_ENTRY_TYPE = "modlist-state";
 const STATUS_KEY = "modlist";
 const SELF_PACKAGE = "../../Dev/pi-plugins/extensions/pi-plugin-list-selector-modlist";
-const KEEP_CURRENT_OPTION = "Keep current selection";
 
-interface ModlistProfile {
-	description?: string;
-	tools?: string[];
-	/** Pi package sources. Named `extensions` because profiles control extension packages. */
-	extensions?: PackageSource[];
-}
+/** Plain addon-array profile — settings.json packages are the immutable baseline. */
+type ModlistProfile = PackageSource[];
 
 interface ModlistConfig {
 	default?: string;
@@ -88,31 +82,16 @@ function parseConfig(path: string): { config: ModlistConfig; errors: string[] } 
 		}
 
 		for (const [name, value] of Object.entries(parsed.profiles)) {
-			if (!name || !isRecord(value)) {
-				errors.push(`${path}: profile "${name}" must be an object`);
+			if (!name) {
+				errors.push(`${path}: empty profile name`);
 				continue;
 			}
-
-			const profile: ModlistProfile = {};
-			if (value.description !== undefined) {
-				if (typeof value.description === "string") profile.description = value.description;
-				else errors.push(`${path}: profile "${name}" has an invalid description`);
+			if (!Array.isArray(value)) {
+				errors.push(`${path}: profile "${name}" must be an array of addon packages`);
+				continue;
 			}
-			if (value.tools !== undefined) {
-				if (Array.isArray(value.tools) && value.tools.every((tool) => typeof tool === "string")) {
-					profile.tools = [...new Set(value.tools)];
-				} else {
-					errors.push(`${path}: profile "${name}" has an invalid tools list`);
-				}
-			}
-			if (value.extensions !== undefined) {
-				if (Array.isArray(value.extensions) && value.extensions.every(isPackageSource)) {
-					profile.extensions = value.extensions;
-				} else {
-					errors.push(`${path}: profile "${name}" has an invalid extensions list`);
-				}
-			}
-			config.profiles[name] = profile;
+			if (value.every(isPackageSource)) config.profiles[name] = [...value] as ModlistProfile;
+			else errors.push(`${path}: profile "${name}" has an invalid addon list`);
 		}
 
 		return { config, errors };
@@ -180,19 +159,6 @@ function isSelfPackage(source: PackageSource): boolean {
 	return name === SELF_PACKAGE || name.endsWith("/pi-plugin-list-selector-modlist");
 }
 
-function deduplicatePackages(packages: PackageSource[]): PackageSource[] {
-	const seen = new Set<string>();
-	const result: PackageSource[] = [];
-	for (const source of packages) {
-		const key = packageSourceName(source);
-		if (!seen.has(key)) {
-			seen.add(key);
-			result.push(source);
-		}
-	}
-	return result;
-}
-
 function packageSourceKey(source: PackageSource): string {
 	if (typeof source === "string") return `string:${source}`;
 	return JSON.stringify({
@@ -212,28 +178,22 @@ function packageSetsMatch(left: PackageSource[], right: PackageSource[]): boolea
 	return [...leftSources].every((source) => rightSources.has(source));
 }
 
-function toolSetsMatch(left: string[], right: string[]): boolean {
-	const leftNames = new Set(left);
-	const rightNames = new Set(right);
-	if (leftNames.size !== rightNames.size) return false;
-	return [...leftNames].every((name) => rightNames.has(name));
-}
-
-function targetPackagesForProfile(
-	profile: ModlistProfile,
-	profiles: Record<string, ModlistProfile>,
-	currentPackages: PackageSource[],
-): PackageSource[] {
-	if (profile.extensions === undefined) return currentPackages;
-
-	const managedNames = new Set(
-		Object.values(profiles).flatMap((candidate) => (candidate.extensions ?? []).map(packageSourceName)),
-	);
-	const unmanaged = currentPackages.filter(
-		(source) => !managedNames.has(packageSourceName(source)) && !isSelfPackage(source),
-	);
-	const currentSelf = currentPackages.find(isSelfPackage) ?? SELF_PACKAGE;
-	return deduplicatePackages([...unmanaged, ...profile.extensions.filter((source) => !isSelfPackage(source)), currentSelf]);
+/** Compute the union of settings.json packages and the profile addons. */
+function mergeAddons(currentPackages: PackageSource[], addons: PackageSource[]): PackageSource[] {
+	const selfCurrent = currentPackages.find(isSelfPackage);
+	const withoutSelf = currentPackages.filter((source) => !isSelfPackage(source));
+	const merged = [...withoutSelf, ...addons.filter((source) => !isSelfPackage(source))];
+	const seen = new Set<string>();
+	const result: PackageSource[] = [];
+	for (const source of merged) {
+		const key = packageSourceKey(source);
+		if (!seen.has(key)) {
+			seen.add(key);
+			result.push(source);
+		}
+	}
+	if (selfCurrent) result.push(selfCurrent);
+	return result;
 }
 
 function loadConfig(cwd: string, projectTrusted: boolean): LoadedConfig {
@@ -256,12 +216,13 @@ function loadConfig(cwd: string, projectTrusted: boolean): LoadedConfig {
 	};
 }
 
-function isEmptyProject(cwd: string): boolean {
-	try {
-		return readdirSync(cwd).every((entry) => entry === ".git" || entry === CONFIG_DIR_NAME);
-	} catch {
-		return false;
-	}
+function ensureInitialConfig(): void {
+	const path = globalConfigPath();
+	if (existsSync(path)) return;
+	writeJsonAtomic(path, {
+		default: "none",
+		profiles: { none: [] },
+	});
 }
 
 function restoreProfileName(ctx: ExtensionContext): string | undefined {
@@ -276,11 +237,9 @@ function restoreProfileName(ctx: ExtensionContext): string | undefined {
 }
 
 function describeProfile(profile: ModlistProfile): string {
-	const parts: string[] = [];
-	if (profile.description) parts.push(profile.description);
-	if (profile.tools !== undefined) parts.push(`${profile.tools.length} tools`);
-	if (profile.extensions !== undefined) parts.push(`${profile.extensions.length} extension packages`);
-	return parts.join(" · ") || "No runtime changes";
+	return profile.length === 0
+		? "No addon packages (settings.json only)"
+		: `${profile.length} addon package${profile.length === 1 ? "" : "s"}`;
 }
 
 export default function modlistExtension(pi: ExtensionAPI): void {
@@ -292,22 +251,6 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 		projectExists: false,
 	};
 	let activeName: string | undefined;
-	let startupPromptShown = false;
-
-	function ensureInitialConfig(): void {
-		const path = globalConfigPath();
-		if (existsSync(path)) return;
-		writeJsonAtomic(path, {
-			default: "default",
-			profiles: {
-				default: {
-					description: "Tools and extension packages active when modlist was installed",
-					tools: pi.getActiveTools(),
-					extensions: readGlobalPackages(),
-				},
-			},
-		});
-	}
 
 	function refreshConfig(ctx: ExtensionContext): void {
 		loaded = loadConfig(ctx.cwd, ctx.isProjectTrusted());
@@ -321,20 +264,14 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 		}
 	}
 
+	/** Drift = settings.json is missing an addon or has an unexpected extra beyond settings+addons. */
 	function profileHasDrift(name: string): boolean {
 		const profile = loaded.config.profiles[name];
 		if (!profile) return true;
-		if (profile.tools !== undefined) {
-			const availableTools = new Set(pi.getAllTools().map((tool) => tool.name));
-			const expectedTools = profile.tools.filter((tool) => availableTools.has(tool));
-			if (!toolSetsMatch(expectedTools, pi.getActiveTools())) return true;
-		}
-		if (profile.extensions !== undefined) {
-			const current = configuredPackages();
-			const target = targetPackagesForProfile(profile, loaded.config.profiles, current);
-			if (!packageSetsMatch(current, target)) return true;
-		}
-		return false;
+		const current = configuredPackages();
+		const expected = mergeAddons(current, profile);
+		const expectedNoSelf = expected.filter((source) => !isSelfPackage(source));
+		return !packageSetsMatch(current, expectedNoSelf);
 	}
 
 	function updateStatus(ctx: ExtensionContext): void {
@@ -347,21 +284,8 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg(drift ? "warning" : "accent", text));
 	}
 
-	function applyTools(name: string, ctx: ExtensionContext, notifyUnknown = true): void {
-		const profile = loaded.config.profiles[name];
-		if (!profile?.tools) return;
-		const availableTools = new Set(pi.getAllTools().map((tool) => tool.name));
-		const validTools = profile.tools.filter((tool) => availableTools.has(tool));
-		const unknownTools = profile.tools.filter((tool) => !availableTools.has(tool));
-		pi.setActiveTools(validTools);
-		if (notifyUnknown && unknownTools.length > 0) {
-			ctx.ui.notify(`Modlist "${name}" references unavailable tools: ${unknownTools.join(", ")}`, "warning");
-		}
-	}
-
 	function setActiveProfile(name: string, ctx: ExtensionContext, persist: boolean): void {
 		activeName = name;
-		applyTools(name, ctx);
 		if (persist) pi.appendEntry<ModlistState>(STATE_ENTRY_TYPE, { name });
 		updateStatus(ctx);
 	}
@@ -386,30 +310,33 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 			ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 			return;
 		}
-		const targetPackages = targetPackagesForProfile(profile, loaded.config.profiles, currentPackages);
-		const packagesChanged = profile.extensions !== undefined && !packageSetsMatch(currentPackages, targetPackages);
+
+		const targetPackages = mergeAddons(currentPackages, profile);
+		// Compare without self-package because self is always preserved.
+		const currentNoSelf = currentPackages.filter((source) => !isSelfPackage(source));
+		const targetNoSelf = targetPackages.filter((source) => !isSelfPackage(source));
+		const packagesChanged = !packageSetsMatch(currentNoSelf, targetNoSelf);
 
 		if (packagesChanged) {
 			if (!ctx.hasUI) {
 				ctx.ui.notify(`Switching to "${name}" changes extension packages and requires interactive confirmation`, "error");
 				return;
 			}
-			const currentNames = new Set(currentPackages.map(packageSourceName));
-			const targetNames = new Set(targetPackages.map(packageSourceName));
+			const currentNames = new Set(currentNoSelf.map(packageSourceName));
+			const targetNames = new Set(targetNoSelf.map(packageSourceName));
 			const added = [...targetNames].filter((item) => !currentNames.has(item));
 			const removed = [...currentNames].filter((item) => !targetNames.has(item));
 			const details = [
 				`Switch to modlist "${name}" and reload Pi resources?`,
-				added.length > 0 ? `\nEnable: ${added.join(", ")}` : "",
-				removed.length > 0 ? `\nDisable: ${removed.join(", ")}` : "",
-				added.length === 0 && removed.length === 0 ? "\nPackage resource filters will change." : "",
+				added.length > 0 ? `\nAdd: ${added.join(", ")}` : "",
+				removed.length > 0 ? `\nRemove (settings.json only — your baseline is preserved elsewhere): ${removed.join(", ")}` : "",
 			].join("");
 			if (!(await ctx.ui.confirm("Change extension packages", details))) return;
 		}
 
 		setActiveProfile(name, ctx, true);
 		if (!packagesChanged) {
-			ctx.ui.notify(`Modlist "${name}" activated`, "info");
+			ctx.ui.notify(profile.length === 0 ? `Modlist "${name}" active (no addon changes)` : `Modlist "${name}" active`, "info");
 			return;
 		}
 
@@ -443,116 +370,37 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 	}
 
 	function statusText(): string {
-		if (!activeName) {
-			return `No active modlist. Config: ${loaded.globalPath}`;
-		}
-		const profile = loaded.config.profiles[activeName];
-		if (!profile) return `Active selection "${activeName}" is not defined in the current config.`;
-		const desiredTools = profile.tools?.join(", ") ?? "unchanged";
-		const desiredPackages = profile.extensions?.map(packageSourceName).join(", ") ?? "unchanged";
-		const currentPackages = configuredPackages().map(packageSourceName).join(", ") || "(none)";
-		return [
-			`Active modlist: ${activeName}${profileHasDrift(activeName) ? " (drift detected; status shows !)" : ""}`,
-			`Description: ${profile.description ?? "(none)"}`,
-			`Active tools: ${pi.getActiveTools().join(", ") || "(none)"}`,
-			`Profile tools: ${desiredTools || "(none)"}`,
-			`Profile extension packages: ${desiredPackages || "(none)"}`,
-			`Configured global packages: ${currentPackages}`,
-			`Global config: ${loaded.globalPath}`,
-			`Project config: ${loaded.projectExists ? loaded.projectPath : "(none)"}`,
-		].join("\n");
-	}
-
-	async function saveProfile(name: string, ctx: ExtensionCommandContext): Promise<void> {
-		if (!name) {
-			ctx.ui.notify("Usage: /modlist save <name>", "error");
-			return;
-		}
-		const globalResult = parseConfig(globalConfigPath());
-		if (globalResult.errors.length > 0) {
-			for (const error of globalResult.errors) ctx.ui.notify(error, "error");
-			return;
-		}
-		if (globalResult.config.profiles[name] && ctx.hasUI) {
-			const overwrite = await ctx.ui.confirm("Overwrite modlist", `Replace global profile "${name}"?`);
-			if (!overwrite) return;
-		} else if (globalResult.config.profiles[name]) {
-			ctx.ui.notify(`Global profile "${name}" already exists`, "error");
-			return;
-		}
-
-		let packages: PackageSource[];
-		try {
-			packages = readGlobalPackages();
-		} catch (error) {
-			ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
-			return;
-		}
-		globalResult.config.profiles[name] = {
-			description: "Captured from the current Pi session",
-			tools: pi.getActiveTools(),
-			extensions: packages,
-		};
-		globalResult.config.default ??= name;
-		writeJsonAtomic(globalConfigPath(), globalResult.config);
-		refreshConfig(ctx);
-		activeName = name;
-		pi.appendEntry<ModlistState>(STATE_ENTRY_TYPE, { name });
-		updateStatus(ctx);
-		ctx.ui.notify(`Saved and activated global modlist "${name}"`, "info");
-	}
-
-	async function promptForEmptyProject(ctx: ExtensionContext): Promise<void> {
-		if (startupPromptShown || ctx.mode !== "tui" || loaded.projectExists || !isEmptyProject(ctx.cwd)) return;
-		startupPromptShown = true;
-		const names = Object.keys(loaded.config.profiles).sort();
-		if (names.length === 0) return;
-
-		const labels = new Map<string, string>();
-		for (const name of names) {
-			labels.set(`${name} — ${describeProfile(loaded.config.profiles[name])}`, name);
-		}
-		const selected = await ctx.ui.select("Choose a modlist for this empty project", [
-			...labels.keys(),
-			KEEP_CURRENT_OPTION,
-		]);
-		if (!selected || selected === KEEP_CURRENT_OPTION) return;
-		const name = labels.get(selected);
-		if (!name) return;
-
-		if (ctx.isProjectTrusted()) {
-			writeJsonAtomic(loaded.projectPath, { default: name });
+		const lines: string[] = [];
+		if (activeName) {
+			const profile = loaded.config.profiles[activeName];
+			if (profile) {
+				const desired = profile.map(packageSourceName).join(", ") || "(none)";
+				const current = configuredPackages()
+					.filter((source) => !isSelfPackage(source))
+					.map(packageSourceName)
+					.join(", ") || "(none)";
+				lines.push(
+					`Active modlist: ${activeName}${profileHasDrift(activeName) ? " (drift detected; status shows !)" : ""}`,
+				);
+				lines.push(`Addon packages (profile): ${desired}`);
+				lines.push(`Configured global packages (excluding self): ${current}`);
+			} else {
+				lines.push(`Active selection "${activeName}" is not defined in the current config.`);
+			}
 		} else {
-			ctx.ui.notify(
-				`Modlist "${name}" active for this session only (project not trusted; selection not saved)`,
-				"info",
-			);
+			lines.push("No active modlist.");
 		}
-		refreshConfig(ctx);
-		setActiveProfile(name, ctx, true);
-
-		const profile = loaded.config.profiles[name];
-		const currentPackages = configuredPackages();
-		if (
-			profile.extensions !== undefined &&
-			!packageSetsMatch(currentPackages, targetPackagesForProfile(profile, loaded.config.profiles, currentPackages))
-		) {
-			ctx.ui.notify(
-				`Selected modlist "${name}" and switched tools. Run /modlist ${name} to confirm extension changes and reload.`,
-				"warning",
-			);
-		} else {
-			ctx.ui.notify(`Selected modlist "${name}" for this project`, "info");
-		}
+		lines.push(`Global config: ${loaded.globalPath}`);
+		lines.push(`Project config: ${loaded.projectExists ? loaded.projectPath : "(none)"}`);
+		return lines.join("\n");
 	}
 
 	pi.registerCommand("modlist", {
-		description: "Show, save, or switch named tool and extension profiles",
+		description: "Switch between named addon-package profiles (settings.json packages are always preserved)",
 		getArgumentCompletions: (prefix) => {
 			const values = [
 				"list",
 				"status",
-				"save ",
 				...Object.keys(loaded.config.profiles),
 				...Object.keys(loaded.config.profiles).map((name) => `switch ${name}`),
 			];
@@ -578,10 +426,6 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 				ctx.ui.notify(statusText(), "info");
 				return;
 			}
-			if (input.startsWith("save ")) {
-				await saveProfile(input.slice("save ".length).trim(), ctx);
-				return;
-			}
 			const name = input.startsWith("switch ") ? input.slice("switch ".length).trim() : input;
 			await switchProfile(name, ctx);
 		},
@@ -594,19 +438,16 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 			notifyConfigErrors(ctx);
 
 			const restored = restoreProfileName(ctx);
-			const requestedName = restored ?? loaded.config.default;
-			if (requestedName && loaded.config.profiles[requestedName]) {
+			const requestedName = restored ?? loaded.config.default ?? "none";
+			if (loaded.config.profiles[requestedName]) {
 				activeName = requestedName;
-				applyTools(requestedName, ctx, event.reason !== "reload");
 			} else {
 				activeName = undefined;
-				if (requestedName) ctx.ui.notify(`Configured modlist "${requestedName}" does not exist`, "warning");
+				if (requestedName !== "none") {
+					ctx.ui.notify(`Configured modlist "${requestedName}" does not exist; using none`, "warning");
+				}
 			}
 			updateStatus(ctx);
-
-			if (event.reason === "startup" || event.reason === "new") {
-				await promptForEmptyProject(ctx);
-			}
 		} catch (error) {
 			activeName = undefined;
 			ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("error", "modlist:error"));
