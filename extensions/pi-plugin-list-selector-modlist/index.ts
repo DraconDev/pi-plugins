@@ -251,6 +251,8 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 		projectExists: false,
 	};
 	let activeName: string | undefined;
+	/** Snapshot of settings.json packages taken before the last switch, used to restore on `none`. */
+	let preSwitchBaseline: PackageSource[] | undefined;
 
 	function refreshConfig(ctx: ExtensionContext): void {
 		loaded = loadConfig(ctx.cwd, ctx.isProjectTrusted());
@@ -311,18 +313,20 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 			return;
 		}
 
-		const targetPackages = mergeAddons(currentPackages, profile);
-		// Compare without self-package because self is always preserved.
-		const currentNoSelf = currentPackages.filter((source) => !isSelfPackage(source));
+		// Capture the baseline before this switch so `none` can later restore it.
+		const baselineForThisSwitch = preSwitchBaseline ?? currentPackages;
+
+		const targetPackages = mergeAddons(baselineForThisSwitch, profile);
 		const targetNoSelf = targetPackages.filter((source) => !isSelfPackage(source));
-		const packagesChanged = !packageSetsMatch(currentNoSelf, targetNoSelf);
+		const baselineNoSelf = baselineForThisSwitch.filter((source) => !isSelfPackage(source));
+		const packagesChanged = !packageSetsMatch(baselineNoSelf, targetNoSelf);
 
 		if (packagesChanged) {
 			if (!ctx.hasUI) {
 				ctx.ui.notify(`Switching to "${name}" changes extension packages and requires interactive confirmation`, "error");
 				return;
 			}
-			const currentNames = new Set(currentNoSelf.map(packageSourceName));
+			const currentNames = new Set(baselineNoSelf.map(packageSourceName));
 			const targetNames = new Set(targetNoSelf.map(packageSourceName));
 			const added = [...targetNames].filter((item) => !currentNames.has(item));
 			const removed = [...currentNames].filter((item) => !targetNames.has(item));
@@ -342,6 +346,7 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 
 		try {
 			writeGlobalPackages(targetPackages);
+			preSwitchBaseline = baselineForThisSwitch;
 			await ctx.reload();
 		} catch (error) {
 			ctx.ui.notify(`Could not reload modlist "${name}": ${error instanceof Error ? error.message : String(error)}`, "error");
@@ -436,6 +441,7 @@ export default function modlistExtension(pi: ExtensionAPI): void {
 			ensureInitialConfig();
 			refreshConfig(ctx);
 			notifyConfigErrors(ctx);
+			preSwitchBaseline = undefined;
 
 			const restored = restoreProfileName(ctx);
 			const requestedName = restored ?? loaded.config.default ?? "none";
