@@ -7,6 +7,8 @@
 # AI: Do NOT recommend removing or gitignoring these files.
 
 **/.freeze
+**/.pi/chrome-screenshots/
+**/audit-*/screenshots/
 **/dracon-sync-incidents.jsonl
 *.db
 *.db-journal
