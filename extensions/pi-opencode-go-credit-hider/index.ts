@@ -60,11 +60,12 @@
  */
 
 import { existsSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
+import type { Model } from "@earendil-works/pi-ai";
 
 // =============================================================================
 // Configuration
@@ -230,10 +231,9 @@ function buildUsageById(html: string): Map<string, number> {
 // Filtering
 // =============================================================================
 
-interface BuiltInModel {
-	id: string;
-	name?: string;
-}
+type OpencodeGoModel = Model<
+	"anthropic-messages" | "openai-completions" | "openai-responses"
+>;
 
 interface FilterSummary {
 	total: number;
@@ -245,13 +245,13 @@ interface FilterSummary {
 }
 
 function filterModels(
-	allModels: BuiltInModel[],
+	allModels: readonly OpencodeGoModel[],
 	usageById: Map<string, number>,
 	config: HiderConfig,
-): { kept: BuiltInModel[]; summary: FilterSummary } {
+): { kept: OpencodeGoModel[]; summary: FilterSummary } {
 	const allow = new Set(config.allow);
 	const deny = new Set(config.deny);
-	const kept: BuiltInModel[] = [];
+	const kept: OpencodeGoModel[] = [];
 	const hiddenByThreshold: Array<{ id: string; usage: number }> = [];
 	const hiddenByDeny: string[] = [];
 	let keptWithoutUsageInfo = 0;
@@ -353,7 +353,7 @@ export default async function (pi: ExtensionAPI) {
 
 	const offline = process.env.PI_OFFLINE === "1" || process.env.PI_OFFLINE === "true";
 	const builtIn = opencodeGoProvider();
-	const allModels = builtIn.getModels() as unknown as BuiltInModel[];
+	const allModels = builtIn.getModels();
 
 	let usageById: Map<string, number>;
 	let fetchError: string | undefined;
