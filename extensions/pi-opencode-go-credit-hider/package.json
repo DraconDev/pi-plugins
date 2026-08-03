@@ -41,6 +41,6 @@
 	"scripts": {
 		"clean": "echo 'nothing to clean'",
 		"build": "echo 'Pi loads index.ts directly; no build step'",
-		"check": "bunx tsc --noEmit"
+		"check": "bunx tsc --noEmit -p tsconfig.json"
 	}
 }
