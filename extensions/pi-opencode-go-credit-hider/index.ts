@@ -13,10 +13,12 @@
  *   the right pick.
  *
  *   This extension keeps the $60-tier models front-and-center and hides
- *   the $15-tier models by default, while letting you whitelist specific
- *   $15 models (e.g. for a promo that effectively makes them 4x cheaper
- *   than $60 models) or denylist specific $60 models (e.g. for a personal
- *   2x reduction). Exact match only; one model id per entry.
+ *   the $15-tier models by default. The `allow` and `deny` config lists
+ *   let you override the rule for specific models, but there is no
+ *   current use case: the docs page only publishes the effective credit
+ *   allocation (no per-model promo data), and every model currently on
+ *   the page either belongs cleanly to the $60 tier or the $15 tier.
+ *   Exact match only; one model id per entry.
  *
  * Data source:
  *   The OpenCode Go docs page at https://opencode.ai/docs/go/ is fetched
@@ -36,8 +38,8 @@
  * Configuration file: ~/.pi/agent/opencode-go-credit-hider.json
  *   {
  *     "thresholdUsd": 60,           // hide models whose effective credit < this
- *     "allow": ["gpt-5.6-luna"],     // always keep these (e.g. 4x promo)
- *     "deny":  ["kimi-k3"],          // always hide these (e.g. effective drop)
+ *     "allow": [],                   // always keep these (hypothetical — see README)
+ *     "deny":  [],                   // always hide these (hypothetical — see README)
  *     "onFetchError": "fail",        // "fail" | "passthrough"
  *     "docsUrl": "https://opencode.ai/docs/go/",
  *     "fetchTimeoutMs": 5000

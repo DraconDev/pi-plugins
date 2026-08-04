@@ -6,7 +6,7 @@ A pi extension that hides "bad deal" models from OpenCode Go by parsing the cred
 
 OpenCode Go gives you monthly credits that you spend per request. Each model has an effective credit allocation — currently `$15` or `$60`. The `$15` tier burns your monthly allotment much faster, but those models still show up alongside the `$60` tier in pi's `/model` picker and Ctrl+P cycling. They look like normal options but are almost never the right pick.
 
-This extension hides them by default, while still letting you whitelist a `$15` model (e.g. for a promo that effectively makes it 4× cheaper) or denylist a `$60` model (e.g. for a personal 2× reduction).
+This extension hides them by default. It also has `allow` / `deny` config lists for cases where you want to override the rule for a specific model — currently no such cases exist (the docs page publishes only the effective credit allocation, no per-model promo data), but the mechanism is there for the future.
 
 ## Install
 
@@ -47,8 +47,8 @@ On every pi startup (and every `/reload`), the extension:
 ```json
 {
   "thresholdUsd": 60,
-  "allow": ["gpt-5.6-luna"],
-  "deny":  ["kimi-k3"],
+  "allow": [],
+  "deny":  [],
   "onFetchError": "fail",
   "docsUrl": "https://opencode.ai/docs/go/",
   "fetchTimeoutMs": 5000
@@ -58,8 +58,8 @@ On every pi startup (and every `/reload`), the extension:
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `thresholdUsd` | `60` | Hide any model whose effective credit allocation is below this many dollars. The current docs page only has `$15` and `$60` tiers, so this default hides the `$15` tier and keeps the `$60` tier. |
-| `allow` | `[]` | Model ids that are always kept, even if they are below the threshold. Use this for models that have an effective promo (e.g. a 4× multiplier that makes a `$15` model effectively `$60`). |
-| `deny` | `[]` | Model ids that are always hidden, even if they are at or above the threshold. Use this for models that have an effective reduction (e.g. a 0.5× multiplier that makes a `$60` model effectively `$30`). |
+| `allow` | `[]` | Model ids that are always kept, even if they are below the threshold. Hypothetical only: the docs page does not publish per-model promo data, so there is currently no way to detect "this $15 model is effectively $60 for me" from the page. Use this if you get an out-of-band promo and want to keep a specific model visible. |
+| `deny` | `[]` | Model ids that are always hidden, even if they are at or above the threshold. Same caveat as `allow`: the docs page does not publish per-model reductions either. Use this if you have an out-of-band reason to hide a specific `$60` model. |
 | `onFetchError` | `"fail"` | `"fail"` registers an empty model list when the docs page is unreachable (loud failure). `"passthrough"` leaves the built-in list untouched (silent fallback). |
 | `docsUrl` | `"https://opencode.ai/docs/go/"` | Where to fetch the credit table from. Override only if OpenCode moves the page. |
 | `fetchTimeoutMs` | `5000` | Abort the fetch after this many ms. |
@@ -78,7 +78,7 @@ Shows the source URL, the kept / hidden counts, the hidden model ids with their 
 
 ## Interaction with other customization
 
-- **`enabledModels` patterns** (e.g. `"*luna*:max"`) still apply on top of the filtered list. If a pattern matches a hidden model, it silently matches nothing — clean up the pattern or add the model to `allow`.
+- **`enabledModels` patterns** still apply on top of the filtered list. If a pattern matches a hidden model, it silently matches nothing — clean up the pattern or add the model to `allow`. Note: pi-ai's built-in `opencode-go` catalog currently has 16 models and does not include `gpt-5.6-luna` or `qwen3.8-max` (both are on the docs page at `$15` but not in the built-in list). If pi-ai ever adds them, this filter will hide them by default.
 - **`models.json` per-model `modelOverrides`** still apply on top of the filtered list (pi's provider composition runs them after the extension override).
 - **Custom models added for `opencode-go` in `models.json`** are NOT preserved by the override — use `allow` to keep them in the filtered list.
 
