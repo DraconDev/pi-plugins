@@ -14,7 +14,8 @@
  * RPC / print modes where the TUI custom overlay is not available.
  */
 
-import type { ExtensionContext, Model } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { Model } from "@earendil-works/pi-ai";
 import {
   Container,
   fuzzyFilter,
@@ -508,7 +509,7 @@ export async function openModelPicker(
     const input = new Input();
     const listContainer = new Container();
 
-    function matched(): { m: Model }[] {
+    function matched(): { m: Model<unknown> }[] {
       return fuzzyFilter(
         available.map((m) => ({ m })),
         input.getValue(),

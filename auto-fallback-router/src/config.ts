@@ -144,26 +144,26 @@ function isConfig(v: unknown): v is Config {
 // ─── Persistence ────────────────────────────────────────────────────────────
 
 let writeChain: Promise<void> = Promise.resolve();
-let cachedConfig: Config | null = null;
+let cachedConfig: Config | undefined;
 
 export function loadConfig(): Config {
   if (cachedConfig) return cachedConfig;
   try {
     if (!existsSync(CONFIG_PATH)) {
-      cachedConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+      cachedConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG)) as Config;
       return cachedConfig;
     }
     const raw: unknown = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
     if (!isConfig(raw)) {
       console.warn(`[fallback-router] ${CONFIG_PATH} is malformed; using defaults`);
-      cachedConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+      cachedConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG)) as Config;
       return cachedConfig;
     }
     cachedConfig = raw;
     return cachedConfig;
   } catch (err) {
     console.warn(`[fallback-router] could not read ${CONFIG_PATH}: ${err}`);
-    cachedConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+    cachedConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG)) as Config;
     return cachedConfig;
   }
 }

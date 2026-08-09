@@ -20,7 +20,7 @@
  * user's last text via followUp.
  */
 
-import type { Model } from "@earendil-works/pi-coding-agent";
+import type { Model } from "@earendil-works/pi-ai";
 import type { ChainEntry, Config, PerModelOverrides, Triggers } from "./config.js";
 import { loadConfig } from "./config.js";
 
