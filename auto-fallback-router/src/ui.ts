@@ -509,7 +509,7 @@ export async function openModelPicker(
     const input = new Input();
     const listContainer = new Container();
 
-    function matched(): { m: Model<unknown> }[] {
+    function matched(): { m: Model<any> }[] {
       return fuzzyFilter(
         available.map((m) => ({ m })),
         input.getValue(),

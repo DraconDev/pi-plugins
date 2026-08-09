@@ -182,7 +182,7 @@ async function performFallback(opts: {
     return;
   }
 
-  const success = await pi.setModel(targetModel as unknown as Model<unknown>);
+  const success = await pi.setModel(targetModel as unknown as Model<any>);
   if (!success) {
     ctx.ui.notify(
       `Fallback router: no auth for ${chainEntryKey(target)}`,

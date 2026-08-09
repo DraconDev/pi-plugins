@@ -141,7 +141,7 @@ export interface FallbackDecision {
 
 export function decideFallback(opts: {
   cfg: Config;
-  currentModel: Model;
+  currentModel: Model<any>;
   reason: "error" | "timeout" | "abort";
   errText: string;
 }): FallbackDecision {
