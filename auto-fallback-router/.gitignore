@@ -1,0 +1,5 @@
+# --- DRACON extension gitignore ---
+node_modules/
+.pi-glla/
+*.log
+.DS_Store
