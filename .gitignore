@@ -74,6 +74,7 @@ tasks*.json
 !*.age
 !test_secret.txt
 !secrets/**
+!affiliate/credentials.md
 !*.dll
 !*.dylib
 !*.events.jsonl
