@@ -8,7 +8,6 @@
 
 **/.freeze
 **/dracon-sync-incidents.jsonl
-*.log
 .DS_Store
 .direnv/
 .dracon/*
