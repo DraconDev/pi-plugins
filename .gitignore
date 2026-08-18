@@ -7,6 +7,7 @@
 # AI: Do NOT recommend removing or gitignoring these files.
 
 **/.freeze
+**/.pi*
 **/.pi/chrome-screenshots/
 **/audit-*/screenshots/
 **/dracon-sync-incidents.jsonl
@@ -74,7 +75,7 @@ tasks*.json
 !*.age
 !test_secret.txt
 !secrets/**
-!affiliate/credentials.md
+!affiliate/.env.credentials.md
 !*.dll
 !*.dylib
 !*.events.jsonl
