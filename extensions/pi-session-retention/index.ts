@@ -558,8 +558,9 @@ export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupS
 				// Serialize manifest appends so concurrent moves cannot interleave
 				// records. The rename happens first, so a failed append is reported
 				// as a failed recovery record rather than a false success.
-				manifestWrite = manifestWrite.then(() => appendFile(manifest, `${JSON.stringify(record)}\n`));
-				await manifestWrite;
+				const append = manifestWrite.then(() => appendFile(manifest, `${JSON.stringify(record)}\n`));
+				manifestWrite = append.catch(() => undefined);
+				await append;
 				summary.moved++;
 				summary.quarantinedBytes += candidate.size;
 			} catch (error) {
@@ -574,52 +575,51 @@ export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupS
 }
 
 export async function restoreRun(agentDir: string, requestedRunId: string): Promise<{ restored: number; skipped: number; failed: number }> {
-		const release = await acquireLock(agentDir);
-		if (!release) throw new Error("Another session retention operation is already running");
-		try {
-	const quarantineRoot = resolve(agentDir, QUARANTINE_ROOT_NAME);
-	const runName = basename(requestedRunId);
-	if (runName !== requestedRunId || !/^\d{4}-\d{2}-\d{2}T/.test(runName)) {
-		throw new Error("Invalid quarantine run id");
-	}
-	const runPath = resolve(quarantineRoot, runName);
-	if (!isPathInside(runPath, quarantineRoot)) throw new Error("Invalid quarantine path");
-	const sessionRoot = resolve(agentDir, SESSION_ROOT_NAME);
-	const manifestPath = join(runPath, "manifest.jsonl");
-	const content = await readFile(manifestPath, "utf8");
-	let restored = 0;
-	let skipped = 0;
-	let failed = 0;
-	for (const line of content.split(/\r?\n/)) {
-		const record = parseJsonLine(line) as Partial<ManifestRecord> | undefined;
-		if (!record?.originalPath || !record.quarantinedPath) continue;
-		const source = resolve(runPath, record.quarantinedPath);
-		const destination = resolve(record.originalPath);
-		if (!isPathInside(source, runPath) || !isPathInside(destination, sessionRoot)) {
-			failed++;
-			continue;
+	const release = await acquireLock(agentDir);
+	if (!release) throw new Error("Another session retention operation is already running");
+	try {
+		const quarantineRoot = resolve(agentDir, QUARANTINE_ROOT_NAME);
+		const runName = basename(requestedRunId);
+		if (runName !== requestedRunId || !/^\d{4}-\d{2}-\d{2}T/.test(runName)) {
+			throw new Error("Invalid quarantine run id");
 		}
-		try {
-			if (!isPathInside(source, runPath)) throw new Error("invalid source");
-			try {
-				await stat(destination);
-				skipped++;
+		const runPath = resolve(quarantineRoot, runName);
+		if (!isPathInside(runPath, quarantineRoot)) throw new Error("Invalid quarantine path");
+		const sessionRoot = resolve(agentDir, SESSION_ROOT_NAME);
+		const manifestPath = join(runPath, "manifest.jsonl");
+		const content = await readFile(manifestPath, "utf8");
+		let restored = 0;
+		let skipped = 0;
+		let failed = 0;
+		for (const line of content.split(/\r?\n/)) {
+			const record = parseJsonLine(line) as Partial<ManifestRecord> | undefined;
+			if (!record?.originalPath || !record.quarantinedPath) continue;
+			const source = resolve(runPath, record.quarantinedPath);
+			const destination = resolve(record.originalPath);
+			if (!isPathInside(source, runPath) || !isPathInside(destination, sessionRoot)) {
+				failed++;
 				continue;
-			} catch {
-				// Destination is absent; restore it below.
 			}
-			await mkdir(dirname(destination), { recursive: true });
-			await rename(source, destination);
-			restored++;
-		} catch {
-			failed++;
+			try {
+				try {
+					await stat(destination);
+					skipped++;
+					continue;
+				} catch {
+					// Destination is absent; restore it below.
+				}
+				await mkdir(dirname(destination), { recursive: true });
+				await rename(source, destination);
+				restored++;
+			} catch {
+				failed++;
+			}
 		}
+		if (failed === 0) await rm(runPath, { recursive: true, force: true });
+		return { restored, skipped, failed };
+	} finally {
+		await release();
 	}
-	if (failed === 0) await rm(runPath, { recursive: true, force: true });
-	return { restored, skipped, failed };
-		} finally {
-			await release();
-		}
 }
 
 function formatBytes(bytes: number): string {
