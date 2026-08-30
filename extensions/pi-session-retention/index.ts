@@ -10,8 +10,8 @@ import {
 	rm,
 	stat,
 	writeFile,
-	type Dirent,
 } from "node:fs/promises";
+import type { Dirent } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 // Pi has no automatic history retention. This extension deliberately works on
@@ -105,7 +105,7 @@ interface DiscoveredSession extends SessionRecord {
 	prefix: string;
 }
 
-interface CleanupOptions {
+export interface CleanupOptions {
 	agentDir?: string;
 	sessionRoot?: string;
 	currentSessionFile?: string;
@@ -144,22 +144,52 @@ function parseBooleanEnv(name: string, fallback: boolean): boolean {
 }
 
 export function readPolicy(overrides: Partial<RetentionPolicy> = {}): RetentionPolicy {
-	return {
-		maxAgeDays: overrides.maxAgeDays ?? parseNumberEnv("PI_SESSION_RETENTION_MAX_AGE_DAYS", DEFAULT_POLICY.maxAgeDays),
-		keepPerProject: Math.floor(
+	const nonNegative = (value: number, fallback: number): number =>
+		Number.isFinite(value) && value >= 0 ? value : fallback;
+	const maxAgeDays = nonNegative(
+		overrides.maxAgeDays ?? parseNumberEnv("PI_SESSION_RETENTION_MAX_AGE_DAYS", DEFAULT_POLICY.maxAgeDays),
+		DEFAULT_POLICY.maxAgeDays,
+	);
+	const keepPerProject = Math.floor(
+		nonNegative(
 			overrides.keepPerProject ??
 				parseNumberEnv("PI_SESSION_RETENTION_KEEP_PER_PROJECT", DEFAULT_POLICY.keepPerProject),
+			DEFAULT_POLICY.keepPerProject,
 		),
-		capAfterDays: overrides.capAfterDays ?? parseNumberEnv("PI_SESSION_RETENTION_CAP_AFTER_DAYS", DEFAULT_POLICY.capAfterDays),
-		protectRecentDays:
-			overrides.protectRecentDays ??
+	);
+	const capAfterDays = nonNegative(
+		overrides.capAfterDays ?? parseNumberEnv("PI_SESSION_RETENTION_CAP_AFTER_DAYS", DEFAULT_POLICY.capAfterDays),
+		DEFAULT_POLICY.capAfterDays,
+	);
+	const protectRecentDays = nonNegative(
+		overrides.protectRecentDays ??
 			parseNumberEnv("PI_SESSION_RETENTION_PROTECT_RECENT_DAYS", DEFAULT_POLICY.protectRecentDays),
-		tinyBytes: Math.floor(overrides.tinyBytes ?? parseNumberEnv("PI_SESSION_RETENTION_TINY_BYTES", DEFAULT_POLICY.tinyBytes)),
-		tinyAfterDays:
-			overrides.tinyAfterDays ?? parseNumberEnv("PI_SESSION_RETENTION_TINY_AFTER_DAYS", DEFAULT_POLICY.tinyAfterDays),
-		quarantineDays:
-			overrides.quarantineDays ??
+		DEFAULT_POLICY.protectRecentDays,
+	);
+	const tinyBytes = Math.floor(
+		nonNegative(
+			overrides.tinyBytes ?? parseNumberEnv("PI_SESSION_RETENTION_TINY_BYTES", DEFAULT_POLICY.tinyBytes),
+			DEFAULT_POLICY.tinyBytes,
+		),
+	);
+	const tinyAfterDays = nonNegative(
+		overrides.tinyAfterDays ??
+			parseNumberEnv("PI_SESSION_RETENTION_TINY_AFTER_DAYS", DEFAULT_POLICY.tinyAfterDays),
+		DEFAULT_POLICY.tinyAfterDays,
+	);
+	const quarantineDays = nonNegative(
+		overrides.quarantineDays ??
 			parseNumberEnv("PI_SESSION_RETENTION_QUARANTINE_DAYS", DEFAULT_POLICY.quarantineDays),
+		DEFAULT_POLICY.quarantineDays,
+	);
+	return {
+		maxAgeDays,
+		keepPerProject,
+		capAfterDays,
+		protectRecentDays,
+		tinyBytes,
+		tinyAfterDays,
+		quarantineDays,
 		dryRun: overrides.dryRun ?? parseBooleanEnv("PI_SESSION_RETENTION_DRY_RUN", DEFAULT_POLICY.dryRun),
 	};
 }
@@ -481,6 +511,7 @@ export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupS
 		await enrichCandidateNames(preliminary);
 		const preliminaryPaths = new Set(preliminary.filter((candidate) => !candidate.name).map((candidate) => candidate.file));
 		const protectedParentPaths = parentPathsOfRetainedSessions(sessions, preliminaryPaths, sessionRoot);
+		const candidatesBeforeParentProtection = preliminary.filter((candidate) => !candidate.name);
 		const candidates = planCandidates(
 			sessions,
 			policy,
@@ -494,7 +525,9 @@ export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupS
 		for (const candidate of candidates) candidate.name ||= names.get(resolve(candidate.file));
 		const finalCandidates = candidates.filter((candidate) => !candidate.name);
 		summary.protectedByName = preliminary.filter((candidate) => candidate.name).length;
-		summary.protectedByParent = candidates.length - finalCandidates.length;
+		summary.protectedByParent = candidatesBeforeParentProtection.filter((candidate) =>
+			protectedParentPaths.has(resolve(candidate.file)),
+		).length;
 		summary.planned = finalCandidates.length;
 		summary.bytes = finalCandidates.reduce((total, candidate) => total + candidate.size, 0);
 		summary.candidates = finalCandidates;
@@ -507,6 +540,7 @@ export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupS
 			join(quarantineRun, "policy.json"),
 			`${JSON.stringify({ policy, sessionRoot, createdAt: new Date().toISOString() }, null, 2)}\n`,
 		);
+		let manifestWrite = Promise.resolve();
 		await mapWithConcurrency(finalCandidates, MOVE_CONCURRENCY, async (candidate) => {
 			const destination = join(quarantineRun, candidate.projectDir, basename(candidate.file));
 			try {
@@ -521,7 +555,11 @@ export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupS
 					...(candidate.cwd ? { cwd: candidate.cwd } : {}),
 					...(candidate.name ? { name: candidate.name } : {}),
 				};
-				await appendFile(manifest, `${JSON.stringify(record)}\n`);
+				// Serialize manifest appends so concurrent moves cannot interleave
+				// records. The rename happens first, so a failed append is reported
+				// as a failed recovery record rather than a false success.
+				manifestWrite = manifestWrite.then(() => appendFile(manifest, `${JSON.stringify(record)}\n`));
+				await manifestWrite;
 				summary.moved++;
 				summary.quarantinedBytes += candidate.size;
 			} catch (error) {
@@ -536,6 +574,9 @@ export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupS
 }
 
 export async function restoreRun(agentDir: string, requestedRunId: string): Promise<{ restored: number; skipped: number; failed: number }> {
+		const release = await acquireLock(agentDir);
+		if (!release) throw new Error("Another session retention operation is already running");
+		try {
 	const quarantineRoot = resolve(agentDir, QUARANTINE_ROOT_NAME);
 	const runName = basename(requestedRunId);
 	if (runName !== requestedRunId || !/^\d{4}-\d{2}-\d{2}T/.test(runName)) {
@@ -576,6 +617,9 @@ export async function restoreRun(agentDir: string, requestedRunId: string): Prom
 	}
 	if (failed === 0) await rm(runPath, { recursive: true, force: true });
 	return { restored, skipped, failed };
+		} finally {
+			await release();
+		}
 }
 
 function formatBytes(bytes: number): string {
@@ -634,7 +678,7 @@ export default function sessionRetention(pi: ExtensionAPI): void {
 					agentDir,
 					sessionRoot,
 					currentSessionFile,
-					policy: { dryRun: tokens.includes("--dry-run") },
+					policy: tokens.includes("--dry-run") ? { dryRun: true } : undefined,
 				});
 				ctx.ui.notify(formatSummary(summary, readPolicy({ dryRun: summary.dryRun })), summary.failed ? "warning" : "info");
 				return;
