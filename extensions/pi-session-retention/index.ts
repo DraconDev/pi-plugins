@@ -580,7 +580,19 @@ export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupS
 		const sessions = await discoverSessions(sessionRoot);
 		summary.scanned = sessions.length;
 		const protectedFragments = options.protectedFragments ?? envProtectedFragments();
-		const preliminary = planCandidates(sessions, policy, options.currentSessionFile, protectedFragments);
+		const protectedSessionFiles = await readActiveSessionFiles(agentDir);
+		if (options.currentSessionFile) protectedSessionFiles.add(resolve(options.currentSessionFile));
+		for (const sessionFile of options.protectedSessionFiles ?? []) {
+			protectedSessionFiles.add(resolve(sessionFile));
+		}
+		const preliminary = planCandidates(
+			sessions,
+			policy,
+			options.currentSessionFile,
+			protectedFragments,
+			new Set(),
+			protectedSessionFiles,
+		);
 		await enrichCandidateNames(preliminary);
 		const preliminaryPaths = new Set(preliminary.filter((candidate) => !candidate.name).map((candidate) => candidate.file));
 		const protectedParentPaths = parentPathsOfRetainedSessions(sessions, preliminaryPaths, sessionRoot);
@@ -591,6 +603,7 @@ export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupS
 			options.currentSessionFile,
 			protectedFragments,
 			protectedParentPaths,
+			protectedSessionFiles,
 		);
 		// Keep the names discovered during the bounded prefix/tail scan so a
 		// named candidate is never moved merely because its name was near a slice.
@@ -712,13 +725,21 @@ function formatSummary(summary: CleanupSummary, policy: RetentionPolicy): string
 
 async function statusText(options: CleanupOptions): Promise<string> {
 	const policy = readPolicy(options.policy);
-	const sessionRoot = resolve(options.sessionRoot || join(options.agentDir || resolveAgentDir(), SESSION_ROOT_NAME));
+	const agentDir = resolve(options.agentDir || resolveAgentDir());
+	const sessionRoot = resolve(options.sessionRoot || join(agentDir, SESSION_ROOT_NAME));
 	const sessions = await discoverSessions(sessionRoot);
+	const protectedSessionFiles = await readActiveSessionFiles(agentDir);
+	if (options.currentSessionFile) protectedSessionFiles.add(resolve(options.currentSessionFile));
+	for (const sessionFile of options.protectedSessionFiles ?? []) {
+		protectedSessionFiles.add(resolve(sessionFile));
+	}
 	const candidates = planCandidates(
 		sessions,
 		policy,
 		options.currentSessionFile,
 		options.protectedFragments ?? envProtectedFragments(),
+		new Set(),
+		protectedSessionFiles,
 	);
 	await enrichCandidateNames(candidates);
 	const pending = candidates.filter((candidate) => !candidate.name);
@@ -766,16 +787,32 @@ export default function sessionRetention(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_start", async (event, ctx: ExtensionContext) => {
+		const agentDir = resolveAgentDir();
+		const currentSessionFile = ctx.sessionManager.getSessionFile();
+		await writeActiveSessionMarker(agentDir, currentSessionFile);
 		if (event.reason !== "startup" || parseBooleanEnv("PI_SESSION_RETENTION_AUTO", true) === false) return;
-		const summary = await runCleanup({
-			agentDir: resolveAgentDir(),
-			sessionRoot: join(resolveAgentDir(), SESSION_ROOT_NAME),
-			currentSessionFile: ctx.sessionManager.getSessionFile(),
-		});
-		if (summary.moved > 0 && ctx.hasUI) {
-			ctx.ui.notify(`Session retention: quarantined ${summary.moved} stale/spammy session(s) (${formatBytes(summary.quarantinedBytes)}).`, "info");
-		} else if (summary.failed > 0 && ctx.hasUI) {
-			ctx.ui.notify(`Session retention: ${summary.failed} session cleanup action(s) failed.`, "warning");
+		try {
+			const summary = await runCleanup({
+				agentDir,
+				sessionRoot: join(agentDir, SESSION_ROOT_NAME),
+				currentSessionFile,
+			});
+			if (summary.moved > 0 && ctx.hasUI) {
+				ctx.ui.notify(`Session retention: quarantined ${summary.moved} stale/spammy session(s) (${formatBytes(summary.quarantinedBytes)}).`, "info");
+			} else if (summary.failed > 0 && ctx.hasUI) {
+				ctx.ui.notify(`Session retention: ${summary.failed} session cleanup action(s) failed.`, "warning");
+			}
+		} catch (error) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`Session retention failed: ${error instanceof Error ? error.message : String(error)}`,
+					"warning",
+				);
+			}
 		}
+	});
+
+	pi.on("session_shutdown", async () => {
+		await removeActiveSessionMarker(resolveAgentDir());
 	});
 }
