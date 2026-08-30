@@ -1,0 +1,33 @@
+{
+	"name": "pi-session-retention",
+	"version": "0.1.0",
+	"description": "Keep Pi's loadable session history useful by quarantining stale and high-churn sessions automatically.",
+	"type": "module",
+	"main": "index.ts",
+	"files": ["index.ts", "README.md", "package.json", "tsconfig.json"],
+	"scripts": {
+		"clean": "echo 'nothing to clean'",
+		"build": "echo 'Pi loads index.ts directly; no build step'",
+		"check": "bunx tsc --noEmit -p tsconfig.json"
+	},
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"session",
+		"retention",
+		"cleanup",
+		"history",
+		"quarantine"
+	],
+	"author": {
+		"name": "DraconDev"
+	},
+	"license": "MIT",
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	},
+	"pi": {
+		"extensions": ["./index.ts"]
+	}
+}
