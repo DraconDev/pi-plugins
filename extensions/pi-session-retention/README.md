@@ -10,6 +10,8 @@ On fresh Pi startup it scans the default `~/.pi/agent/sessions/` store and quara
 
 The newest/recent sessions are protected, the current session is protected, names found in the bounded session slices are protected, and fork parents of retained sessions are protected. The extension only runs automatically for `session_start` with reason `startup`, so `/reload` and `/new` do not repeatedly rescan the store.
 
+Pi processes that have loaded the extension also register a small PID marker under `~/.pi/agent/.session-retention-active/`; live marker entries protect their session files during cleanup. Stale markers are ignored and removed on a later scan.
+
 ## Recovery model
 
 Matches are moved, not immediately deleted, to:
