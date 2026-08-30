@@ -22,6 +22,7 @@ import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@e
 export const SESSION_ROOT_NAME = "sessions";
 export const QUARANTINE_ROOT_NAME = "session-retention-quarantine";
 export const LOCK_DIRECTORY_NAME = ".session-retention-lock";
+export const ACTIVE_DIRECTORY_NAME = ".session-retention-active";
 
 const HEADER_READ_BYTES = 16 * 1024;
 const TAIL_READ_BYTES = 64 * 1024;
@@ -109,6 +110,7 @@ export interface CleanupOptions {
 	agentDir?: string;
 	sessionRoot?: string;
 	currentSessionFile?: string;
+	protectedSessionFiles?: string[];
 	policy?: Partial<RetentionPolicy>;
 	protectedFragments?: string[];
 }
@@ -357,17 +359,88 @@ function parentPathCandidates(parent: string, sessionRoot: string): string[] {
 	return [resolve(parent), resolve(sessionRoot, parent)];
 }
 
+interface ActiveSessionMarker {
+	pid: number;
+	sessionFile: string;
+	startedAt: string;
+}
+
+function processIsAlive(pid: number): boolean {
+	if (!Number.isInteger(pid) || pid <= 0) return false;
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return error instanceof Error && (error as NodeJS.ErrnoException).code === "EPERM";
+	}
+}
+
+async function writeActiveSessionMarker(agentDir: string, sessionFile: string | undefined): Promise<void> {
+	if (!sessionFile) return;
+	try {
+		const activeDir = join(agentDir, ACTIVE_DIRECTORY_NAME);
+		await mkdir(activeDir, { recursive: true });
+		const marker: ActiveSessionMarker = {
+			pid: process.pid,
+			sessionFile: resolve(sessionFile),
+			startedAt: new Date().toISOString(),
+		};
+		await writeFile(join(activeDir, `${process.pid}.json`), `${JSON.stringify(marker)}\n`);
+	} catch {
+		// A marker is only an additional safety net; failure must not stop Pi.
+	}
+}
+
+async function removeActiveSessionMarker(agentDir: string): Promise<void> {
+	await rm(join(agentDir, ACTIVE_DIRECTORY_NAME, `${process.pid}.json`), { force: true }).catch(() => undefined);
+}
+
+async function readActiveSessionFiles(agentDir: string): Promise<Set<string>> {
+	const activeFiles = new Set<string>();
+	const activeDir = join(agentDir, ACTIVE_DIRECTORY_NAME);
+	let entries: Dirent[];
+	try {
+		entries = await readdir(activeDir, { withFileTypes: true });
+	} catch {
+		return activeFiles;
+	}
+	await mapWithConcurrency(
+		entries.filter((entry) => entry.isFile() && entry.name.endsWith(".json")),
+		SCAN_CONCURRENCY,
+		async (entry) => {
+			const markerPath = join(activeDir, entry.name);
+			try {
+				const marker = JSON.parse(await readFile(markerPath, "utf8")) as Partial<ActiveSessionMarker>;
+				if (
+					typeof marker.pid === "number" &&
+					typeof marker.sessionFile === "string" &&
+					processIsAlive(marker.pid)
+				) {
+					activeFiles.add(resolve(marker.sessionFile));
+					return;
+				}
+				await rm(markerPath, { force: true });
+			} catch {
+				// Ignore malformed/stale markers; the next run can remove them.
+			}
+		},
+	);
+	return activeFiles;
+}
+
 export function planCandidates(
 	sessions: SessionRecord[],
 	policy: RetentionPolicy,
 	currentSessionFile?: string,
 	protectedFragments: string[] = [],
 	protectedParentPaths: ReadonlySet<string> = new Set(),
+	protectedSessionFiles: ReadonlySet<string> = new Set(),
 ): CleanupCandidate[] {
 	const current = currentSessionFile ? resolve(currentSessionFile) : undefined;
 	const candidates: CleanupCandidate[] = [];
 	for (const session of sessions) {
 		if (current && resolve(session.file) === current) continue;
+		if (protectedSessionFiles.has(resolve(session.file))) continue;
 		if (policy.protectRecentDays > 0 && session.ageDays < policy.protectRecentDays) continue;
 		if (session.name) continue;
 		if (matchesProtectedFragment(session, protectedFragments)) continue;
