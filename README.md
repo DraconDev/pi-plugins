@@ -15,6 +15,7 @@ pi-plugins/
 │   ├── pi-plugin-list-selector-modlist/  named profiles for active tools and extension packages
 │   ├── pi-auto-review/                  automated project review — scans, writes TODO.md, auto-fixes
 │   ├── pi-global-context-limit/         caps every model's contextWindow to one configurable limit
+│   ├── pi-session-retention/             quarantines stale and high-churn loadable Pi sessions
 │   └── pi-retry-on-error/               retries transient LLM provider errors transparently
 └── skills/
     ├── chrome-extension-dev/            load/reload/manage unpacked Chrome extensions in dev
@@ -84,6 +85,18 @@ so no manual editing of `models.json` is needed.
 
 - Registered in `packages` as `../../Dev/pi-plugins/extensions/pi-global-context-limit`.
 - See [extensions/pi-global-context-limit/README.md](./extensions/pi-global-context-limit/README.md) for details.
+
+### `extensions/pi-session-retention`
+
+Keeps Pi's `/resume` history manageable by quarantining stale, high-churn, and tiny abandoned
+session JSONL files. It scans bounded header/tail slices instead of loading full transcripts, protects
+recent and named sessions plus live Pi processes and fork parents, and provides `/session-retention`
+commands for status, dry runs, cleanup, and restore.
+
+- Registered in `packages` as `../../Dev/pi-plugins/extensions/pi-session-retention`.
+- Quarantined runs remain recoverable for 14 days by default.
+- See [extensions/pi-session-retention/README.md](./extensions/pi-session-retention/README.md) for
+  policy and configuration details.
 
 ### `skills/chrome-extension-dev`
 
