@@ -196,7 +196,7 @@ Opens an interactive editor for the trigger block. Navigate with ↑↓, press E
 
 ## Cooperation with other extensions
 
-- **`pi-retry-on-error`**. The two compose: pi-retry-on-error retries the same model on transient errors (HTTP 5xx, timeouts, "model overloaded"). When those retries are exhausted, the error reaches this router, which then advances to the next chain entry. Set `PI_RETRY_MAX_RETRIES` lower than the threshold you'd want for triggering fallback, or set `retriesBeforeFallback: 0` here to disable same-model retries and rely solely on pi-retry-on-error for that layer.
+- **`pi-retry-on-error`**. The two compose when same-model retries are bounded: pi-retry-on-error retries every assistant/provider error, and once its retries are exhausted this router can advance to the next chain entry. Its default is now continuous, so set `PI_RETRY_MAX_RETRIES` to a finite value (or `0` to disable it) when fallback should eventually run. Alternatively set `retriesBeforeFallback: 0` here to disable this router's same-model retries and use only pi-retry-on-error for that layer.
 - **`pi-use-last-selected-thinking-level`**. Independent. Thinking-level memory is per-model; this router's model-switch events still emit `model_select` and the thinking-memory extension picks them up.
 
 ---

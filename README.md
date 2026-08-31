@@ -16,7 +16,7 @@ pi-plugins/
 │   ├── pi-auto-review/                  automated project review — scans, writes TODO.md, auto-fixes
 │   ├── pi-global-context-limit/         caps every model's contextWindow to one configurable limit
 │   ├── pi-session-retention/             quarantines stale and high-churn loadable Pi sessions
-│   └── pi-retry-on-error/               retries transient LLM provider errors transparently
+│   └── pi-retry-on-error/               continuously retries assistant/provider errors with backoff
 └── skills/
     ├── chrome-extension-dev/            load/reload/manage unpacked Chrome extensions in dev
     └── pi-search-skill/                 unlimited local key-less web search via search-daemon
@@ -61,9 +61,9 @@ bounded fix loops. The `autoReview` config block in `~/.pi/agent/settings.json` 
 
 ### `extensions/pi-retry-on-error`
 
-A Pi extension that automatically retries the user's last message when an LLM provider returns a
-transient error (HTTP 5xx, network timeouts, "model overloaded", etc.). Transparent to the user —
-retries happen silently up to a configurable limit.
+A Pi extension that automatically retries the user's last message for every assistant/provider
+error (HTTP failures, timeouts, unavailable gateways, model overload, etc.). The default policy is
+continuous with exponential backoff; optional retry-count and duration limits are available.
 
 - Registered in `packages` as `../../Dev/pi-plugins/extensions/pi-retry-on-error`.
 - See [extensions/pi-retry-on-error/README.md](./extensions/pi-retry-on-error/README.md) for details.

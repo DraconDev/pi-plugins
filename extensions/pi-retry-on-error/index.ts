@@ -130,7 +130,7 @@ function cloneUserContent(content: unknown): RetryableUserContent | null {
     // Older runtimes or unusual host objects can make structuredClone fail.
     // The supported block fields are value-like, so a shallow block copy is a
     // safe fallback for pi's TextContent/ImageContent shapes.
-    return content.map((block) => ({ ...(block as Record<string, unknown>) })) as RetryableUserContent;
+    return content.map((block) => ({ ...(block as Record<string, unknown>) })) as unknown as RetryableUserContent;
   }
 }
 

@@ -1,33 +1,36 @@
 # pi-retry-on-error
 
-**Automatically retry transient LLM provider errors in [pi](https://github.com/earendil-works/pi-coding-agent).**
+Automatically retries **every assistant/provider error** in [pi](https://github.com/earendil-works/pi-coding-agent).
 
-When a provider or gateway is flaky, the same prompt often succeeds on a second or third try. This extension watches for any assistant message that ends with `stopReason: "error"` (e.g. `Error: 400 No healthy provider available for model: 0g-minimax-m3`, HTTP 5xx, timeouts, model overloaded, etc.), replaces the visible error in the session with a friendly "Retrying…" notice, and automatically re-sends the user's last message up to **2 times** (configurable).
+The default policy is intentionally continuous: after an assistant message ends with
+`stopReason: "error"`, the extension re-sends the original user message until it succeeds,
+the user starts a different prompt, `/retry stop` is run, or the session shuts down. Retries use
+exponential backoff instead of hammering an unavailable provider.
 
-It works with any pi provider — no provider-specific code, no duplicated retry logic.
+This covers provider-agnostic failures such as HTTP 4xx/5xx responses, unavailable gateways,
+timeouts, connection failures, and model overload errors. No provider-specific error allowlist is
+used.
 
----
+## Safety boundaries
 
-## What it adds
-
-- Automatic, transparent retry of any failed LLM turn.
-- Per-session retry counter that resets on success or new user message.
-- Configurable retry count and retry delay via environment variables.
-- The visible error message in the session is replaced with a "Retrying (attempt N/M)…" notice so the conversation reads cleanly.
-- When retries are exhausted, the **original error message is preserved in the session** and a final-failure notification is shown.
-- User is notified (`ctx.ui.notify`) on every retry and every final failure — no silent failures.
-
----
+- `stopReason: "aborted"` is never retried; pressing Escape remains a reliable way to cancel.
+- Tool-result errors are not replayed. Re-running a whole prompt after a failed `bash`, `write`, or
+  other side-effecting tool could repeat the side effect. Pi's normal agent loop can handle tool
+  errors itself.
+- `/retry stop` cancels the pending timer immediately. `/retry start` enables it again for future
+  errors; `/retry reset` cancels the current chain while leaving the feature enabled.
+- Endless mode is configurable. Set a retry count or a duration when a bounded policy is safer.
+- The retry content is copied, so text and image prompts are both supported.
 
 ## Install / load
 
-### Option 1: `pi -e` flag
+### Option 1: `pi -e`
 
 ```bash
 pi -e /path/to/pi-retry-on-error
 ```
 
-### Option 2: `~/.pi/agent/settings.json` (auto-load)
+### Option 2: `~/.pi/agent/settings.json`
 
 ```json
 {
@@ -37,73 +40,92 @@ pi -e /path/to/pi-retry-on-error
 }
 ```
 
-Drop the directory into `~/.pi/agent/extensions/` (or a project-local `.pi/extensions/`) and it is auto-discovered and hot-reloadable with `/reload`.
+Drop the directory into `~/.pi/agent/extensions/` (or a project-local `.pi/extensions/`) for
+auto-discovery and hot reload with `/reload`.
 
-### Option 3: alongside an existing provider
+### Option 3: install as a package
 
-Add the path to the same `extensions` array you use for `pi-kilo-code-provider`, `pi-openadapter-provider`, etc. Order does not matter — the extension subscribes to events from any provider.
-
----
+```bash
+pi install /path/to/pi-retry-on-error
+```
 
 ## Configuration
 
-Two environment variables, read once at extension load:
+Environment variables are read once when the extension loads.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `PI_RETRY_MAX_RETRIES` | `2` | Number of automatic retries on error (i.e. 3 total attempts). Clamped to `>= 0`. Set to `0` to disable retries (the extension will still notify you of the error). |
-| `PI_RETRY_DELAY_MS` | `1000` | Delay in milliseconds between the error and the retry. Clamped to `>= 0`. |
+| `PI_RETRY_MAX_RETRIES` | `unlimited` | Automatic retries after an error. `0` disables retries; a positive integer bounds them. `unlimited`, `infinite`, and `inf` are also accepted. |
+| `PI_RETRY_DELAY_MS` | `5000` | Initial delay before retry, clamped to at least 100 ms. |
+| `PI_RETRY_BACKOFF_MULTIPLIER` | `2` | Multiplier applied after each failed attempt; values below `1` are ignored. |
+| `PI_RETRY_MAX_DELAY_MS` | `60000` | Maximum delay between attempts. It is never lower than the initial delay. |
+| `PI_RETRY_MAX_DURATION_MS` | `0` | Maximum duration of one retry chain. `0` means unlimited. |
+| `PI_RETRY_NOTIFY_EVERY` | `5` | Show a warning notification on the first retry and every Nth retry. The footer status updates on every retry. |
 
-Examples:
+### Continuous mode (default)
 
 ```bash
-# Retry up to 3 times, wait 2 seconds between attempts
-PI_RETRY_MAX_RETRIES=3 PI_RETRY_DELAY_MS=2000 pi -e ./pi-retry-on-error
-
-# Disable retries (the extension becomes a no-op for retries, but still surfaces errors)
-PI_RETRY_MAX_RETRIES=0 pi -e ./pi-retry-on-error
+# Endless retries with the built-in 5s -> 60s exponential backoff
+pi -e ./extensions/pi-retry-on-error
 ```
 
----
+### Bounded mode
 
-## Behavior in detail
+```bash
+# At most 10 automatic retries
+PI_RETRY_MAX_RETRIES=10 pi -e ./extensions/pi-retry-on-error
 
-1. **Capture**: every time a user message starts (`message_start` with `role: "user"`), the extension captures the message text. Both `string` content and `TextContent[]` content are supported; messages with only images (no text) are skipped. A new user message also resets the retry counter.
+# Retry for at most 24 hours, regardless of attempt count
+PI_RETRY_MAX_DURATION_MS=86400000 pi -e ./extensions/pi-retry-on-error
 
-2. **Detect error**: when an assistant message ends (`message_end` with `role: "assistant"` and `stopReason: "error"`), the extension treats it as a transient error.
+# Disable automatic retries for this process
+PI_RETRY_MAX_RETRIES=0 pi -e ./extensions/pi-retry-on-error
+```
 
-3. **Decide**:
-   - If the retry counter is below `PI_RETRY_MAX_RETRIES` and a user message was captured:
-     - Increment the counter.
-     - `ctx.ui.notify("Provider error, retrying (attempt N/M)…", "warning")`.
-     - Replace the error message in the session with a friendly "⚠️ Provider returned an error: …. Retrying automatically (attempt N/M)…" notice (same `role: "assistant"`, `stopReason: "stop"`, no `errorMessage`).
-     - After `PI_RETRY_DELAY_MS` ms, `pi.sendUserMessage(savedText, { deliverAs: "followUp" })` is called. `deliverAs: "followUp"` is safe whether or not the agent is currently streaming.
-   - If the counter is at or above the maximum:
-     - Leave the original error message visible in the session.
-     - `ctx.ui.notify("Provider error after N retries: …", "error")`.
-     - Reset the counter.
-   - If no user text was captured (e.g. the error happened on the very first turn, or the user message had only images):
-     - Leave the error visible.
-     - Notify that no retry is possible.
-   - If `PI_RETRY_MAX_RETRIES` is `0`:
-     - Leave the error visible, notify, do not retry.
+For a faster but still bounded policy:
 
-4. **Reset on success**: any assistant message that ends with a non-error, non-aborted `stopReason` (`"stop"`, `"toolUse"`, `"length"`) resets the retry counter to 0. `stopReason: "aborted"` is also non-error and resets the counter (the user cancelled, so retries don't apply).
+```bash
+PI_RETRY_MAX_RETRIES=5 \
+PI_RETRY_DELAY_MS=1000 \
+PI_RETRY_MAX_DELAY_MS=15000 \
+pi -e ./extensions/pi-retry-on-error
+```
 
-5. **Failure-safe**: every step is wrapped so a thrown error in the retry path is caught and surfaced via `ctx.ui.notify` rather than crashing the agent loop.
+## Runtime commands
 
----
+```text
+/retry status   Show enabled state, retry limit, backoff, and current attempt
+/retry start    Enable continuous retries for this session
+/retry stop     Disable retries and cancel a pending retry
+/retry reset    Cancel the current chain and reset its counter
+```
 
-## Notes
+## How it works
 
-- The extension is provider-agnostic: it does not branch on provider name and works with any pi provider.
-- It does not modify payloads (`before_provider_request`), responses (`after_provider_response`), or context (`context`). It only observes `message_start` and `message_end`.
-- The retry delivery uses `deliverAs: "followUp"` so it never throws on a still-streaming turn. If the agent is idle, it sends immediately and triggers a new turn.
-- The replacement message keeps the same `role: "assistant"` as the original, satisfying pi's `message_end` replacement contract.
-- Aborted turns (`stopReason: "aborted"`) are never retried — that's a user-initiated cancellation, not a transient provider error.
-- The original `errorMessage` is preserved in the session when retries are exhausted, so you can still see what went wrong.
+1. `message_start` captures the full latest user content, including image blocks.
+2. `message_end` watches for any assistant message with `stopReason: "error"`.
+3. The error is replaced with a notice that preserves the original assistant fields (`api`,
+   `provider`, `model`, `usage`, `timestamp`, and so on). This is required because pi replaces
+   finalized messages in place.
+4. The original content is re-sent with `deliverAs: "followUp"` after the backoff delay.
+5. Consecutive retry notices and duplicate retry prompts are removed from the provider context,
+   so a long outage does not grow the effective prompt on every attempt. They remain in the
+   session transcript for visibility and auditability.
+6. A successful response, an abort, a new user prompt, `/retry stop`, session switch, reload, or
+   shutdown clears the retry chain.
 
----
+The extension never classifies or suppresses a provider error: every assistant `stopReason:
+"error"` is eligible while the feature is enabled.
+
+## Using with `auto-fallback-router`
+
+Continuous retries intentionally keep using the current model, so they will prevent a fallback
+router from taking over by default. If fallback is desired, use a finite retry count (or disable
+same-model retries in the router), for example:
+
+```bash
+PI_RETRY_MAX_RETRIES=2 pi ...
+```
 
 ## License
 
