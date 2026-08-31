@@ -113,8 +113,8 @@ function cloneUserContent(content: unknown): RetryableUserContent | null {
   if (!Array.isArray(content) || content.length === 0) return null;
 
   // Keep the complete text/image payload. Image-only prompts are valid and
-  // should be retried too; unsupported blocks are skipped rather than sent
-  // with a malformed shape.
+  // should be retried too; prompts with unsupported blocks are left alone
+  // rather than sent with a malformed shape.
   for (const block of content) {
     if (!block || typeof block !== "object") return null;
     const typedBlock = block as { type?: unknown; text?: unknown };
