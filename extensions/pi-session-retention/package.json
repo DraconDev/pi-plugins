@@ -4,7 +4,7 @@
 	"description": "Keep Pi's loadable session history useful by quarantining stale and high-churn sessions automatically.",
 	"type": "module",
 	"main": "index.ts",
-	"files": ["index.ts", "README.md", "package.json", "tsconfig.json"],
+	"files": ["index.ts", "purge.ts", "README.md", "package.json", "tsconfig.json", "systemd"],
 	"scripts": {
 		"clean": "echo 'nothing to clean'",
 		"build": "echo 'Pi loads index.ts directly; no build step'",

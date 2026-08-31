@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically purge expired Pi session-retention quarantine runs
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=6h
+Persistent=true
+RandomizedDelaySec=10min
+Unit=pi-session-retention-purge.service
+
+[Install]
+WantedBy=timers.target

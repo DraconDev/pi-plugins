@@ -1,0 +1,6 @@
+[Unit]
+Description=Permanently purge expired Pi session-retention quarantine runs
+
+[Service]
+Type=oneshot
+ExecStart=%h/.bun/bin/bun %h/Dev/pi-plugins/extensions/pi-session-retention/purge.ts

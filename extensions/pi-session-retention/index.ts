@@ -544,6 +544,39 @@ async function purgeQuarantine(quarantineRoot: string, quarantineDays: number): 
 	return purged;
 }
 
+export interface PurgeSummary {
+	purgedRuns: number;
+	locked: boolean;
+	quarantineRoot: string;
+	quarantineDays: number;
+}
+
+/**
+ * Purge expired quarantine runs without scanning the session store.
+ *
+ * This is intentionally exported for the optional systemd timer, which can
+ * enforce the recovery window even when no Pi process is running.
+ */
+export async function purgeExpiredQuarantine(
+	options: { agentDir?: string; quarantineDays?: number } = {},
+): Promise<PurgeSummary> {
+	const agentDir = resolve(options.agentDir || resolveAgentDir());
+	const quarantineDays = readPolicy({ quarantineDays: options.quarantineDays }).quarantineDays;
+	const quarantineRoot = join(agentDir, QUARANTINE_ROOT_NAME);
+	const release = await acquireLock(agentDir);
+	if (!release) return { purgedRuns: 0, locked: true, quarantineRoot, quarantineDays };
+	try {
+		return {
+			purgedRuns: await purgeQuarantine(quarantineRoot, quarantineDays),
+			locked: false,
+			quarantineRoot,
+			quarantineDays,
+		};
+	} finally {
+		await release();
+	}
+}
+
 function emptySummary(quarantineRoot: string, dryRun: boolean): CleanupSummary {
 	return {
 		scanned: 0,

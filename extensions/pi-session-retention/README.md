@@ -28,7 +28,7 @@ They are no longer loadable by `/resume`, but each run has a `manifest.jsonl` an
 /session-retention restore <run-id>
 ```
 
-Quarantine runs older than 14 days are permanently purged on the next automatic cleanup. Change that window with `PI_SESSION_RETENTION_QUARANTINE_DAYS` or set a large value if you need a longer recovery window.
+Quarantine runs older than 14 days are permanently purged. The Pi startup hook performs this purge as a fallback, and the optional user timer below checks every six hours even when Pi is closed. Change that window with `PI_SESSION_RETENTION_QUARANTINE_DAYS` or set a large value if you need a longer recovery window.
 
 ## Configuration
 
@@ -56,3 +56,18 @@ pi install /home/dracon/Dev/pi-plugins/extensions/pi-session-retention
 ```
 
 Then restart Pi or run `/reload`.
+
+## Automatic expiry timer
+
+Install the optional timer once to enforce quarantine expiry independently of Pi:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp systemd/pi-session-retention-purge.service systemd/pi-session-retention-purge.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now pi-session-retention-purge.timer
+```
+
+It runs shortly after the user systemd session starts and then every six hours, so expiry is
+normally enforced within about six hours of the configured quarantine window. The supplied unit
+assumes this checkout remains at `~/Dev/pi-plugins` and Bun remains at `~/.bun/bin/bun`.
