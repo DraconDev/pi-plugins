@@ -363,7 +363,7 @@ export default function (pi: ExtensionAPI): void {
     const content = cloneUserContent(message.content);
     const pendingAutoRetry = retryDispatchPending || retryMessageStarting;
     const isAutoRetry = pendingAutoRetry &&
-      (content === null || expectedRetryFingerprint === null || sameContent(content, expectedRetryFingerprint));
+      (content === null || expectedRetryFingerprint === null || contentFingerprint(content) === expectedRetryFingerprint);
 
     retryDispatchPending = false;
     retryMessageStarting = false;
@@ -497,7 +497,6 @@ export default function (pi: ExtensionAPI): void {
     }
     safeSetStatus(ctx, `retry ${retryCount}/${noticeLimit} scheduled in ${formatDelay(delayMs)}`);
 
-    const retryContent = contentFingerprint(lastUserContent);
     scheduleRetry(lastUserContent, delayMs, ctx);
 
     return {
