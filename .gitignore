@@ -113,6 +113,7 @@ tasks*.json
 !state/events/*.jsonl
 # --- END DRACON MANAGED BLOCK ---
 pi-use-last-selected-thinking-level/
+pi-codebuddy-sdk/
 
 # fleet audit 2026-08-16: pi session dumps + machine-local loop state
 pi-session-*.html
