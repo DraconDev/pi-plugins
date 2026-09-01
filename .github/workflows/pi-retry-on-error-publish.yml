@@ -1,0 +1,99 @@
+name: Publish pi-retry-on-error
+
+on:
+  push:
+    paths:
+      - "extensions/pi-retry-on-error/**"
+      - ".github/workflows/pi-retry-on-error-publish.yml"
+  pull_request:
+    paths:
+      - "extensions/pi-retry-on-error/**"
+      - ".github/workflows/pi-retry-on-error-publish.yml"
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pi-retry-on-error-publish
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: npm
+          cache-dependency-path: extensions/pi-retry-on-error/package.json
+
+      - name: Install dependencies and run the package's release check
+        working-directory: extensions/pi-retry-on-error
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install --no-package-lock
+          fi
+          npm run release:check
+
+  publish:
+    if: github.event_name == 'release'
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the released tag
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: extensions/pi-retry-on-error/package.json
+
+      - name: Use the pinned trusted-publishing npm
+        run: npm install --global npm@11.12.1
+
+      - name: Verify the tag matches package.json
+        working-directory: extensions/pi-retry-on-error
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          node --input-type=module - <<'NODE'
+          import fs from "node:fs";
+          const { version } = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          const expected = `v${version}`;
+          if (process.env.RELEASE_TAG !== expected) {
+            throw new Error(`release tag ${process.env.RELEASE_TAG} does not match package.json ${expected}`);
+          }
+          NODE
+
+      - name: Install dependencies and run the package's release check
+        working-directory: extensions/pi-retry-on-error
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install --no-package-lock
+          fi
+          npm run release:check
+
+      # Configure npm Trusted Publishing for this repository/workflow once in
+      # the package settings. No long-lived NPM_TOKEN is required here.
+      - name: Publish with npm trusted publishing
+        working-directory: extensions/pi-retry-on-error
+        run: npm publish --provenance --access public

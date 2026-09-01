@@ -1,16 +1,19 @@
 {
   "name": "pi-retry-on-error",
   "version": "2.0.0",
-  "description": "pi extension that continuously retries every assistant/provider error with exponential backoff, while supporting optional retry and duration limits.",
+  "description": "Continuously retries every assistant/provider error in pi with exponential backoff, while supporting optional retry-count and duration limits.",
   "type": "module",
   "main": "index.ts",
   "scripts": {
     "clean": "echo 'nothing to clean'",
     "build": "echo 'nothing to build'",
-    "check": "echo 'nothing to check'"
+    "check": "tsc --noEmit -p tsconfig.json",
+    "release:check": "npm run check"
   },
   "keywords": [
     "pi",
+    "pi-package",
+    "pi-extension",
     "extension",
     "retry",
     "resilience",
@@ -18,10 +21,32 @@
     "error",
     "unreliable",
     "ai",
-    "llm"
+    "llm",
+    "backoff"
   ],
-  "author": "",
+  "author": {
+    "name": "DraconDev"
+  },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DraconDev/pi-plugins.git",
+    "directory": "extensions/pi-retry-on-error"
+  },
+  "bugs": {
+    "url": "https://github.com/DraconDev/pi-plugins/issues"
+  },
+  "homepage": "https://github.com/DraconDev/pi-plugins/tree/main/extensions/pi-retry-on-error#readme",
+  "files": [
+    "index.ts",
+    "README.md",
+    "package.json",
+    "tsconfig.json",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
   "pi": {
     "extensions": [
       "./index.ts"

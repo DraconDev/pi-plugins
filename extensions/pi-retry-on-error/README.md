@@ -24,29 +24,40 @@ used.
 
 ## Install / load
 
-### Option 1: `pi -e`
+### Option 1: install as a package
 
 ```bash
-pi -e /path/to/pi-retry-on-error
+# From npm
+pi install npm:pi-retry-on-error
+
+# From this monorepo (path or git ref)
+pi install /path/to/pi-plugins/extensions/pi-retry-on-error
+pi install git:github.com/DraconDev/pi-plugins/extensions/pi-retry-on-error@v2.0.0
 ```
 
-### Option 2: `~/.pi/agent/settings.json`
+### Option 2: drop the directory into auto-discovery
+
+```bash
+ln -s /path/to/pi-plugins/extensions/pi-retry-on-error ~/.pi/agent/extensions/pi-retry-on-error
+```
+
+Pi auto-discovers from `~/.pi/agent/extensions/` (global) and `.pi/extensions/` (project-local).
+`/reload` re-loads on the fly.
+
+### Option 3: pin via `~/.pi/agent/settings.json`
 
 ```json
 {
   "extensions": [
-    "/path/to/pi-retry-on-error"
+    "/path/to/pi-plugins/extensions/pi-retry-on-error"
   ]
 }
 ```
 
-Drop the directory into `~/.pi/agent/extensions/` (or a project-local `.pi/extensions/`) for
-auto-discovery and hot reload with `/reload`.
-
-### Option 3: install as a package
+### Option 4: try without installing
 
 ```bash
-pi install /path/to/pi-retry-on-error
+pi -e /path/to/pi-retry-on-error
 ```
 
 ## Configuration
