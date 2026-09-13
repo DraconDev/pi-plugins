@@ -10,12 +10,14 @@
  * Auth: reuses AGNES_API_KEY / AGNES_CN_API_KEY (same env vars as pi-agnes).
  * Saves: .pi/generated-images/ and .pi/generated-videos/ (project-relative).
  */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
-import type { TSchema, Static } from "typebox";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+
+// typebox: prefer the pi-bundled copy when available (compiled binary / SEA),
+// fall back to a bare import when running as plain ESM (dev / jiti).
+import * as _typebox from "typebox";
+const Type = _typebox.Type;
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -24,9 +26,7 @@ import { pathToFileURL } from "node:url";
 const ENDPOINTS = {
   agnes: { baseUrl: "https://apihub.agnes-ai.com/v1", apiKeyEnv: "AGNES_API_KEY" },
   "agnes-cn": { baseUrl: "https://api.agnes-ai.cn/v1", apiKeyEnv: "AGNES_CN_API_KEY" },
-} as const;
-
-type EndpointId = keyof typeof ENDPOINTS;
+};
 
 const IMAGE_MODELS = new Set(["agnes-image-2.0-flash", "agnes-image-2.1-flash"]);
 const VIDEO_MODELS = new Set(["agnes-video-v2.0", "agnes-video-2.5", "agnes-video-2.5-flash"]);
@@ -85,7 +85,7 @@ const imageParams = Type.Object({
   },
 });
 
-async function executeImage(_toolCallId, params, _signal, _onUpdate, _ctx) {
+async function executeImage(_toolCallId, params) {
   const prompt = params.prompt;
   const rawModel = params.model || "agnes-image-2.1-flash";
   const endpointId = params.endpoint || "agnes";
@@ -115,7 +115,8 @@ async function executeImage(_toolCallId, params, _signal, _onUpdate, _ctx) {
   const directory = join(process.cwd(), ".pi", "generated-images");
   await mkdir(directory, { recursive: true });
   const mime = image.mime_type || "image/png";
-  const ext = mime.includes("png") ? "png" : mime.includes("jpeg") ? "jpg" : mime.includes("webp") ? "webp" : mime.includes("gif") ? "gif" : "png";
+  const ext =
+    mime.includes("png") ? "png" : mime.includes("jpeg") ? "jpg" : mime.includes("webp") ? "webp" : mime.includes("gif") ? "gif" : "png";
   const filePath = join(directory, rawModel + "-" + Date.now() + "." + ext);
   if (image.b64_json) {
     await writeFile(filePath, Buffer.from(image.b64_json, "base64"));
@@ -184,14 +185,18 @@ async function pollVideo(baseUrl, videoId, apiKey, signal) {
       signal,
     });
     const payload = await response.json().catch(() => null);
-    if (!response.ok) throw new Error((payload && payload.error && payload.error.message) || "Agnes video status HTTP " + response.status);
+    if (!response.ok) {
+      throw new Error((payload && payload.error && payload.error.message) || "Agnes video status HTTP " + response.status);
+    }
     if (payload.status === "completed") return payload;
-    if (payload.status === "failed") throw new Error((payload && payload.error && payload.error.message) || "Agnes video generation failed");
+    if (payload.status === "failed") {
+      throw new Error((payload && payload.error && payload.error.message) || "Agnes video generation failed");
+    }
   }
   throw new Error("Agnes video generation timed out after 30 minutes");
 }
 
-async function executeVideo(_toolCallId, params, signal, _onUpdate, _ctx) {
+async function executeVideo(_toolCallId, params, signal) {
   const prompt = params.prompt;
   const rawModel = params.model || "agnes-video-2.5-flash";
   const endpointId = params.endpoint || "agnes";
@@ -213,7 +218,9 @@ async function executeVideo(_toolCallId, params, signal, _onUpdate, _ctx) {
     signal,
   });
   const task = await response.json().catch(() => null);
-  if (!response.ok) throw new Error((task && task.error && task.error.message) || "Agnes video API HTTP " + response.status);
+  if (!response.ok) {
+    throw new Error((task && task.error && task.error.message) || "Agnes video API HTTP " + response.status);
+  }
   const videoId = (task && (task.video_id || task.id || task.task_id)) || null;
   if (!videoId) throw new Error("Agnes video API returned no video_id");
 
