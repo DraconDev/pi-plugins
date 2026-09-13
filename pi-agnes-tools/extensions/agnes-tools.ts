@@ -536,6 +536,54 @@ export default function (pi) {
     execute: executeVideo,
   });
 
+  // Patch around a pi-ai quirk that bites this stack: when a streaming tool-call
+  // delta arrives without an `id`, the tool-call block is recorded with
+  // `id: ""` (openai-completions.js line ~326). On the next turn pi replays
+  // history to OpenAI Chat Completions, which rejects `tool_call_id: ""`
+  // with: "missing field `tool_call_id` at line 1 column N".
+  // We strip assistant tool-call blocks with empty ids and the matching
+  // orphan tool-result messages before each request to any agnes provider,
+  // so the upstream never sees an empty id. This is harmless when no
+  // empty-id blocks exist (the common case).
+  pi.on("before_provider_request", (event) => {
+    try {
+      const payload = event.payload;
+      if (!payload || typeof payload !== "object") return;
+      const messages = Array.isArray(payload.messages) ? payload.messages : null;
+      if (!messages) return;
+      // Pass 1: strip empty-id tool-call blocks from assistant messages.
+      let strippedAny = false;
+      for (const msg of messages) {
+        if (!msg || msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+        const filtered = msg.content.filter((block) => {
+          if (block && block.type === "toolCall" && (!block.id || typeof block.id !== "string" || block.id.length === 0)) {
+            strippedAny = true;
+            return false;
+          }
+          return true;
+        });
+        if (filtered.length !== msg.content.length) msg.content = filtered;
+      }
+      // Pass 2: drop orphan tool-result messages with empty toolCallId
+      // (covers both internal camelCase and wire-format snake_case fields).
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if (!m) continue;
+        const isEmptyCamel = m.role === "toolResult" && (typeof m.toolCallId !== "string" || m.toolCallId.length === 0);
+        const isEmptySnake = m.role === "tool" && (typeof m.tool_call_id !== "string" || m.tool_call_id.length === 0);
+        if (isEmptyCamel || isEmptySnake) {
+          messages.splice(i, 1);
+          strippedAny = true;
+        }
+      }
+      if (strippedAny) {
+        debugLog("stripped empty-id tool-call/tool-result blocks before provider request");
+      }
+    } catch (error) {
+      debugLog("before_provider_request sanitizer failed: " + (error instanceof Error ? error.message : String(error)));
+    }
+  });
+
   // Providers: this plugin owns `agnes` (international) and `agnes-cn`
   // (China) outright — seed catalog + live discovery + stream routing — so
   // every text, image and video model is selectable via /model and --model.
