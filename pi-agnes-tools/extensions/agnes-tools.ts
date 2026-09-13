@@ -10,8 +10,9 @@
  * Auth: reuses AGNES_API_KEY / AGNES_CN_API_KEY (same env vars as pi-agnes).
  * Saves: .pi/generated-images/ and .pi/generated-videos/ (project-relative).
  */
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
 
 // typebox: prefer the pi-bundled copy when available (compiled binary / SEA),
@@ -24,8 +25,8 @@ const Type = _typebox.Type;
 // ---------------------------------------------------------------------------
 
 const ENDPOINTS = {
-  agnes: { baseUrl: "https://apihub.agnes-ai.com/v1", apiKeyEnv: "AGNES_API_KEY" },
-  "agnes-cn": { baseUrl: "https://api.agnes-ai.cn/v1", apiKeyEnv: "AGNES_CN_API_KEY" },
+  agnes: { baseUrl: "https://apihub.agnes-ai.com/v1", apiKeyEnv: "AGNES_API_KEY", authKey: "agnes" },
+  "agnes-cn": { baseUrl: "https://api.agnes-ai.cn/v1", apiKeyEnv: "AGNES_CN_API_KEY", authKey: "agnes-cn" },
 };
 
 const IMAGE_MODELS = new Set(["agnes-image-2.0-flash", "agnes-image-2.1-flash"]);
@@ -35,14 +36,30 @@ function fileLink(p, label = p) {
   return "[" + label + "](" + pathToFileURL(p).href + ")";
 }
 
+function resolveApiKey(endpoint) {
+  const cfg = ENDPOINTS[endpoint];
+  // 1) Environment variable (fastest, always works)
+  const envKey = process.env[cfg.apiKeyEnv];
+  if (envKey) return envKey;
+  // 2) /login-stored key in pi's auth store
+  try {
+    const authPath = join(homedir(), ".pi", "agent", "auth.json");
+    const auth = JSON.parse(readFileSync(authPath, "utf8"));
+    // Primary key: 'agnes' for both endpoints (pi-agnes registers one key per
+    // provider id, and the CN endpoint uses the same account/key in most setups).
+    const entry = auth[cfg.authKey] || auth["agnes"];
+    if (entry && entry.key) return entry.key;
+  } catch {
+    // ignore read/parse failures; fall through
+  }
+  throw new Error(
+    "No API key found for " + cfg.apiKeyEnv + ". Set the " + cfg.apiKeyEnv + " environment variable, or run /login with the pi-agnes provider."
+  );
+}
+
 function getEndpoint(endpoint) {
   const cfg = ENDPOINTS[endpoint];
-  const apiKey = process.env[cfg.apiKeyEnv];
-  if (!apiKey) {
-    throw new Error(
-      "Missing " + cfg.apiKeyEnv + " environment variable. Set it (or run /login with the pi-agnes provider) to authenticate with Agnes AI."
-    );
-  }
+  const apiKey = resolveApiKey(endpoint);
   return { baseUrl: cfg.baseUrl, apiKey, headers: { Authorization: "Bearer " + apiKey, "Content-Type": "application/json" } };
 }
 
