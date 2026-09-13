@@ -86,5 +86,14 @@ Resolution order: `AGNES_API_KEY` / `AGNES_CN_API_KEY` env vars →
 
 - `executionMode: parallel` for image (fast, stateless); `sequential` for
   video (long-running poll, up to 30 min).
+- **Video model availability is per-distributor.** In practice
+  `agnes-video-v2.0` is the reliable text-to-video model (5s / 720p clip,
+  completed payload carries the video at a top-level `url` — with
+  `metadata.url` as a fallback; the tool handles both). `agnes-video-2.5-flash`
+  may require a `mode` field this tool does not send, and `agnes-video-2.5`
+  can be unavailable under some plans ("No available channel"). If the
+  default `2.5-flash` fails, call the tool with `model: "agnes-video-v2.0"`.
+- `num_frames` / `frame_rate` are only sent when explicitly provided — some
+  video routes reject those request fields and apply their own defaults.
 - Debug: `PI_AGNES_TOOLS_DEBUG=1` logs registration + request decisions to stderr.
 - MIT licensed. Source: [github.com/DraconDev/pi-agnes-tools](https://github.com/DraconDev/pi-agnes-tools).

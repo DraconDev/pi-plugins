@@ -28,7 +28,14 @@ directly — do NOT switch to an Agnes model.
 | `model` | default `agnes-video-2.5-flash`; others: `agnes-video-2.5`, `agnes-video-v2.0` |
 | `endpoint` | `agnes` (default) or `agnes-cn` |
 | `images` | 1 image = image-to-video; >1 = keyframes mode (base64 data URIs) |
-| `num_frames` / `frame_rate` | defaults 121 / 24 |
+| `num_frames` / `frame_rate` | only sent when you pass them; some routes reject these fields |
+
+**Model availability is per-distributor:** `agnes-video-v2.0` is the reliable
+text-to-video model (returns a top-level `url`). `agnes-video-2.5-flash`
+(sometimes the default) may require a `mode` field this tool does not send,
+and `agnes-video-2.5` can be unavailable under some plans. If a video call
+fails with `mode is required` or `No available channel`, retry with
+`model: "agnes-video-v2.0"`.
 
 ## Notes
 
