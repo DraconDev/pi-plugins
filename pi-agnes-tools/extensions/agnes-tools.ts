@@ -183,6 +183,10 @@ async function pollVideo(baseUrl, videoId, apiKey, signal) {
 }
 
 async function requestVideo(baseUrl, apiKey, opts) {
+  // NOTE: the API accepts different fields per model. The flash/2.5 routes
+  // reject `num_frames` / `frame_rate` as request fields; v2.0 accepts the
+  // request with defaults. So we only send them when the caller explicitly
+  // provides them — never as hard-coded defaults.
   const body = { model: opts.model, prompt: opts.prompt };
   if (opts.num_frames) body.num_frames = opts.num_frames;
   if (opts.frame_rate) body.frame_rate = opts.frame_rate;
@@ -204,8 +208,10 @@ async function requestVideo(baseUrl, apiKey, opts) {
   if (!videoId) throw new Error("Agnes video API returned no video_id");
 
   const result = task.status === "completed" ? task : await pollVideo(baseUrl, videoId, apiKey, opts.signal);
-  const url = result && result.metadata && result.metadata.url;
-  if (!url) throw new Error("Agnes video API returned no metadata.url");
+  // The completed payload carries the video URL at top-level `url` (v2.0 and
+  // friends). Some routes nest it under `metadata.url`, so check both.
+  const url = (result && (result.url || (result.metadata && result.metadata.url))) || null;
+  if (!url) throw new Error("Agnes video API returned no video url");
 
   const directory = join(process.cwd(), ".pi", "generated-videos");
   await mkdir(directory, { recursive: true });
@@ -298,8 +304,10 @@ async function executeVideo(_toolCallId, params, signal) {
     model: rawModel,
     prompt,
     images: params.images || [],
-    num_frames: params.num_frames || 121,
-    frame_rate: params.frame_rate || 24,
+    // Only forward when explicitly provided — some Agnes video routes reject
+    // num_frames/frame_rate as request fields and use their own defaults.
+    num_frames: params.num_frames,
+    frame_rate: params.frame_rate,
     signal,
   });
 
@@ -462,6 +470,7 @@ function streamStandaloneVideo(model, context, options) {
         frame_rate: 24,
         signal: options && options.signal,
       });
+      pushDone(stream, output, "Generated video saved to: " + fileLink(saved.filePath) + "\n\nVideo URL: " + saved.remoteUrl);
       pushDone(stream, output, "Generated video saved to: " + fileLink(saved.filePath) + "\n\nVideo URL: " + saved.remoteUrl);
     } catch (error) {
       pushError(stream, output, error, options && options.signal);
