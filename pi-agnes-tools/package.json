@@ -1,6 +1,6 @@
 {
   "name": "pi-agnes-tools",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Pi extension for Agnes AI: text model catalog (selectable via /model) plus image/video generation as custom tools + skill. No model switch needed for media.",
   "type": "module",
   "keywords": [

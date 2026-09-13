@@ -1,7 +1,8 @@
 # pi-agnes-tools
 
-The single Agnes AI plugin for pi: full model catalog (text, image, video)
-for both endpoints, plus image/video generation as callable tools.
+The single Agnes AI plugin for pi: text model catalog (selectable via `/model`)
+plus image/video generation as custom tools + skill. No model switch needed
+for media.
 
 ## Install
 
@@ -15,59 +16,73 @@ Or from git:
 pi install git:github.com/DraconDev/pi-agnes-tools
 ```
 
-> Replaces `pi-agnes` — uninstall it if you have it (`pi-agnes-tools` owns the
+> Replaces `pi-agnes` — uninstall it if you have it (this plugin owns the
 > `agnes` / `agnes-cn` providers outright; keeping both installed causes the
 > two registrations to overwrite each other).
 
 ## What it registers
 
-### Providers / models (selectable via `/model` and `--model`)
+### Models (`/model` selector)
 
-| Provider | Region | Base URL | Auth | Models |
-|---|---|---|---|---|
-| `agnes` | International | `https://apihub.agnes-ai.com/v1` | `AGNES_API_KEY` | text, image, video |
-| `agnes-cn` | China | `https://api.agnes-ai.cn/v1` | `AGNES_CN_API_KEY` | text, image, video |
+Only **text/LLM** models are registered — image and video live in the skill
++ tools, not in the chat model list. Both regions:
 
-- Seed catalog covers `agnes-2.0-flash`, `agnes-2.5-flash`, `agnes-2.5-pro`,
-  `agnes-2.5-pro-alpha`, `agnes-3.0-flash`, all `agnes-image-*` and all
-  `agnes-video-*`; live `/v1/models` discovery refreshes it automatically.
-- `agnes-cn` only appears in the model list once it's authenticated (env var
-  or `/login`) — pi hides providers with no usable key.
-- Key resolution: env var → `/login`-stored key in `~/.pi/agent/auth.json`.
+| Provider | Region | Base URL | Auth |
+|---|---|---|---|
+| `agnes` | International | `https://apihub.agnes-ai.com/v1` | `AGNES_API_KEY` |
+| `agnes-cn` | China | `https://api.agnes-ai.cn/v1` | `AGNES_CN_API_KEY` |
+
+Text models: `agnes-2.0-flash`, `agnes-2.5-flash`, `agnes-2.5-pro`,
+`agnes-2.5-pro-alpha`, `agnes-3.0-flash`. Live `/v1/models` discovery adds
+newer text models automatically (image/video are filtered out).
 
 ```bash
 pi --model agnes/agnes-2.5-flash "hello"
-pi --model agnes/agnes-image-2.5-flash "a fox in a misty forest"
-pi --model agnes-cn/agnes-video-2.5-flash "ocean sunset pan"
+pi --model agnes-cn/agnes-2.5-flash "你好"
 ```
 
-### Tools (callable from any model — no switch needed)
+### Image / video — via tools + skill (not in `/model`)
 
-| Tool | Endpoint | What it does | Default model |
-|---|---|---|---|
-| `agnes_image` | `POST /v1/images/generations` | Generate an image. Saves to `.pi/generated-images/`. Returns the local path and (possibly expiring) remote URL. | `agnes-image-2.5-flash` |
-| `agnes_video` | `POST /v1/videos` + poll | Generate a video. Polls every 5s (up to 30 min). Saves `.mp4` to `.pi/generated-videos/`. Supports image-to-video (1 ref image) and keyframes (>1 image). | `agnes-video-2.5-flash` |
+Two ways to generate media:
 
-Both tools take `endpoint`: `agnes` (default, international) or `agnes-cn` (China).
+1. **Tool calls** — `agnes_image`, `agnes_video` are exposed to any chat model.
+2. **Skill** — `agnes-media` (auto-loaded with this package) tells the agent
+   exactly how to call the tools: prompt shaping, reference-image handling,
+   endpoint selection, defaults.
 
-```jsonc
-{"name": "agnes_image", "arguments": {"prompt": "a watercolor painting of a fox in a misty pine forest"}}
-{"name": "agnes_image", "arguments": {"prompt": "...", "endpoint": "agnes-cn"}}
-{"name": "agnes_video", "arguments": {"prompt": "the fox slowly turns its head", "images": ["data:image/png;base64,..."]}}
-```
+The LLM does not need to switch models. Default image model:
+`agnes-image-2.5-flash`. Default video model: `agnes-video-2.5-flash`.
 
-### Parameters
+#### `agnes_image`
 
-**`agnes_image`**: `prompt` (required), `model` (default `agnes-image-2.5-flash`),
-`endpoint` (default `agnes`), `images` (optional base64 data URIs),
-`response_format` (default `png`).
+| Param | Notes |
+|---|---|
+| `prompt` | required |
+| `model` | default `agnes-image-2.5-flash`; others: `agnes-image-2.1-flash`, `agnes-image-2.0-flash` |
+| `endpoint` | `agnes` (default) or `agnes-cn` |
+| `images` | optional base64 data URIs for reference/conditioning |
+| `response_format` | default `png` |
 
-**`agnes_video`**: `prompt` (required), `model` (default `agnes-video-2.5-flash`),
-`endpoint` (default `agnes`), `images` (optional: 1 → image-to-video,
->1 → keyframes), `num_frames` (default 121), `frame_rate` (default 24).
+#### `agnes_video`
+
+| Param | Notes |
+|---|---|
+| `prompt` | required |
+| `model` | default `agnes-video-2.5-flash`; others: `agnes-video-2.5`, `agnes-video-v2.0` |
+| `endpoint` | `agnes` (default) or `agnes-cn` |
+| `images` | 1 image = image-to-video; >1 = keyframes mode |
+| `num_frames` / `frame_rate` | defaults 121 / 24 |
+
+Output paths are project-relative (`.pi/generated-images/`, `.pi/generated-videos/`).
+
+## Auth
+
+Key resolution order: env var → `/login`-stored key in `~/.pi/agent/auth.json`.
+
+`agnes-cn` only appears in the model list once a CN key is configured
+(`AGNES_CN_API_KEY` env or a key stored under `agnes-cn` in auth.json).
 
 ## Notes
 
-- Output paths are project-relative (`.pi/generated-images/`, `.pi/generated-videos/`).
-- `executionMode: parallel` for image (fast, stateless), `sequential` for video (long-running poll loop).
+- `executionMode: parallel` for image (fast, stateless), `sequential` for video (long-running poll loop, up to 30 min).
 - Debug: `PI_AGNES_TOOLS_DEBUG=1` logs registration decisions to stderr.
