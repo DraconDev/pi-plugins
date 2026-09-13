@@ -22,7 +22,8 @@
   "files": [
     "extensions",
     "skills",
-    "README.md"
+    "README.md",
+    ".github/banner.png"
   ],
   "scripts": {
     "test": "node --test"
@@ -38,6 +39,7 @@
     ],
     "skills": [
       "./skills"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/DraconDev/pi-agnes-tools/main/.github/banner.png"
   }
 }

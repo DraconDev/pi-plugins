@@ -73,6 +73,11 @@ pi install npm:pi-agnes-tools
 pi install git:github.com/DraconDev/pi-agnes-tools
 ```
 
+Listed in the [pi.dev/packages gallery](https://pi.dev/packages) — it auto-indexes
+npm packages tagged with the `pi-package` keyword (this package has it, plus
+`pi-extension` / `pi-skill`), and carries an `image` field in its `pi` manifest
+for a visual preview card.
+
 > **Replaces `pi-agnes`.** This plugin owns the `agnes` / `agnes-cn` providers
 > outright. Uninstall `pi-agnes` if you have it — two registrations would
 > overwrite each other.
