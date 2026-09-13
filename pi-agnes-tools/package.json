@@ -1,0 +1,38 @@
+{
+  "name": "pi-agnes-tools",
+  "version": "0.1.0",
+  "description": "Pi extension that exposes Agnes AI image/video generation as callable tools (no model switch needed). Pairs with pi-agnes for auth.",
+  "type": "module",
+  "keywords": [
+    "pi",
+    "extension",
+    "pi-package",
+    "agnes",
+    "agnes-ai",
+    "image-generation",
+    "video-generation",
+    "tool"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pgciq/pi-agnes"
+  },
+  "files": [
+    "extensions",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "dependencies": {},
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  }
+}
