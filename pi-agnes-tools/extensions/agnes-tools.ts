@@ -40,6 +40,7 @@ const ALL_AGNES_MODELS = [
   "agnes-2.5-pro",
   "agnes-2.5-pro-alpha",
   "agnes-2.0-flash",
+  "agnes-3.0-flash",
   "agnes-image-2.0-flash",
   "agnes-image-2.1-flash",
   "agnes-image-2.5-flash",
