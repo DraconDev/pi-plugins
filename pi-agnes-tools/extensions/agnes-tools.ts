@@ -30,8 +30,23 @@ const ENDPOINTS = {
   "agnes-cn": { baseUrl: "https://api.agnes-ai.cn/v1", apiKeyEnv: "AGNES_CN_API_KEY", authKey: "agnes-cn" },
 };
 
-const IMAGE_MODELS = new Set(["agnes-image-2.0-flash", "agnes-image-2.1-flash"]);
+const IMAGE_MODELS = new Set(["agnes-image-2.0-flash", "agnes-image-2.1-flash", "agnes-image-2.5-flash"]);
 const VIDEO_MODELS = new Set(["agnes-video-v2.0", "agnes-video-2.5", "agnes-video-2.5-flash"]);
+const DEFAULT_IMAGE_MODEL = "agnes-image-2.5-flash";
+const DEFAULT_VIDEO_MODEL = "agnes-video-2.5-flash";
+
+const ALL_AGNES_MODELS = [
+  "agnes-2.5-flash",
+  "agnes-2.5-pro",
+  "agnes-2.5-pro-alpha",
+  "agnes-2.0-flash",
+  "agnes-image-2.0-flash",
+  "agnes-image-2.1-flash",
+  "agnes-image-2.5-flash",
+  "agnes-video-v2.0",
+  "agnes-video-2.5",
+  "agnes-video-2.5-flash",
+];
 
 function fileLink(p, label = p) {
   return "[" + label + "](" + pathToFileURL(p).href + ")";
@@ -84,7 +99,7 @@ const imageParams = Type.Object({
   prompt: { type: "string", description: "Text prompt describing the image to generate." },
   model: {
     type: "string",
-    description: "Agnes image model id. One of: " + [...IMAGE_MODELS].join(", ") + ". Default: agnes-image-2.1-flash.",
+    description: "Agnes image model id. One of: " + [...IMAGE_MODELS].join(", ") + ". Default: " + DEFAULT_IMAGE_MODEL + ".",
   },
   endpoint: {
     type: "string",
@@ -105,7 +120,7 @@ const imageParams = Type.Object({
 
 async function executeImage(_toolCallId, params) {
   const prompt = params.prompt;
-  const rawModel = params.model || "agnes-image-2.1-flash";
+  const rawModel = params.model || DEFAULT_IMAGE_MODEL;
   const endpointId = params.endpoint || "agnes";
   const images = params.images || [];
   const response_format = params.response_format || "png";
@@ -164,7 +179,7 @@ const videoParams = Type.Object({
   prompt: { type: "string", description: "Text prompt describing the video to generate." },
   model: {
     type: "string",
-    description: "Agnes video model id. One of: " + [...VIDEO_MODELS].join(", ") + ". Default: agnes-video-2.5-flash.",
+    description: "Agnes video model id. One of: " + [...VIDEO_MODELS].join(", ") + ". Default: " + DEFAULT_VIDEO_MODEL + ".",
   },
   endpoint: {
     type: "string",
@@ -216,7 +231,7 @@ async function pollVideo(baseUrl, videoId, apiKey, signal) {
 
 async function executeVideo(_toolCallId, params, signal) {
   const prompt = params.prompt;
-  const rawModel = params.model || "agnes-video-2.5-flash";
+  const rawModel = params.model || DEFAULT_VIDEO_MODEL;
   const endpointId = params.endpoint || "agnes";
   const images = params.images || [];
   const num_frames = params.num_frames || 121;
@@ -265,6 +280,43 @@ async function executeVideo(_toolCallId, params, signal) {
 // ---------------------------------------------------------------------------
 
 export default function (pi) {
+  // Register the full Agnes model catalog so all models (text, image, video)
+  // are selectable via /model and --model. pi-agnes does the same; this makes
+  // pi-agnes-tools work standalone.
+  pi.registerProvider("agnes", {
+    name: "Agnes AI",
+    baseUrl: ENDPOINTS.agnes.baseUrl,
+    apiKey: "$AGNES_API_KEY",
+    api: "openai-completions",
+    authHeader: true,
+    models: ALL_AGNES_MODELS.map((id) => ({
+      id,
+      name: id,
+      reasoning: false,
+      input: ["text", "image"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 131072,
+      maxTokens: 32768,
+    })),
+  });
+
+  pi.registerProvider("agnes-cn", {
+    name: "Agnes AI (CN)",
+    baseUrl: ENDPOINTS["agnes-cn"].baseUrl,
+    apiKey: "$AGNES_CN_API_KEY",
+    api: "openai-completions",
+    authHeader: true,
+    models: ALL_AGNES_MODELS.map((id) => ({
+      id,
+      name: id,
+      reasoning: false,
+      input: ["text", "image"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 131072,
+      maxTokens: 32768,
+    })),
+  });
+
   pi.registerTool({
     name: "agnes_image",
     label: "Agnes Image",
