@@ -1,6 +1,6 @@
 {
   "name": "pi-agnes-tools",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Agnes AI for pi: /model text model catalog (intl + CN) plus image/video generation as callable tools + auto-loaded skill. No model switch needed for media.",
   "type": "module",
   "keywords": [
