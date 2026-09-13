@@ -1,0 +1,284 @@
+/**
+ * pi-agnes-tools
+ *
+ * Exposes Agnes AI image/video generation as callable tools, so you don't
+ * have to switch models just to generate media.
+ *
+ *   • agnes_image  — POST /v1/images/generations (agnes-image-2.1-flash etc.)
+ *   • agnes_video  — POST /v1/videos + poll until done (agnes-video-2.5-flash etc.)
+ *
+ * Auth: reuses AGNES_API_KEY / AGNES_CN_API_KEY (same env vars as pi-agnes).
+ * Saves: .pi/generated-images/ and .pi/generated-videos/ (project-relative).
+ */
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type, type TSchema, type Static } from "typebox";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+const ENDPOINTS = {
+  agnes: { baseUrl: "https://apihub.agnes-ai.com/v1", apiKeyEnv: "AGNES_API_KEY" },
+  "agnes-cn": { baseUrl: "https://api.agnes-ai.cn/v1", apiKeyEnv: "AGNES_CN_API_KEY" },
+} as const;
+
+type EndpointId = keyof typeof ENDPOINTS;
+
+const IMAGE_MODELS = new Set(["agnes-image-2.0-flash", "agnes-image-2.1-flash"]);
+const VIDEO_MODELS = new Set(["agnes-video-v2.0", "agnes-video-2.5", "agnes-video-2.5-flash"]);
+
+function fileLink(p: string, label = p) {
+  return `[${label}](${pathToFileURL(p).href})`;
+}
+
+function endpoint(endpoint: EndpointId) {
+  const { baseUrl, apiKeyEnv } = ENDPOINTS[endpoint];
+  const apiKey = process.env[apiKeyEnv];
+  if (!apiKey) {
+    throw new Error(
+      `Missing ${apiKeyEnv} environment variable. Set it (or run /login with the pi-agnes provider) to authenticate with Agnes AI.`
+    );
+  }
+  return { baseUrl, apiKey, headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" } };
+}
+
+function checkImageModel(model: string) {
+  if (!IMAGE_MODELS.has(model) && !model.startsWith("agnes-image-")) {
+    throw new Error(
+      `Unknown Agnes image model: ${model}. Known models: ${[...IMAGE_MODELS].join(", ")}`
+    );
+  }
+}
+
+function checkVideoModel(model: string) {
+  if (!VIDEO_MODELS.has(model) && !model.startsWith("agnes-video-")) {
+    throw new Error(
+      `Unknown Agnes video model: ${model}. Known models: ${[...VIDEO_MODELS].join(", ")}`
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// agnes_image tool
+// ---------------------------------------------------------------------------
+
+const imageParams = Type.Object({
+  prompt: { type: "string", description: "Text prompt describing the image to generate." },
+  model: {
+    type: "string",
+    description: `Agnes image model id. One of: ${[...IMAGE_MODELS].join(", ")}. Default: agnes-image-2.1-flash.`,
+  },
+  endpoint: {
+    type: "string",
+    enum: ["agnes", "agnes-cn"],
+    description: "Which Agnes endpoint to use. Default: agnes (apihub.agnes-ai.com).",
+  },
+  images: {
+    type: "array",
+    items: { type: "string" },
+    description:
+      "Optional list of base64-encoded image data URIs (data:<mime>;base64,<data>) to use as reference/conditioning images.",
+  },
+  response_format: {
+    type: "string",
+    description: "Response image format. Default: png.",
+  },
+});
+
+async function executeImage(
+  _toolCallId: string,
+  params: Static<typeof imageParams>,
+  _signal: AbortSignal | undefined,
+  _onUpdate: unknown,
+  _ctx: unknown
+) {
+  const { prompt, model: rawModel = "agnes-image-2.1-flash", endpoint: endpointId = "agnes", images = [], response_format = "png" } =
+    params;
+  checkImageModel(rawModel);
+  const { baseUrl, headers } = endpoint(endpointId);
+
+  const body: Record<string, unknown> = {
+    model: rawModel,
+    prompt,
+    response_format,
+  };
+  if (images.length > 0) {
+    body.image = images;
+  }
+
+  const response = await fetch(`${baseUrl}/images/generations`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.error?.message ?? `Agnes image API HTTP ${response.status}`);
+  }
+  const image = payload?.data?.[0];
+  if (!image) throw new Error("Agnes image API returned no image data");
+
+  // Save local copy
+  const directory = join(process.cwd(), ".pi", "generated-images");
+  await mkdir(directory, { recursive: true });
+  const mime = image.mime_type ?? "image/png";
+  const ext = mime.includes("png") ? "png" : mime.includes("jpeg") ? "jpg" : mime.includes("webp") ? "webp" : mime.includes("gif") ? "gif" : "png";
+  const filePath = join(directory, `${rawModel}-${Date.now()}.${ext}`);
+  if (image.b64_json) {
+    await writeFile(filePath, Buffer.from(image.b64_json, "base64"));
+  } else if (image.url) {
+    const imgRes = await fetch(image.url);
+    if (!imgRes.ok) throw new Error(`Unable to download image: HTTP ${imgRes.status}`);
+    await writeFile(filePath, Buffer.from(await imgRes.arrayBuffer()));
+  } else {
+    throw new Error("Agnes image API returned no url or b64_json");
+  }
+
+  const text = image.url
+    ? `![Generated image](${image.url})\n\nSaved local copy: ${fileLink(filePath)}\n\nImage URL may expire according to Agnes retention policy.`
+    : `Generated image saved to: ${fileLink(filePath)}`;
+
+  return {
+    content: [{ type: "text" as const, text }],
+    details: { filePath, model: rawModel, endpoint: endpointId, remoteUrl: image.url ?? null },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// agnes_video tool
+// ---------------------------------------------------------------------------
+
+const videoParams = Type.Object({
+  prompt: { type: "string", description: "Text prompt describing the video to generate." },
+  model: {
+    type: "string",
+    description: `Agnes video model id. One of: ${[...VIDEO_MODELS].join(", ")}. Default: agnes-video-2.5-flash.`,
+  },
+  endpoint: {
+    type: "string",
+    enum: ["agnes", "agnes-cn"],
+    description: "Which Agnes endpoint to use. Default: agnes (apihub.agnes-ai.com).",
+  },
+  images: {
+    type: "array",
+    items: { type: "string" },
+    description:
+      "Optional reference image(s) as base64 data URIs. 1 image = image-to-video; >1 = keyframes mode.",
+  },
+  num_frames: { type: "integer", description: "Number of frames. Default: 121." },
+  frame_rate: { type: "integer", description: "Frames per second. Default: 24." },
+});
+
+async function pollVideo(baseUrl: string, videoId: string, apiKey: string, signal?: AbortSignal | undefined) {
+  const deadline = Date.now() + 30 * 60 * 1000;
+  while (Date.now() < deadline) {
+    if (signal?.aborted) throw new Error("Video generation aborted");
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, 5000);
+      signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(new Error("Video generation aborted"));
+      }, { once: true });
+    });
+    const apiRoot = baseUrl.replace(/\/v1\/?$/, "");
+    const response = await fetch(`${apiRoot}/agnesapi?video_id=${encodeURIComponent(videoId)}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal,
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(payload?.error?.message ?? `Agnes video status HTTP ${response.status}`);
+    if (payload.status === "completed") return payload;
+    if (payload.status === "failed") throw new Error(payload?.error?.message ?? "Agnes video generation failed");
+  }
+  throw new Error("Agnes video generation timed out after 30 minutes");
+}
+
+async function executeVideo(
+  _toolCallId: string,
+  params: Static<typeof videoParams>,
+  signal: AbortSignal | undefined,
+  _onUpdate: unknown,
+  _ctx: unknown
+) {
+  const {
+    prompt,
+    model: rawModel = "agnes-video-2.5-flash",
+    endpoint: endpointId = "agnes",
+    images = [],
+    num_frames = 121,
+    frame_rate = 24,
+  } = params;
+  checkVideoModel(rawModel);
+  const { baseUrl, apiKey, headers } = endpoint(endpointId);
+
+  const body: Record<string, unknown> = {
+    model: rawModel,
+    prompt,
+    num_frames,
+    frame_rate,
+  };
+  if (images.length === 1) body.image = images[0];
+  if (images.length > 1) body.extra_body = { image: images, mode: "keyframes" };
+
+  const response = await fetch(`${baseUrl}/videos`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    signal,
+  });
+  const task = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(task?.error?.message ?? `Agnes video API HTTP ${response.status}`);
+  const videoId = task?.video_id ?? task?.id ?? task?.task_id;
+  if (!videoId) throw new Error("Agnes video API returned no video_id");
+
+  const result = task.status === "completed" ? task : await pollVideo(baseUrl, videoId, apiKey, signal);
+  const url = result?.metadata?.url;
+  if (!url) throw new Error("Agnes video API returned no metadata.url");
+
+  const directory = join(process.cwd(), ".pi", "generated-videos");
+  await mkdir(directory, { recursive: true });
+  const filePath = join(directory, `${rawModel}-${Date.now()}.mp4`);
+  const videoRes = await fetch(url);
+  if (!videoRes.ok) throw new Error(`Unable to download generated video: HTTP ${videoRes.status}`);
+  await writeFile(filePath, Buffer.from(await videoRes.arrayBuffer()));
+
+  const text = `Generated video saved to: ${fileLink(filePath)}\n\nVideo URL: ${url}`;
+  return {
+    content: [{ type: "text" as const, text }],
+    details: { filePath, model: rawModel, endpoint: endpointId, remoteUrl: url },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Extension entry
+// ---------------------------------------------------------------------------
+
+export default function (pi: ExtensionAPI): void {
+  pi.registerTool({
+    name: "agnes_image",
+    label: "Agnes Image",
+    description:
+      "Generate an image via the Agnes AI API (no model switch needed). " +
+      "Saves a local copy under .pi/generated-images/ and returns the saved path plus the (possibly expiring) remote URL. " +
+      "Auth: AGNES_API_KEY (default endpoint) or AGNES_CN_API_KEY (endpoint=agnes-cn).",
+    parameters: imageParams,
+    executionMode: "parallel",
+    execute: executeImage,
+  });
+
+  pi.registerTool({
+    name: "agnes_video",
+    label: "Agnes Video",
+    description:
+      "Generate a video via the Agnes AI API (no model switch needed). " +
+      "Async: creates a task, polls every 5s until done (up to 30 min), then downloads the .mp4 to .pi/generated-videos/. " +
+      "Supports image-to-video (1 reference image) and keyframes mode (>1 image). " +
+      "Auth: AGNES_API_KEY (default endpoint) or AGNES_CN_API_KEY (endpoint=agnes-cn).",
+    parameters: videoParams,
+    executionMode: "sequential",
+    execute: executeVideo,
+  });
+}
