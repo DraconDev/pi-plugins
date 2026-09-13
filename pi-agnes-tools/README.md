@@ -33,7 +33,10 @@ pi install path:/path/to/pi-agnes-tools
 
 ## Auth
 
-Same env vars as `pi-agnes`:
+Key resolution order:
+
+1. `AGNES_API_KEY` / `AGNES_CN_API_KEY` env vars (same as `pi-agnes`)
+2. `/login`-stored key from `~/.pi/agent/auth.json` (`agnes` provider)
 
 | Provider | Endpoint | Env var |
 |---|---|---|
