@@ -16,7 +16,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/DraconDev/pi-agnes-tools"
+    "url": "git+https://github.com/DraconDev/pi-agnes-tools.git"
   },
   "files": [
     "extensions",
