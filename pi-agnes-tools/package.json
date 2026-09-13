@@ -1,6 +1,6 @@
 {
   "name": "pi-agnes-tools",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Pi extension that exposes Agnes AI image/video generation as callable tools (no model switch needed). Pairs with pi-agnes for auth.",
   "type": "module",
   "keywords": [
