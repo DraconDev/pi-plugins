@@ -1,27 +1,16 @@
 /**
  * pi-agnes-tools
  *
- * Exposes Agnes AI image/video generation as callable tools, so you don't
- * have to switch models just to generate media.
+ * The single Agnes AI plugin for pi: full model catalog (text, image, video)
+ * for both endpoints PLUS image/video generation as callable tools.
  *
- *   • agnes_image  — POST /v1/images/generations (default agnes-image-2.5-flash)
- *   • agnes_video  — POST /v1/videos + poll until done (default agnes-video-2.5-flash)
+ *   Providers (`agnes` = international, `agnes-cn` = China): seed catalog +
+ *   live /v1/models discovery + stream routing, so every model is selectable
+ *   via /model and --model.
+ *   Tools: `agnes_image` (default agnes-image-2.5-flash) and `agnes_video`
+ *   (default agnes-video-2.5-flash) — no model switch needed.
  *
- * Provider ownership:
- *   pi-agnes (https://pi.dev/packages/pi-agnes) owns the `agnes` / `agnes-cn`
- *   provider registrations when it is installed — dynamic /v1/models discovery,
- *   proper /login auth, and stream routing for image/video-as-model. This
- *   plugin NEVER overwrites those registrations (registerProvider with `models`
- *   replaces the whole provider catalog, so a duplicate registration would
- *   clobber pi-agnes's discovery and routing).
- *
- *   Standalone fallback: when no `agnes` provider is registered (pi-agnes not
- *   installed), this plugin registers the full catalog itself on session_start
- *   — text, image and video models for both endpoints, with /v1/models
- *   discovery and stream routing — so /model selection works out of the box.
- *
- * Auth: reuses AGNES_API_KEY / AGNES_CN_API_KEY (same env vars as pi-agnes),
- * falling back to the /login-stored key in ~/.pi/agent/auth.json.
+ * Auth: AGNES_API_KEY / AGNES_CN_API_KEY env, else /login-stored key.
  * Saves: .pi/generated-images/ and .pi/generated-videos/ (project-relative).
  */
 import { mkdir, writeFile } from "node:fs/promises";
@@ -54,9 +43,8 @@ const VIDEO_MODELS = new Set(["agnes-video-v2.0", "agnes-video-2.5", "agnes-vide
 const DEFAULT_IMAGE_MODEL = "agnes-image-2.5-flash";
 const DEFAULT_VIDEO_MODEL = "agnes-video-2.5-flash";
 
-// Full seed catalog for standalone mode (pi-agnes absent). Live /v1/models
-// discovery (refreshModels) picks up newer ids like agnes-3.0-flash automatically.
-const STANDALONE_SEED = [
+// Seed catalog (live /v1/models discovery picks up newer ids automatically).
+const AGNES_SEED = [
   "agnes-2.5-flash",
   "agnes-2.5-pro",
   "agnes-2.5-pro-alpha",
@@ -493,34 +481,7 @@ function debugLog(msg) {
   }
 }
 
-// Best-effort synchronous check: will pi-agnes (the provider plugin) load?
-// Used to decide whether standalone provider registration at load time is
-// safe. False positives are harmless (session_start backstop still covers a
-// missing provider); false negatives resolve in pi-agnes's favor when it
-// loads after us, since its registration replaces ours.
-function piAgnesLikelyPresent() {
-  const settingsFiles = [];
-  try {
-    settingsFiles.push(join(homedir(), ".pi", "agent", "settings.json"));
-  } catch { /* ignore */ }
-  try {
-    settingsFiles.push(join(process.cwd(), ".pi", "settings.json"));
-  } catch { /* ignore */ }
-  for (const file of settingsFiles) {
-    try {
-      const data = JSON.parse(readFileSync(file, "utf8"));
-      const pkgs = data && Array.isArray(data.packages) ? data.packages : [];
-      for (const entry of pkgs) {
-        if (typeof entry !== "string") continue;
-        if (entry.includes("pi-agnes-tools")) continue;
-        if (entry.includes("pi-agnes")) return true;
-      }
-    } catch { /* unreadable settings — ignore */ }
-  }
-  return false;
-}
-
-function registerStandaloneProviders(pi) {
+function registerAgnesProviders(pi) {
   const defs = [
     { id: "agnes", name: "Agnes AI", baseUrl: ENDPOINTS.agnes.baseUrl, apiKeyEnv: "AGNES_API_KEY" },
     { id: "agnes-cn", name: "Agnes AI (CN)", baseUrl: ENDPOINTS["agnes-cn"].baseUrl, apiKeyEnv: "AGNES_CN_API_KEY" },
@@ -535,7 +496,7 @@ function registerStandaloneProviders(pi) {
       ...(apiKeyRef ? { apiKey: apiKeyRef } : {}),
       api: "openai-completions",
       streamSimple: streamStandalone,
-      models: STANDALONE_SEED.map((id) => toModelConfig(id)),
+      models: AGNES_SEED.map((id) => toModelConfig(id)),
       refreshModels: makeRefreshModels(def.baseUrl, def.apiKeyEnv, def.id),
     });
   }
@@ -574,42 +535,12 @@ export default function (pi) {
     execute: executeVideo,
   });
 
-  // Load-time standalone registration so `--model agnes/...` resolves at
-  // startup when pi-agnes is absent. Skipped when pi-agnes is detected — it
-  // owns the providers then (better discovery + routing). If our detection
-  // missed it and it loads after us, its registration replaces ours, which
-  // is still the correct end state.
-  if (piAgnesLikelyPresent()) {
-    debugLog("pi-agnes detected, deferring provider registration");
-  } else {
-    debugLog("pi-agnes not detected, registering standalone providers at load");
-    try {
-      registerStandaloneProviders(pi);
-    } catch (error) {
-      debugLog("load-time registration failed: " + (error instanceof Error ? error.message : String(error)));
-    }
+  // Providers: this plugin owns `agnes` (international) and `agnes-cn`
+  // (China) outright — seed catalog + live discovery + stream routing — so
+  // every text, image and video model is selectable via /model and --model.
+  try {
+    registerAgnesProviders(pi);
+  } catch (error) {
+    debugLog("provider registration failed: " + (error instanceof Error ? error.message : String(error)));
   }
-
-  // Standalone provider fallback: only register the agnes/agnes-cn catalog
-  // when nothing else provides it (i.e. pi-agnes is not installed).
-  // registerProvider with `models` REPLACES the whole provider catalog, so
-  // registering unconditionally would clobber pi-agnes's discovery+routing.
-  // Checking here (session_start, after all extensions loaded) is
-  // load-order independent and backstops a missed load-time detection.
-  pi.on("session_start", async (_event, ctx) => {
-    try {
-      const ids = ctx.modelRegistry.getRegisteredProviderIds() || [];
-      debugLog("session_start, registered providers: " + ids.join(","));
-      if (ids.includes("agnes")) {
-        debugLog("agnes provider present, deferring to existing registration");
-        return; // pi-agnes (or equivalent) owns it
-      }
-    } catch (error) {
-      debugLog("registry check failed: " + (error instanceof Error ? error.message : String(error)));
-      // If the registry can't be inspected, fall through and register —
-      // a duplicate standalone catalog is better than none.
-    }
-    debugLog("registering standalone agnes/agnes-cn providers");
-    registerStandaloneProviders(pi);
-  });
 }
