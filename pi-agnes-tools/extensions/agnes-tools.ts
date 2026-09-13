@@ -340,7 +340,9 @@ async function fetchStandaloneModels(baseUrl, apiKey, signal) {
   if (!res.ok) throw new Error("HTTP " + res.status + " " + res.statusText);
   const payload = await res.json().catch(() => null);
   const data = payload && Array.isArray(payload.data) ? payload.data : Array.isArray(payload) ? payload : [];
-  return data.filter((m) => m && m.id).map((m) => toModelConfig(m.id));
+  return data
+    .filter((m) => m && m.id && isTextModel(m.id))
+    .map((m) => toModelConfig(m.id));
 }
 
 function makeRefreshModels(baseUrl, apiKeyEnv, providerId) {

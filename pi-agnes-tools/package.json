@@ -1,7 +1,7 @@
 {
   "name": "pi-agnes-tools",
   "version": "0.2.1",
-  "description": "Pi extension that exposes Agnes AI image/video generation as callable tools (no model switch needed). Pairs with pi-agnes for auth.",
+  "description": "Pi extension for Agnes AI: text model catalog (selectable via /model) plus image/video generation as custom tools + skill. No model switch needed for media.",
   "type": "module",
   "keywords": [
     "pi",
@@ -20,6 +20,7 @@
   },
   "files": [
     "extensions",
+    "skills",
     "README.md"
   ],
   "scripts": {
@@ -33,6 +34,9 @@
   "pi": {
     "extensions": [
       "./extensions"
+    ],
+    "skills": [
+      "./skills"
     ]
   }
 }
