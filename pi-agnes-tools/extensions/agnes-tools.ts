@@ -10,7 +10,8 @@
  * Auth: reuses AGNES_API_KEY / AGNES_CN_API_KEY (same env vars as pi-agnes).
  * Saves: .pi/generated-images/ and .pi/generated-videos/ (project-relative).
  */
-import { mkdir, writeFile, readFileSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
