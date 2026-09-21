@@ -8,6 +8,7 @@ import {
   DEFAULT_BASE_URL,
   DEFAULT_MODEL,
   buildImagePayload,
+  buildToolSchemas,
   errorHint,
   formatSavedImages,
   parseImageResponse,
@@ -16,6 +17,27 @@ import {
   resolveBaseUrl,
   saveImageItem,
 } from "../extensions/meta-image-lib.ts";
+
+/**
+ * Minimal TypeBox-compatible shim: mirrors real TypeBox semantics where
+ * Type.Object computes `required` from properties NOT wrapped in Optional
+ * (verified against typebox 1.3.27: only unmarked keys land in `required`).
+ */
+const OPTIONAL = Symbol("optional");
+const TypeShim = {
+  Object: (props) => ({
+    type: "object",
+    properties: props,
+    required: Object.keys(props).filter((k) => !(props[k] && props[k][OPTIONAL])),
+  }),
+  Optional: (schema) => ({ ...schema, [OPTIONAL]: true }),
+  String: (opts) => ({ type: "string", ...opts }),
+  Number: (opts) => ({ type: "number", ...opts }),
+  Boolean: (opts) => ({ type: "boolean", ...opts }),
+  Array: (items, opts) => ({ type: "array", items, ...opts }),
+  Union: (schemas, opts) => ({ anyOf: schemas, ...opts }),
+  Literal: (value) => ({ const: value }),
+};
 
 describe("buildImagePayload", () => {
   it("applies defaults for a minimal prompt", () => {
@@ -172,6 +194,18 @@ describe("saveImageItem + formatSavedImages", () => {
     } finally {
       globalThis.fetch = realFetch;
     }
+  });
+});
+
+describe("buildToolSchemas", () => {
+  it("requires only prompt for meta_image", () => {
+    const { imageParams } = buildToolSchemas(TypeShim);
+    assert.deepEqual(imageParams.required, ["prompt"]);
+  });
+
+  it("requires only prompt and images for meta_image_edit", () => {
+    const { editParams } = buildToolSchemas(TypeShim);
+    assert.deepEqual(editParams.required, ["prompt", "images"]);
   });
 });
 
