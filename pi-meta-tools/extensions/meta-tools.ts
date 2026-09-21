@@ -20,7 +20,7 @@ import {
   resolveApiKey,
   resolveBaseUrl,
   saveImageItem,
-} from "./meta-image-lib.ts";
+} from "./meta-image-lib.js";
 
 // typebox is provided to extensions by pi itself (bundled/virtual module).
 import * as _typebox from "typebox";
