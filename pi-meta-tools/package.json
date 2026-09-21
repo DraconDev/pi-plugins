@@ -1,0 +1,45 @@
+{
+  "name": "pi-meta-tools",
+  "version": "0.1.0",
+  "description": "Meta media tools for pi: Muse Image text-to-image and image edit/composition as callable tools. Reuses pi's stored Meta credential — no new login.",
+  "type": "module",
+  "keywords": [
+    "pi",
+    "pi-package",
+    "pi-extension",
+    "pi-skill",
+    "meta",
+    "muse",
+    "muse-image",
+    "image-generation",
+    "image-editing",
+    "tool"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DraconDev/pi-plugins",
+    "directory": "pi-meta-tools"
+  },
+  "files": [
+    "extensions",
+    "skills",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "dependencies": {},
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  }
+}
