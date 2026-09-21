@@ -248,7 +248,10 @@ export function formatSavedImages(saved: SavedImage[]): string {
   return lines.join("\n\n") + (saved.some((s) => s.remoteUrl) ? note : "");
 }
 
-export function errorHint(status: number): string {
+export function errorHint(status: number, message = ""): string {
+  if (/subscription accounts|switch to payg/i.test(message)) {
+    return " (Muse Image requires a pay-as-you-go Model API key — Muse subscription keys are rejected on this endpoint. Create a key with billing enabled at https://dev.meta.ai/docs/authentication and set it as MODEL_API_KEY)";
+  }
   if (status === 401 || status === 403) {
     return " (Meta rejected the credential — run /login with the meta provider in pi, or set a Model API key from https://dev.meta.ai/docs/authentication as MODEL_API_KEY)";
   }

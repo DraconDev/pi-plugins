@@ -43,7 +43,7 @@ async function requestImages(path: string, payload: Record<string, unknown>, sig
   if (!response.ok) {
     const msg =
       (body && body.error && (body.error.message || body.error)) || "Meta image API HTTP " + response.status;
-    throw new Error(String(msg) + errorHint(response.status));
+    throw new Error(String(msg) + errorHint(response.status, String(msg)));
   }
   return body;
 }
