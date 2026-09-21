@@ -18,7 +18,7 @@ directly — do NOT switch to an Agnes model.
 | `model` | default `agnes-image-2.5-flash`; others: `agnes-image-2.1-flash`, `agnes-image-2.0-flash` |
 | `endpoint` | `agnes` (international, default) or `agnes-cn` (China) |
 | `images` | optional base64 data URIs for reference/conditioning |
-| `response_format` | default `png` |
+| `response_format` | `b64_json` (default) or `url` |
 
 ### `agnes_video` — text-to-video / image-to-video / keyframes
 

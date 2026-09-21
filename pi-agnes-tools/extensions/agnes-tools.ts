@@ -246,7 +246,11 @@ const imageParams = Type.Object({
         "Optional list of base64-encoded image data URIs (data:<mime>;base64,<data>) to use as reference/conditioning images.",
     }),
   ),
-  response_format: Type.Optional(Type.String({ description: "Response image format. Default: png." })),
+  response_format: Type.Optional(
+    Type.Union([Type.Literal("url"), Type.Literal("b64_json")], {
+      description: "API response format. Default: b64_json.",
+    }),
+  ),
 });
 
 async function executeImage(_toolCallId, params) {
@@ -260,7 +264,7 @@ async function executeImage(_toolCallId, params) {
     model: rawModel,
     prompt,
     images: params.images || [],
-    response_format: params.response_format || "png",
+    response_format: params.response_format || "b64_json",
   });
 
   const text = saved.remoteUrl
