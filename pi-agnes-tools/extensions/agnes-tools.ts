@@ -227,26 +227,26 @@ async function requestVideo(baseUrl, apiKey, opts) {
 // ---------------------------------------------------------------------------
 
 const imageParams = Type.Object({
-  prompt: { type: "string", description: "Text prompt describing the image to generate." },
-  model: {
-    type: "string",
-    description: "Agnes image model id. One of: " + [...IMAGE_MODELS].join(", ") + ". Default: " + DEFAULT_IMAGE_MODEL + ".",
-  },
-  endpoint: {
-    type: "string",
-    enum: ["agnes", "agnes-cn"],
-    description: "Which Agnes endpoint to use: agnes (international, apihub.agnes-ai.com) or agnes-cn (China, api.agnes-ai.cn). Default: agnes.",
-  },
-  images: {
-    type: "array",
-    items: { type: "string" },
-    description:
-      "Optional list of base64-encoded image data URIs (data:<mime>;base64,<data>) to use as reference/conditioning images.",
-  },
-  response_format: {
-    type: "string",
-    description: "Response image format. Default: png.",
-  },
+  prompt: Type.String({ description: "Text prompt describing the image to generate." }),
+  model: Type.Optional(
+    Type.String({
+      description:
+        "Agnes image model id. One of: " + [...IMAGE_MODELS].join(", ") + ". Default: " + DEFAULT_IMAGE_MODEL + ".",
+    }),
+  ),
+  endpoint: Type.Optional(
+    Type.Union([Type.Literal("agnes"), Type.Literal("agnes-cn")], {
+      description:
+        "Which Agnes endpoint to use: agnes (international, apihub.agnes-ai.com) or agnes-cn (China, api.agnes-ai.cn). Default: agnes.",
+    }),
+  ),
+  images: Type.Optional(
+    Type.Array(Type.String(), {
+      description:
+        "Optional list of base64-encoded image data URIs (data:<mime>;base64,<data>) to use as reference/conditioning images.",
+    }),
+  ),
+  response_format: Type.Optional(Type.String({ description: "Response image format. Default: png." })),
 });
 
 async function executeImage(_toolCallId, params) {
@@ -274,23 +274,26 @@ async function executeImage(_toolCallId, params) {
 }
 
 const videoParams = Type.Object({
-  prompt: { type: "string", description: "Text prompt describing the video to generate." },
-  model: {
-    type: "string",
-    description: "Agnes video model id. One of: " + [...VIDEO_MODELS].join(", ") + ". Default: " + DEFAULT_VIDEO_MODEL + ".",
-  },
-  endpoint: {
-    type: "string",
-    enum: ["agnes", "agnes-cn"],
-    description: "Which Agnes endpoint to use: agnes (international, apihub.agnes-ai.com) or agnes-cn (China, api.agnes-ai.cn). Default: agnes.",
-  },
-  images: {
-    type: "array",
-    items: { type: "string" },
-    description: "Optional reference image(s) as base64 data URIs. 1 image = image-to-video; >1 = keyframes mode.",
-  },
-  num_frames: { type: "integer", description: "Number of frames. Default: 121." },
-  frame_rate: { type: "integer", description: "Frames per second. Default: 24." },
+  prompt: Type.String({ description: "Text prompt describing the video to generate." }),
+  model: Type.Optional(
+    Type.String({
+      description:
+        "Agnes video model id. One of: " + [...VIDEO_MODELS].join(", ") + ". Default: " + DEFAULT_VIDEO_MODEL + ".",
+    }),
+  ),
+  endpoint: Type.Optional(
+    Type.Union([Type.Literal("agnes"), Type.Literal("agnes-cn")], {
+      description:
+        "Which Agnes endpoint to use: agnes (international, apihub.agnes-ai.com) or agnes-cn (China, api.agnes-ai.cn). Default: agnes.",
+    }),
+  ),
+  images: Type.Optional(
+    Type.Array(Type.String(), {
+      description: "Optional reference image(s) as base64 data URIs. 1 image = image-to-video; >1 = keyframes mode.",
+    }),
+  ),
+  num_frames: Type.Optional(Type.Integer({ description: "Number of frames. Only sent when explicitly provided." })),
+  frame_rate: Type.Optional(Type.Integer({ description: "Frames per second. Only sent when explicitly provided." })),
 });
 
 async function executeVideo(_toolCallId, params, signal) {
