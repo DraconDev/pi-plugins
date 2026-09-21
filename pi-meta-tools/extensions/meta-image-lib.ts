@@ -248,6 +248,68 @@ export function formatSavedImages(saved: SavedImage[]): string {
   return lines.join("\n\n") + (saved.some((s) => s.remoteUrl) ? note : "");
 }
 
+/**
+ * Minimal structural surface of the TypeBox builders we use (the real
+ * `Type` namespace from pi's bundled `typebox` module satisfies this).
+ * Kept structural so tests can substitute a tiny shim.
+ */
+export interface TypeBuilders {
+  Object(props: Record<string, unknown>): { required?: string[] } & Record<string, unknown>;
+  Optional(schema: unknown): unknown;
+  String(opts?: Record<string, unknown>): unknown;
+  Number(opts?: Record<string, unknown>): unknown;
+  Boolean(opts?: Record<string, unknown>): unknown;
+  Array(items: unknown, opts?: Record<string, unknown>): unknown;
+  Union(schemas: unknown[], opts?: Record<string, unknown>): unknown;
+  Literal(value: string): unknown;
+}
+
+const SIZE_HINT = 'Optional aspect hint as "WIDTHxHEIGHT" (e.g. "1024x1024", "1024x1536"); the model treats it as a hint, not exact pixels.';
+
+/**
+ * Build the pi tool parameter schemas. Only `prompt` (and `images` for the
+ * edit tool) are required — everything else is optional with tool-side
+ * defaults (see buildImagePayload). Regression note: passing plain
+ * `{type: "string"}` objects to Type.Object marks every field required,
+ * which makes pi reject minimal calls before execute() runs.
+ */
+export function buildToolSchemas(Type: TypeBuilders): { imageParams: unknown; editParams: unknown } {
+  const commonProps: Record<string, unknown> = {
+    prompt: Type.String({ description: "Text prompt describing the image to generate or the edit to apply." }),
+    model: Type.Optional(Type.String({ description: "Meta image model id. Default: " + DEFAULT_MODEL + "." })),
+    n: Type.Optional(Type.Number({ description: "Number of images to generate (1-10). Default: 1." })),
+    size: Type.Optional(Type.String({ description: SIZE_HINT })),
+    output_format: Type.Optional(
+      Type.Union([Type.Literal("webp"), Type.Literal("png"), Type.Literal("jpeg")], {
+        description: "Output image format. Default: png.",
+      }),
+    ),
+    reasoning_strength: Type.Optional(
+      Type.Union([Type.Literal("high"), Type.Literal("low")], {
+        description: 'Self-refinement effort. "low" is faster; "high" (default) refines more.',
+      }),
+    ),
+    enable_web_search: Type.Optional(
+      Type.Boolean({ description: "Let the model ground the image with web search (default true)." }),
+    ),
+    enable_image_search: Type.Optional(
+      Type.Boolean({ description: "Let the model ground the image with image search (default true)." }),
+    ),
+    enable_shell: Type.Optional(
+      Type.Boolean({ description: "Let the model use code execution for accuracy (plots, QR codes; default true)." }),
+    ),
+  };
+  const imageParams = Type.Object({ ...commonProps });
+  const editParams = Type.Object({
+    ...commonProps,
+    images: Type.Array(Type.String(), {
+      description:
+        "Reference images: local file paths, http(s) URLs, or data URIs. One image = edit it; several = compose from all of them (the prompt decides how).",
+    }),
+  });
+  return { imageParams, editParams };
+}
+
 export function errorHint(status: number, message = ""): string {
   if (/subscription accounts|switch to payg/i.test(message)) {
     return " (Muse Image requires a pay-as-you-go Model API key — Muse subscription keys are rejected on this endpoint. Create a key with billing enabled at https://dev.meta.ai/docs/authentication and set it as MODEL_API_KEY)";

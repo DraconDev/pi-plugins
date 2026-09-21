@@ -13,6 +13,7 @@
 import {
   DEFAULT_MODEL,
   buildImagePayload,
+  buildToolSchemas,
   errorHint,
   formatSavedImages,
   parseImageResponse,
@@ -63,55 +64,7 @@ async function generateAndSave(path: string, payload: Record<string, unknown>, o
 // Tool schemas
 // ---------------------------------------------------------------------------
 
-const sizeDescription =
-  'Optional aspect hint as "WIDTHxHEIGHT" (e.g. "1024x1024", "1024x1536"); the model treats it as a hint, not exact pixels.';
-
-const commonFields = {
-  prompt: { type: "string", description: "Text prompt describing the image to generate or the edit to apply." },
-  model: {
-    type: "string",
-    description: "Meta image model id. Default: " + DEFAULT_MODEL + ".",
-  },
-  n: {
-    type: "number",
-    description: "Number of images to generate (1-10). Default: 1.",
-  },
-  size: { type: "string", description: sizeDescription },
-  output_format: {
-    type: "string",
-    enum: ["webp", "png", "jpeg"],
-    description: "Output image format. Default: png.",
-  },
-  reasoning_strength: {
-    type: "string",
-    enum: ["high", "low"],
-    description: 'Self-refinement effort. "low" is faster; "high" (default) refines more.',
-  },
-  enable_web_search: {
-    type: "boolean",
-    description: "Let the model ground the image with web search (default true).",
-  },
-  enable_image_search: {
-    type: "boolean",
-    description: "Let the model ground the image with image search (default true).",
-  },
-  enable_shell: {
-    type: "boolean",
-    description: "Let the model use code execution for accuracy (plots, QR codes; default true).",
-  },
-};
-
-const imageParams = Type.Object({ ...commonFields });
-
-const editParams = Type.Object({
-  ...commonFields,
-  images: {
-    type: "array",
-    items: { type: "string" },
-    description:
-      "Reference images: local file paths, http(s) URLs, or data URIs. One image = edit it; several = compose from all of them (the prompt decides how).",
-  },
-});
+const { imageParams, editParams } = buildToolSchemas(Type);
 
 // ---------------------------------------------------------------------------
 // Tool executors
