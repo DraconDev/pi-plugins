@@ -181,4 +181,10 @@ describe("errorHint", () => {
     assert.match(errorHint(403), /MODEL_API_KEY/);
     assert.equal(errorHint(500), "");
   });
+
+  it("explains the subscription-account block with a PAYG fix", () => {
+    const msg = "This API surface is not available for subscription accounts. Switch to PAYG mode.";
+    assert.match(errorHint(400, msg), /pay-as-you-go/);
+    assert.match(errorHint(400, msg), /MODEL_API_KEY/);
+  });
 });

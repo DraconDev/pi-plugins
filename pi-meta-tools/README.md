@@ -52,6 +52,11 @@ The bundled `meta-media` skill auto-loads when the user asks for generated/edite
 
 ## Troubleshooting
 
+- **"not available for subscription accounts"**: Muse Image rejects Muse
+  subscription keys — it needs a pay-as-you-go key with billing enabled.
+  Create one at <https://dev.meta.ai/docs/authentication> and set it as
+  `MODEL_API_KEY`. (Verified live: the tool, auth, and request pipeline all
+  work; only billing blocks generation on subscription accounts.)
 - **401/403 from the API**: pi's minted Meta key may lack image scope. Create a Model API key at <https://dev.meta.ai/docs/authentication> and set it as `MODEL_API_KEY`.
 - **No Meta credential found**: run `/login` with the `meta` provider in pi, or set `MODEL_API_KEY`.
 - **Slow generations**: Muse Image is agentic (search/code tools + self-refinement). Start the call and wait; don't re-issue.
