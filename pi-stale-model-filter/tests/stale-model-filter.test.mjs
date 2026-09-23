@@ -43,8 +43,7 @@ function versionParts(version) {
 }
 
 function versionClass(version) {
-  const { date } = versionParts(version);
-  return date ? "dated" : `semantic:${version.split(".").length}`;
+  return versionParts(version).date ? "dated" : "semantic";
 }
 
 function compareVersions(a, b) {
