@@ -8,17 +8,19 @@
  * ────────────
  * On every pi session start (or /reload) the extension:
  *
- *   1. Reads `~/.pi/agent/models-store.json` — pi's own cache of the last
- *      models returned by each provider's live discovery.
- *   2. Groups models by provider + base name (everything before the
+ *   1. Reads the live model registry, including built-in, models.json,
+ *      and extension-registered providers.
+ *   2. Re-registers every provider with a model-list filter in front of
+ *      its existing provider filter.
+ *   3. Groups models by provider + base name (everything around the
  *      rightmost numeric version token, e.g. "agnes-2.0-flash" → base
  *      "agnes-flash", version "2.0").
- *   3. Within each group, keeps only the numerically highest version.
- *      Older versions are removed from the provider's model list.
+ *   4. Within each group, keeps only the numerically highest version.
+ *      Older versions are removed from availability, so they disappear
+ *      from /model, Ctrl+P cycling, /scoped-models, and RPC model lists.
  *
- * Because it operates on the model lists *as registered*, the filter is
- * applied uniformly to every provider — built-in, models.json, and
- * extension-registered — without any provider-specific code.
+ * The wrapper remains attached when pi refreshes provider catalogs, so
+ * live discovery cannot reintroduce stale entries.
  *
  * Design boundary
  * ────────────────
@@ -263,6 +265,48 @@ export function filterModelsForProvider<T extends { id: string }>(
   return filterSuperseded(models, providerId, new Set(cfg.keep), cfg.disabled);
 }
 
+// ─── Runtime provider wrapping ─────────────────────────────────────────────
+
+/**
+ * Return a provider whose existing `filterModels` hook is composed with
+ * this extension's stale-version filter.
+ *
+ * Registering the returned provider through pi.registerProvider(provider)
+ * makes the filter part of the normal provider availability pipeline.
+ * Pi's createModels()/ModelRuntime applies provider.filterModels whenever
+ * it builds the available-model snapshot used by every model picker.
+ */
+export function withStaleModelFilter<TModel extends { id: string }>(
+  provider: {
+    id: string;
+    filterModels?: (
+      models: readonly TModel[],
+      credential: unknown,
+    ) => readonly TModel[];
+  } & Record<string, unknown>,
+  agentDir: string,
+): typeof provider {
+  const originalFilter = provider.filterModels?.bind(provider);
+
+  return {
+    ...provider,
+    filterModels(models: readonly TModel[], credential: unknown): readonly TModel[] {
+      // Preserve provider-specific availability rules (for example
+      // GitHub Copilot's OAuth model allowlist) before version filtering.
+      const providerVisible = originalFilter
+        ? originalFilter(models, credential)
+        : models;
+      const cfg = loadConfig(agentDir);
+      return filterSuperseded(
+        [...providerVisible],
+        provider.id,
+        new Set(cfg.keep),
+        cfg.disabled,
+      );
+    },
+  };
+}
+
 // ─── Extension entry ────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
@@ -273,65 +317,34 @@ export default function (pi: ExtensionAPI) {
     cfg = loadConfig(agentDir);
   }
 
-  // Keep a reference to the original registerProvider so the session_start
-  // re-registration below doesn't recurse through the wrapped version.
-  const originalRegisterProvider = pi.registerProvider.bind(pi);
-
-  /** Re-register a provider with its model list filtered through the live config. */
-  function reRegisterFiltered(providerId: string) {
-    const storePath = join(agentDir, "models-store.json");
-    if (!existsSync(storePath)) return;
-    try {
-      const store = JSON.parse(readFileSync(storePath, "utf8")) as Record<
-        string,
-        { models?: { id: string; name?: string }[] }
-      >;
-      const entry = store[providerId];
-      if (!entry?.models || entry.models.length === 0) return;
-      const filtered = filterSuperseded(
-        entry.models,
-        providerId,
-        new Set(cfg.keep),
-        cfg.disabled,
-      );
-      if (filtered.length !== entry.models.length) {
-        originalRegisterProvider(providerId, {
-          models: filtered,
-        } as any);
-      }
-    } catch {
-      // non-fatal
-    }
-  }
-
-  // Filter every provider whose list is stored in models-store.json on
-  // session start (covers built-in providers, models.json providers, and
-  // any extension-registered providers that persist their catalog).
-  pi.on("session_start", () => {
+  // Install the filter on the live provider objects. This is deliberately
+  // done through the public extension API rather than by rewriting
+  // models-store.json: the latter would lose provider auth, streaming,
+  // refresh, and model metadata, and would not affect the in-memory
+  // availability snapshot used by /model.
+  pi.on("session_start", async (_event, ctx) => {
     refresh();
-    if (cfg.disabled) return;
-    try {
-      const storePath = join(agentDir, "models-store.json");
-      if (!existsSync(storePath)) return;
-      const store = JSON.parse(readFileSync(storePath, "utf8")) as Record<
-        string,
-        { models?: { id: string; name?: string }[] }
-      >;
-      for (const [providerId, entry] of Object.entries(store)) {
-        if (!entry?.models || entry.models.length === 0) continue;
-        const filtered = filterSuperseded(
-          entry.models,
-          providerId,
-          new Set(cfg.keep),
-          false,
-        );
-        if (filtered.length !== entry.models.length) {
-          reRegisterFiltered(providerId);
-        }
-      }
-    } catch {
-      // non-fatal
+
+    const providerIds = new Set<string>();
+    for (const model of ctx.modelRegistry.getAll()) {
+      providerIds.add(model.provider);
     }
+    for (const providerId of ctx.modelRegistry.getRegisteredProviderIds()) {
+      providerIds.add(providerId);
+    }
+
+    for (const providerId of providerIds) {
+      const provider = ctx.modelRegistry.getProvider(providerId);
+      if (!provider) continue;
+      pi.registerProvider(
+        withStaleModelFilter(provider as any, agentDir) as any,
+      );
+    }
+
+    // Recompute the available-model snapshot after all provider wrappers
+    // are registered. This is offline: it preserves the current catalog
+    // while making the filtered result immediately visible to /model.
+    await ctx.modelRegistry.refresh({ allowNetwork: false });
   });
 
   pi.registerCommand("stale-model-filter", {
