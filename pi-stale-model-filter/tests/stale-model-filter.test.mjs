@@ -38,7 +38,7 @@ function versionParts(version) {
   if (dateStart === -1 && raw[0].length >= 4) dateStart = 0;
   return {
     semantic: dateStart < 0 ? parts : parts.slice(0, dateStart),
-    date: dateStart < 0 ? null : parts.slice(dateStart),
+    date: dateStart < 0 ? null : raw.slice(dateStart),
   };
 }
 

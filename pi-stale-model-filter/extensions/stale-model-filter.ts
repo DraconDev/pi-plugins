@@ -114,20 +114,19 @@ export function parseModelVersion(
 
 type ComparableVersion = {
   semantic: number[];
-  date: number[] | null;
+  date: string[] | null;
 };
 
 function versionParts(version: string): ComparableVersion {
-  const parts = version.split(".").map((part) => Number(part) || 0);
-  let dateStart = parts.findIndex((part, index) =>
-    index > 0 && String(version.split(".")[index]).length >= 4
+  const raw = version.split(".");
+  const parts = raw.map((part) => Number(part) || 0);
+  let dateStart = raw.findIndex(
+    (part, index) => index > 0 && part.length >= 4,
   );
-  if (dateStart === -1 && String(version.split(".")[0]).length >= 4) {
-    dateStart = 0;
-  }
+  if (dateStart === -1 && raw[0].length >= 4) dateStart = 0;
   return {
     semantic: dateStart < 0 ? parts : parts.slice(0, dateStart),
-    date: dateStart < 0 ? null : parts.slice(dateStart),
+    date: dateStart < 0 ? null : raw.slice(dateStart),
   };
 }
 
