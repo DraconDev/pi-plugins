@@ -10,8 +10,8 @@
  *
  *   1. Reads the live model registry, including built-in, models.json,
  *      and extension-registered providers.
- *   2. Re-registers every provider with a version filter composed after
- *      its existing provider filter.
+ *   2. Filters Pi's availability snapshots without replacing or mutating
+ *      any provider registration.
  *   3. Groups models by provider + base name (everything around the
  *      rightmost numeric version token, e.g. "tool-2.0-flash" → base
  *      "tool-flash", version "2.0").
@@ -21,8 +21,8 @@
  *   5. Rewrites the already-resolved --models scope to available models,
  *      replacing a filtered entry with its newest relative when possible.
  *
- * The wrapper remains attached when pi refreshes provider catalogs, so
- * live discovery cannot reintroduce stale entries.
+ * The runtime filter remains attached when Pi refreshes provider catalogs,
+ * so live discovery cannot reintroduce stale entries.
  *
  * Design boundary
  * ────────────────
@@ -204,6 +204,30 @@ export function configPathFor(agentDir: string): string {
   return join(agentDir, "stale-model-filter.json");
 }
 
+function storedModelIds(agentDir: string, provider: string): string[] {
+  try {
+    const data = JSON.parse(
+      readFileSync(join(agentDir, "models-store.json"), "utf8"),
+    ) as Record<string, { models?: Array<{ id?: unknown }> } | undefined>;
+    const models = data[provider]?.models;
+    return Array.isArray(models)
+      ? models
+          .map((model) =>
+            model && typeof model.id === "string" ? model.id : null
+          )
+          .filter((id): id is string => id !== null)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function formatModelIds(ids: readonly string[], limit = 40): string {
+  if (ids.length === 0) return "none";
+  const shown = ids.slice(0, limit).join(", ");
+  return `${shown}${ids.length > limit ? `, +${ids.length - limit} more` : ""}`;
+}
+
 export function loadConfig(agentDir: string): FilterConfig {
   try {
     const p = configPathFor(agentDir);
@@ -229,84 +253,46 @@ export function saveConfig(agentDir: string, cfg: FilterConfig): void {
   }
 }
 
-// ─── Live provider filtering ────────────────────────────────────────────────
+// ─── Legacy provider-wrapper cleanup ───────────────────────────────────────
 
-type MarkedProvider = Provider & {
+type LegacyMarkedProvider = Provider & {
   [PROVIDER_FILTER_MARKER]?: true;
 };
 
-function isMarkedProvider(
+function isLegacyMarkedProvider(
   provider: Provider | undefined,
-): provider is MarkedProvider {
-  return Boolean((provider as MarkedProvider | undefined)?.[PROVIDER_FILTER_MARKER]);
+): provider is LegacyMarkedProvider {
+  return Boolean(
+    (provider as LegacyMarkedProvider | undefined)?.[PROVIDER_FILTER_MARKER],
+  );
 }
 
 /**
- * Compose the stale-version filter after any provider filter already supplied
- * by the provider or another extension.
+ * Remove native provider wrappers created by v0.2.0-v0.2.4. Those wrappers
+ * could interfere with dynamic extension catalogs in long-lived sessions.
+ * Current versions filter only the runtime availability methods and never
+ * replace provider registrations.
  */
-export function withStaleModelFilter(
-  provider: Provider,
-  agentDir: string,
-  force = false,
-): Provider {
-  if (!force && isMarkedProvider(provider)) return provider;
-
-  const originalFilter = provider.filterModels?.bind(provider);
-  const filterModels: NonNullable<Provider["filterModels"]> = (
-    models,
-    credential,
-  ) => {
-    // Preserve provider-specific availability rules (for example
-    // GitHub Copilot's OAuth model allowlist) before version filtering.
-    const providerVisible = originalFilter
-      ? originalFilter(models, credential)
-      : models;
-    const cfg = loadConfig(agentDir);
-    return filterSuperseded(
-      [...providerVisible],
-      provider.id,
-      new Set(cfg.keep),
-      cfg.disabled,
-    );
-  };
-
-  const wrapped = { ...provider, filterModels } as Provider;
-  Object.defineProperty(wrapped, PROVIDER_FILTER_MARKER, { value: true });
-  return wrapped;
-}
-
-/** Install the filter on every provider currently known to pi. */
-function installStaleModelFilter(
+function cleanupLegacyProviderWrappers(
   pi: ExtensionAPI,
   registry: ExtensionContext["modelRegistry"],
-  agentDir: string,
 ): number {
-  const providerIds = new Set<string>([
-    ...registry.getAll().map((model) => model.provider),
-    ...registry.getRegisteredProviderIds(),
-  ]);
-
-  let installed = 0;
-  for (const providerId of providerIds) {
-    const provider = registry.getProvider(providerId);
-    if (!provider) continue;
-
+  let removed = 0;
+  for (const providerId of registry.getRegisteredProviderIds()) {
+    const nativeProvider = registry.getRegisteredNativeProvider(providerId);
+    if (!isLegacyMarkedProvider(nativeProvider)) continue;
     try {
-      // Re-wrap the current composed provider on every session start/reload.
-      // This repairs stale runtime registrations left by older extension
-      // versions; duplicate stale filtering is idempotent.
-      pi.registerProvider(withStaleModelFilter(provider, agentDir, true));
-      installed++;
+      pi.unregisterProvider(providerId);
+      removed++;
     } catch (error) {
       console.warn(
-        `[pi-stale-model-filter] Could not wrap provider "${providerId}": ${
+        `[pi-stale-model-filter] Could not remove legacy wrapper for "${providerId}": ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
     }
   }
-  return installed;
+  return removed;
 }
 
 type ScopedModelEntry = {
@@ -596,13 +582,16 @@ export default function (pi: ExtensionAPI) {
   // filterModels, so stale entries cannot reappear after a catalog refresh.
   pi.on("session_start", async (_event, ctx) => {
     reloadConfig();
-    const installed = installStaleModelFilter(pi, ctx.modelRegistry, agentDir);
+    const removedLegacyWrappers = cleanupLegacyProviderWrappers(
+      pi,
+      ctx.modelRegistry,
+    );
     const runtimeFilterInstalled = installRuntimeAvailabilityFilter(
       ctx.modelRegistry,
       agentDir,
     );
     debugLog(
-      `session_start wrapped ${installed} provider(s); runtime filter=${
+      `session_start removed ${removedLegacyWrappers} legacy provider wrapper(s); runtime filter=${
         runtimeFilterInstalled ? "installed" : "unavailable"
       }`,
     );
@@ -619,7 +608,7 @@ export default function (pi: ExtensionAPI) {
       const action = args.trim();
       const notify = (msg: string, type = "info") => ctx.ui.notify?.(msg, type);
 
-      switch (action) {
+      switch (action.split(/\s+/)[0]) {
         case "":
         case "status": {
           // Status is also a self-healing checkpoint: install/refresh the
@@ -650,12 +639,48 @@ export default function (pi: ExtensionAPI) {
             ? "Version filtering is disabled."
             : `Hiding ${stats.hidden} catalog ${stats.hidden === 1 ? "entry" : "entries"} across ${stats.providers} providers.`;
           notify([
-            `Stale-model filter v0.2.3: ${cfg.disabled ? "DISABLED" : "active"}`,
+            `Stale-model filter v0.2.5: ${cfg.disabled ? "DISABLED" : "active"}`,
             `Runtime safety net: ${runtimeFilterInstalled ? "active" : "unavailable"}`,
             `Available now: ${available.length} models across ${availableProviders} providers.`,
             `Hidden by provider: ${providerSummary}`,
             hidden,
             keep,
+          ].join("\n"));
+          break;
+        }
+        case "inspect": {
+          const provider = action.slice("inspect".length).trim();
+          if (!provider) {
+            notify("Usage: /stale-model-filter inspect <provider>", "warn");
+            break;
+          }
+          installRuntimeAvailabilityFilter(ctx.modelRegistry, agentDir);
+          await ctx.modelRegistry.refresh({
+            providers: [provider],
+            allowNetwork: false,
+          });
+          syncScopedModels(ctx, cfg.disabled);
+
+          const stored = storedModelIds(agentDir, provider);
+          const catalog = ctx.modelRegistry
+            .getAll()
+            .filter((model: Model<Api>) => model.provider === provider)
+            .map((model: Model<Api>) => model.id);
+          const available = (ctx.modelRegistry.getAvailable() as Model<Api>[])
+            .filter((model) => model.provider === provider)
+            .map((model) => model.id);
+          const availableSet = new Set(available);
+          const filtered = catalog.filter((id: string) => !availableSet.has(id));
+          const catalogSet = new Set(catalog);
+          const missingAtRuntime = stored.filter((id: string) => !catalogSet.has(id));
+
+          notify([
+            `Provider: ${provider}`,
+            `Store (${stored.length}): ${formatModelIds(stored)}`,
+            `Runtime catalog (${catalog.length}): ${formatModelIds(catalog)}`,
+            `Available (${available.length}): ${formatModelIds(available)}`,
+            `Filtered as stale (${filtered.length}): ${formatModelIds(filtered)}`,
+            `Stored but absent from runtime (${missingAtRuntime.length}): ${formatModelIds(missingAtRuntime)}`,
           ].join("\n"));
           break;
         }
@@ -702,6 +727,7 @@ export default function (pi: ExtensionAPI) {
             [
               "Usage:",
               "  /stale-model-filter status",
+              "  /stale-model-filter inspect <provider>",
               "  /stale-model-filter enable | disable",
               "  /stale-model-filter keep <provider/model-id>",
               "  /stale-model-filter unkeep <provider/model-id>",

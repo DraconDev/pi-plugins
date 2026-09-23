@@ -9,11 +9,11 @@ registry; no Agnes-specific or other per-provider wiring is required.
 Once a session starts (and again after `/reload`), the extension:
 
 1. Enumerates every built-in, `models.json`, and extension-registered provider.
-2. Composes a stale-version filter after each provider's existing
-   `filterModels` policy.
+2. Filters Pi's availability snapshots at runtime without replacing or mutating
+   any provider registration.
 3. Refreshes Pi's cached available-model snapshot without network access.
-4. Keeps the wrapper attached, so later provider catalog refreshes cannot
-   reintroduce stale entries.
+4. Keeps the runtime filter attached, so later provider catalog refreshes cannot
+   reintroduce stale entries or lose dynamically discovered model families.
 
 The filtered snapshot is used by:
 
@@ -80,6 +80,7 @@ needed.
 | Command | Description |
 |---|---|
 | `/stale-model-filter status` | Show enabled state, estimated hidden entries, and kept models |
+| `/stale-model-filter inspect <provider>` | Compare stored, runtime, available, and filtered model IDs for any provider |
 | `/stale-model-filter enable` | Enable filtering and refresh the current snapshot |
 | `/stale-model-filter disable` | Disable filtering and restore the full snapshot/scope |
 | `/stale-model-filter keep <provider/model-id>` | Always show a protected model |
