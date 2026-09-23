@@ -50,23 +50,6 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 
-// Re-export the pure core so consumers can import from either file.
-export {
-  splitVersion,
-  compareVersions,
-  filterModelList,
-  DEFAULT_CONFIG,
-} from "./model-filter-core.js";
-export type { FilterConfig, ModelDef, RefreshModelsFn } from "./model-filter-core.js";
-
-import {
-  DEFAULT_CONFIG,
-  filterModelList,
-  type FilterConfig,
-  type ModelDef,
-  type RefreshModelsFn,
-} from "./model-filter-core.js";
-
 // ─── Config I/O ─────────────────────────────────────────────────────────────
 
 export function configPathFor(agentDir: string): string {
