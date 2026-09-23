@@ -112,17 +112,44 @@ export function parseModelVersion(
   return { base, version };
 }
 
-/** Numeric comparison of two dot-separated version strings. */
+type ComparableVersion = {
+  semantic: number[];
+  date: number[] | null;
+};
+
+function versionParts(version: string): ComparableVersion {
+  const parts = version.split(".").map((part) => Number(part) || 0);
+  let dateStart = parts.findIndex((part, index) =>
+    index > 0 && String(version.split(".")[index]).length >= 4
+  );
+  if (dateStart === -1 && String(version.split(".")[0]).length >= 4) {
+    dateStart = 0;
+  }
+  return {
+    semantic: dateStart < 0 ? parts : parts.slice(0, dateStart),
+    date: dateStart < 0 ? null : parts.slice(dateStart),
+  };
+}
+
+function versionClass(version: string): string {
+  const { date } = versionParts(version);
+  return date ? "dated" : `semantic:${version.split(".").length}`;
+}
+
+/** Compare semantic components first, then an optional date suffix. */
 export function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map((s) => Number(s) || 0);
-  const pb = b.split(".").map((s) => Number(s) || 0);
-  const len = Math.max(pa.length, pb.length);
-  for (let i = 0; i < len; i++) {
-    const va = pa[i] ?? 0;
-    const vb = pb[i] ?? 0;
+  const pa = versionParts(a);
+  const pb = versionParts(b);
+  const semanticLength = Math.max(pa.semantic.length, pb.semantic.length);
+  for (let i = 0; i < semanticLength; i++) {
+    const va = pa.semantic[i] ?? 0;
+    const vb = pb.semantic[i] ?? 0;
     if (va !== vb) return va < vb ? -1 : 1;
   }
-  return 0;
+  const da = pa.date ? Number(pa.date.join("")) : -1;
+  const db = pb.date ? Number(pb.date.join("")) : -1;
+  if (da === db) return 0;
+  return da < db ? -1 : 1;
 }
 
 /**
@@ -157,7 +184,7 @@ export function filterSuperseded<T extends { id: string }>(
     // Use the provider-qualified key so same-named models from different
     // providers never compete.
     const groupKey = pv
-      ? `${provider}:${pv.base}`
+      ? `${provider}:${pv.base}:${versionClass(pv.version)}`
       : `${provider}:${m.id}::__singleton__`;
 
     let g = groups.get(groupKey);
@@ -321,6 +348,9 @@ function findLatestReplacement(
     if (candidate.provider !== current.provider) continue;
     const candidateVersion = parseModelVersion(candidate.id);
     if (!candidateVersion || candidateVersion.base !== parsed.base) continue;
+    if (versionClass(candidateVersion.version) !== versionClass(parsed.version)) {
+      continue;
+    }
     if (compareVersions(candidateVersion.version, parsed.version) <= 0) continue;
     if (!winnerVersion || compareVersions(candidateVersion.version, winnerVersion) > 0) {
       winner = candidate;
