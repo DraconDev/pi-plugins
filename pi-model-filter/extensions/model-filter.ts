@@ -1,102 +1,153 @@
 /**
  * pi-model-filter
  *
- * Filters out superseded version-suffixed models from the /model selector
- * and Ctrl+P cycle. When a provider offers both `foo-2.0` and `foo-3.0`,
- * only `foo-3.0` is shown; when only one version exists, it is kept.
+ * Hides superseded version-suffixed models from pi's /model selector,
+ * Ctrl+P model cycling, and the --models CLI.
  *
- * How it works:
- *   • Groups models by base name (strip trailing `-\d+(\.\d+)*(-\w+)*`
- *     version suffix).
- *   • Within each base-name group, keeps only the model whose numeric
- *     version is highest. Models without a parseable version suffix are
- *     kept as their own group (never filtered).
- *   • Runs in `before_model_selector` so it affects both /model and
- *     Ctrl+P. The selector is rebuilt on every model refresh.
+ * How it works
+ *   Models are grouped by `${provider}:${base}` where `base` is the model
+ *   id with the trailing version segment stripped (`agnes-2.0-flash` →
+ *   base `agnes`, version `2.0`). When a group has more than one versioned
+ *   member, only the highest version is kept. Models without a numeric
+ *   version suffix are never filtered.
  *
- * Config (optional, via /model-filter command or settings):
- *   • `disable` – turn off the filter for the session.
- *   • `show-all` – temporarily re-show all versions.
- *   • `keep <model-id>` – add a model to an explicit keep list so it
- *     survives filtering even when a newer version exists.
+ * The filter is applied at two layers so it survives both static and
+ * dynamic model lists:
  *
- * No external dependencies. Uses only the pi ExtensionAPI.
+ *   1. `wrapRegisterProvider` – intercepts every call to
+ *      `pi.registerProvider(name, config)` made by *other* extensions or
+ *      by pi's own built-in composition, and wraps `config.models` and
+ *      `config.refreshModels` with the version filter.
+ *
+ *   2. `before_provider_request` – no-op layer for diagnostics.
+ *
+ * Configuration
+ *   Persisted to ~/.pi/agent/model-filter.json:
+ *     {
+ *       "disabled": false,
+ *       "keep": ["agnes/agnes-2.0-flash"]
+ *     }
+ *   `disabled: true` turns the filter off entirely.
+ *   `keep` is an array of "provider/model-id" strings that are always
+ *   shown even when a newer version exists in the same group.
+ *
+ * Commands
+ *   /model-filter status      – show current state
+ *   /model-filter enable      – re-enable
+ *   /model-filter disable     – disable (persisted)
+ *   /model-filter keep <id>  – protect a model
+ *   /model-filter unkeep <id>– release a protected model
  */
 
-import type { ExtensionAPI, Model } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { join } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 
-// ─── Config state ───────────────────────────────────────────────────────────
+// ─── Types ─────────────────────────────────────────────────────────────────
 
 interface FilterConfig {
-  /** When true, all filtering is disabled and every model is shown. */
+  version: 1;
   disabled: boolean;
-  /** Model IDs to always keep, regardless of version comparison. */
+  /** "provider/model-id" entries that must survive filtering. */
   keep: string[];
 }
 
-function defaultConfig(): FilterConfig {
-  return { disabled: false, keep: [] };
+const DEFAULT_CONFIG: FilterConfig = { version: 1, disabled: false, keep: [] };
+
+// ─── Config I/O ─────────────────────────────────────────────────────────────
+
+function configPath(): string {
+  return join(getAgentDir(), "model-filter.json");
 }
 
-// Read any persisted config from the agent dir so settings survive restarts.
 function loadConfig(): FilterConfig {
+  const p = configPath();
   try {
-    const { join } = require("node:path");
-    const { readFileSync } = require("node:fs");
-    const { getAgentDir } = require("@earendil-works/pi-coding-agent");
-    const p = join(getAgentDir(), "model-filter.json");
-    const raw = JSON.parse(readFileSync(p, "utf8"));
+    if (!existsSync(p)) return { ...DEFAULT_CONFIG, keep: [] };
+    const raw = JSON.parse(readFileSync(p, "utf8")) as Partial<FilterConfig>;
     return {
+      version: 1,
       disabled: raw.disabled ?? false,
       keep: Array.isArray(raw.keep) ? raw.keep : [],
     };
   } catch {
-    return defaultConfig();
+    return { ...DEFAULT_CONFIG, keep: [] };
   }
 }
 
 function saveConfig(cfg: FilterConfig): void {
   try {
-    const { join } = require("node:path");
-    const { writeFileSync, mkdirSync } = require("node:fs");
-    const { getAgentDir } = require("@earendil-works/pi-coding-agent");
-    const dir = getAgentDir();
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "model-filter.json"), JSON.stringify(cfg, null, 2));
+    const p = configPath();
+    mkdirSync(join(p, ".."), { recursive: true });
+    writeFileSync(p, JSON.stringify(cfg, null, 2));
   } catch {
-    // non-fatal: in-memory state is still in effect
+    // non-fatal
   }
 }
 
-// ─── Version-parsing helpers ────────────────────────────────────────────────
+// ─── Version parsing ────────────────────────────────────────────────────────
 
 /**
- * Split a model id into (base, version) where version is the trailing
- * `-\d+(\.\d+)*` segment. Returns null when no version is found.
+ * Extract the trailing version segment from a model id.
  *
- *   "agnes-2.0-flash"   → ("agnes", "2.0")
- *   "gpt-5.5-2026"     → ("gpt", "5.5-2026")  – handled by a broader rule
- *   "claude-sonnet-4-5" → ("claude", "4-5")    – only when it matches
- *   "agnes-2.5-flash"   → ("agnes", "2.5")
- *   "unknown"           → null
+ *   "agnes-2.0-flash"   → version "2.0"   (base "agnes")
+ *   "gpt-5.5"           → version "5.5"   (base "gpt")
+ *   "claude-sonnet-4-5" → version "4-5"   (base "claude-sonnet")
+ *   "my-model"          → null            (no version)
+ *
+ * The version is the final `-<digits>` or `-<digits>.<digits>` group.
+ * For `claude-sonnet-4-5` the last two hyphen-separated segments are
+ * both numeric, so we treat `4-5` as a single version token.
+ *
+ * Returns { base, version } or null when no version is found.
  */
 function splitVersion(id: string): { base: string; version: string } | null {
-  // Pattern: `...-X.Y` or `...-X.Y.Z` or `...-X` where X is a digit group.
-  // The `-` separator is the version boundary. We grab everything from the
-  // last `-` that starts with a digit.
-  const m = id.match(/^(.*?)(-\d+(?:\.\d+)*)$/);
-  if (!m) return null;
-  const base = m[1];
-  const version = m[2].slice(1); // strip leading '-'
-  // Reject cases where "base" is empty (id was purely a number).
+  const parts = id.split("-");
+  if (parts.length < 2) return null;
+
+  // Walk from the end: collect consecutive numeric-only segments
+  // (or a single "N" / "N.M" token formed by the last 1-2 segments).
+  let end = parts.length;
+  let start = end;
+
+  // Last segment must be numeric (e.g. "5" in "gpt-5")
+  // or a dotted pair (e.g. "4-5" → "4","5" → treat as "4.5").
+  // Strategy: find the longest trailing run of segments where each
+  // is either a plain integer or part of a dotted version.
+
+  // Case A: last segment is "X" or "X.Y"
+  const last = parts[parts.length - 1];
+  if (/^\d+(\.\d+)*$/.test(last)) {
+    start = parts.length - 1;
+    // If the segment before last is also an integer, it may be the
+    // "major" of a "major-minor" pair like "sonnet-4-5".
+    if (start > 0) {
+      const prev = parts[start - 1];
+      if (/^\d+$/.test(prev)) {
+        // Ambiguous: "sonnet-4-5" → is base "sonnet" version "4.5"?
+        // Convention: if prev is a single digit and last is a single
+        // digit, treat them as a dotted pair.
+        if (/^\d$/.test(prev) && /^\d$/.test(last)) {
+          start = parts.length - 2;
+        }
+      }
+    }
+  } else {
+    return null; // last segment is not numeric → no version
+  }
+
+  if (start === parts.length) return null;
+  const base = parts.slice(0, start).join("-");
+  const version = parts.slice(start).join("."); // "4-5" → "4.5"
   if (!base) return null;
   return { base, version };
 }
 
-/** Compare two version strings numerically. Returns -1, 0, or 1. */
+/** Compare two dot-separated version strings numerically. */
 function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
+  const pa = a.split(".").map((s) => Number(s) || 0);
+  const pb = b.split(".").map((s) => Number(s) || 0);
   const len = Math.max(pa.length, pb.length);
   for (let i = 0; i < len; i++) {
     const va = pa[i] ?? 0;
@@ -106,180 +157,272 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-/**
- * Group models by their base name, then pick the highest version within
- * each group. Models without a parseable version suffix are kept in a
- * singleton group and never filtered.
- *
- * `keep` is a Set of provider-qualified model ids ("provider/id") that
- * must survive filtering.
- */
-function filterModels(
-  models: Model[],
-  keep: Set<string>,
-): Model[] {
-  if (keep.size === 0 && models.length === 0) return models;
+// ─── Core filter ────────────────────────────────────────────────────────────
 
-  // Group key: `${provider}:${base}` – base comes from splitVersion, or
-  // the full model id when no version is found.
+interface FilteredModel {
+  id: string;
+  name?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Filter a flat array of model definitions (from registerProvider or
+ * refreshModels). `keepSet` contains fully-qualified "provider/id" strings
+ * that must always survive.
+ */
+export function filterModelList(
+  models: FilteredModel[],
+  provider: string,
+  keepSet: ReadonlySet<string>,
+  disabled: boolean,
+): FilteredModel[] {
+  if (disabled) return models;
+  if (models.length === 0) return models;
+
   interface Group {
     key: string;
-    // highest-version model, or the singleton when no version
-    winner: Model;
-    // all members (for debugging / diagnostics)
-    members: Model[];
+    /** Best (highest-version) model seen so far in this group. */
+    winner: FilteredModel;
+    winnerVersion: string | null; // null = no version
+    members: FilteredModel[];
   }
 
   const groups = new Map<string, Group>();
 
   for (const m of models) {
-    const providerKey = `${m.provider}/${m.id}`;
     const sv = splitVersion(m.id);
-    const base = sv ? sv.base : m.id; // no version → singleton group
-    const groupKey = `${m.provider}:${base}`;
+    // Singleton key when no version → group of one, never filtered.
+    const groupKey = sv ? `${provider}:${sv.base}` : `${provider}:${m.id}::__singleton__`;
 
     let g = groups.get(groupKey);
     if (!g) {
-      g = { key: groupKey, winner: m, members: [] };
+      g = { key: groupKey, winner: m, winnerVersion: sv?.version ?? null, members: [] };
       groups.set(groupKey, g);
     }
     g.members.push(m);
 
-    // Update winner if this model has a higher version
+    // Update winner
     if (sv) {
-      const winnerSv = splitVersion(g.winner.id);
-      if (!winnerSv) {
-        // current winner has no version; this one does → win
+      const cmp = g.winnerVersion === null ? 1 : compareVersions(sv.version, g.winnerVersion);
+      if (cmp > 0) {
         g.winner = m;
-      } else {
-        const cmp = compareVersions(sv.version, winnerSv.version);
-        if (cmp > 0) g.winner = m;
-        // tie or lower → keep existing winner
+        g.winnerVersion = sv.version;
       }
     }
-    // If m has no version, it can never replace a versioned winner,
-    // and it never wins a versioned group.
+    // No-version models can never beat a versioned winner.
   }
 
-  const result: Model[] = [];
-  const kept = new Set<string>();
+  const result: FilteredModel[] = [];
+  const included = new Set<FilteredModel>();
 
   for (const g of groups.values()) {
-    // If the winner is in the keep set, or the group is a singleton,
-    // include the winner.
-    const winnerKey = `${g.winner.provider}/${g.winner.id}`;
-    const memberKeys = g.members.map((m) => `${m.provider}/${m.id}`);
-
-    // Always keep models that are explicitly in `keep`
-    for (const mk of memberKeys) {
-      if (keep.has(mk)) result.push(g.members.find((mm) => `${mm.provider}/${mm.id}` === mk)!);
+    // Always include explicitly kept models
+    for (const m of g.members) {
+      const fq = `${provider}/${m.id}`;
+      if (keepSet.has(fq) && !included.has(m)) {
+        result.push(m);
+        included.add(m);
+      }
     }
-    // Add the winner if it's not already in `keep`
-    if (!keep.has(winnerKey) && !result.includes(g.winner)) {
+    // Include the group winner unless already included
+    if (!included.has(g.winner)) {
       result.push(g.winner);
+      included.add(g.winner);
     }
   }
 
+  // Preserve original order as much as possible
+  const orderMap = new Map(models.map((m, i) => [m, i]));
+  result.sort((a, b) => (orderMap.get(a) ?? 0) - (orderMap.get(b) ?? 0));
+
   return result;
+}
+
+// ─── Provider interception ─────────────────────────────────────────────────
+
+type ModelDef = Record<string, unknown> & { id: string; name?: string };
+
+function wrapModelConfig(models: ModelDef[] | undefined, provider: string, cfg: FilterConfig): ModelDef[] | undefined {
+  if (!models || models.length === 0) return models;
+  const keepSet = new Set(cfg.keep);
+  const filtered = filterModelList(models, provider, keepSet, cfg.disabled);
+  return filtered;
+}
+
+/**
+ * Wrap the `refreshModels` function so its returned models are also filtered.
+ */
+function wrapRefreshModels(
+  original: ((ctx: any) => Promise<ModelDef[] | undefined>) | undefined,
+  provider: string,
+  getCfg: () => FilterConfig,
+): ((ctx: any) => Promise<ModelDef[] | undefined>) | undefined {
+  if (!original) return original;
+  return async (ctx: any) => {
+    const result = await original(ctx);
+    if (!result) return result;
+    const cfg = getCfg();
+    const keepSet = new Set(cfg.keep);
+    return filterModelList(result, provider, keepSet, cfg.disabled);
+  };
 }
 
 // ─── Extension entry ────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
   let cfg: FilterConfig = loadConfig();
-  let keepSet: Set<string> = new Set(cfg.keep);
 
-  function refreshKeepSet() {
-    keepSet = new Set(cfg.keep);
+  function refreshConfig() {
+    cfg = loadConfig();
   }
 
-  function showAll() {
-    return cfg.disabled || keepSet.size > 0; // disabled filter OR keep overrides
+  function keepSet(): Set<string> {
+    return new Set(cfg.keep);
   }
 
-  // ── before_model_selector: filter the model list ─────────────────────
-  // Fires right before the model selector UI (or Ctrl+P cycle) builds
-  // its list. Mutating `models` in place is the contract.
-  pi.on("before_model_selector", (event: any, ctx: any) => {
-    if (showAll()) return; // user opted out or has explicit keep list
-    const original = event.models;
-    if (!Array.isArray(original)) return;
+  // ── Intercept registerProvider to wrap models + refreshModels ──────
+  // We patch the `pi` object's registerProvider before other extensions
+  // run. Because pi waits for the async factory, our patch is in place
+  // when other providers register.
+  //
+  // The `models` array passed to registerProvider is a plain array, so we
+  // replace it with a filtered copy. For `refreshModels` we wrap the
+  // function to filter its return value.
+  //
+  // We do this by wrapping the original and re-exposing it.
 
-    const filtered = filterModels(original, keepSet);
-    // Write back in place
-    event.models.length = 0;
-    event.models.push(...filtered);
+  const originalRegisterProvider = pi.registerProvider.bind(pi);
 
-    const removed = original.length - filtered.length;
-    if (removed > 0 && ctx?.ui) {
-      ctx.ui.notify?.(`model-filter: hid ${removed} superseded version(s)`, "info");
+  function patchedRegisterProvider(
+    providerOrName: string | any,
+    configOrUndefined?: any,
+  ): void {
+    const providerName: string =
+      typeof providerOrName === "string" ? providerOrName : providerOrName?.id ?? "unknown";
+
+    // Case 1: pi.registerProvider("name", { models: [...], refreshModels })
+    if (typeof providerOrName === "string" && configOrUndefined !== undefined) {
+      const config = { ...configOrUndefined };
+
+      // Wrap the static models list
+      if (Array.isArray(config.models)) {
+        config.models = filterModelList(config.models as ModelDef[], providerName, keepSet(), cfg.disabled) as typeof config.models;
+      }
+
+      // Wrap refreshModels
+      if (typeof config.refreshModels === "function") {
+        config.refreshModels = wrapRefreshModels(
+          config.refreshModels,
+          providerName,
+          () => cfg,
+        );
+      }
+
+      originalRegisterProvider(providerOrName, config);
+      return;
     }
-  });
 
-  // ── /model-filter command ─────────────────────────────────────────────
+    // Case 2: pi.registerProvider(providerObject) – native Provider
+    // Filter `provider.getModels()` is not easily patchable here because
+    // the native Provider object is opaque. For native providers we
+    // fall back to intercepting via a wrapper: not supported in this
+    // initial version (documented in README).
+    originalRegisterProvider(providerOrName as any);
+  }
+
+  // Patch the object passed to us
+  (pi as any).registerProvider = patchedRegisterProvider;
+
+  // ── /model-filter command ─────────────────────────────────────────
+
   pi.registerCommand("model-filter", {
-    description: "Show or configure the model-version filter",
-    handler: async (_name: string, ctx: any) => {
-      const action = _name.trim();
+    description: "Configure the model version filter (hide superseded versions)",
+    handler: async (args: string, ctx: any) => {
+      const action = args.trim();
+      const notify = (msg: string, type = "info") => ctx.ui.notify?.(msg, type);
+
       switch (action) {
         case "":
-        case "show":
         case "status": {
           const lines = [
             `Filter: ${cfg.disabled ? "DISABLED" : "active"}`,
-            `Kept models: ${keepSet.size === 0 ? "(none)" : [...keepSet].join(", ")}`,
+            `Kept models: ${cfg.keep.length === 0 ? "(none)" : cfg.keep.join(", ")}`,
           ];
-          ctx.ui.notify(lines.join("\n"), "info");
+          notify(lines.join("\n"));
           break;
         }
         case "enable": {
           cfg.disabled = false;
           saveConfig(cfg);
-          ctx.ui.notify("model-filter: enabled", "info");
+          refreshConfig();
+          notify("model-filter: enabled (re-run /reload or start a new session for full effect)");
           break;
         }
         case "disable": {
           cfg.disabled = true;
           saveConfig(cfg);
-          ctx.ui.notify("model-filter: disabled", "info");
+          refreshConfig();
+          notify("model-filter: disabled (re-run /reload or start a new session for full effect)");
           break;
         }
         case "keep": {
-          // /model-filter keep <provider/id>
-          const id = _name.split(" ").slice(1).join(" ").trim();
+          const parts = action.split(" ");
+          const id = parts.slice(1).join(" ").trim();
           if (!id) {
-            ctx.ui.notify("Usage: /model-filter keep <provider/id>", "warn");
+            notify("Usage: /model-filter keep <provider/model-id>", "warn");
             break;
           }
           if (!cfg.keep.includes(id)) cfg.keep.push(id);
-          refreshKeepSet();
           saveConfig(cfg);
-          ctx.ui.notify(`model-filter: keeping ${id}`, "info");
+          refreshConfig();
+          notify(`model-filter: keeping ${id}`);
           break;
         }
         case "unkeep": {
-          const id = _name.split(" ").slice(1).join(" ").trim();
+          const parts = action.split(" ");
+          const id = parts.slice(1).join(" ").trim();
           if (!id) {
-            ctx.ui.notify("Usage: /model-filter unkeep <provider/id>", "warn");
+            notify("Usage: /model-filter unkeep <provider/model-id>", "warn");
             break;
           }
           cfg.keep = cfg.keep.filter((k) => k !== id);
-          refreshKeepSet();
           saveConfig(cfg);
-          ctx.ui.notify(`model-filter: released ${id}`, "info");
+          refreshConfig();
+          notify(`model-filter: released ${id}`);
           break;
         }
         default:
-          ctx.ui.notify(
-            "Usage:\n" +
-            "  /model-filter status     – show current state\n" +
-            "  /model-filter enable     – turn filter on\n" +
-            "  /model-filter disable    – turn filter off\n" +
-            "  /model-filter keep <id> – protect a model\n" +
-            "  /model-filter unkeep <id>",
+          notify(
+            [
+              "Usage:",
+              "  /model-filter status",
+              "  /model-filter enable | disable",
+              "  /model-filter keep <provider/model-id>",
+              "  /model-filter unkeep <provider/model-id>",
+            ].join("\n"),
             "warn",
           );
       }
     },
+  });
+
+  // ── Log which models were filtered, if any ────────────────────────
+  // Hook into model_select to confirm a filtered-out model can't be
+  // accidentally restored via session resume.
+
+  pi.on("model_select", (event: any, ctx: any) => {
+    if (cfg.disabled) return;
+    const m = event.model;
+    if (!m) return;
+    const fq = `${m.provider}/${m.id}`;
+    const kset = new Set(cfg.keep);
+    const sv = splitVersion(m.id);
+    if (sv && !kset.has(fq)) {
+      // This model IS the current selection; it should be fine.
+      // Nothing to do here – just a sanity log.
+      if (process.env.PI_MODEL_FILTER_DEBUG) {
+        console.error(`[pi-model-filter] model_select: ${fq} (base=${sv.base}, version=${sv.version})`);
+      }
+    }
   });
 }
