@@ -111,5 +111,7 @@ Persisted at `~/.pi/agent/model-filter.json`:
 node --test tests/*.test.mjs
 ```
 
-Covers `splitVersion`, `compareVersions`, and `filterModelList` (26 cases),
-including the real Agnes seed example.
+Covers `splitVersion`, `compareVersions`, and `filterModelList` (20 cases),
+including the real Agnes seed example. The pure logic is mirrored in
+`tests/model-filter.test.mjs` — keep in sync when the implementation
+changes.
