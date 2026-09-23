@@ -21,24 +21,30 @@
  *
  * Design boundary: ids ending in a non-numeric qualifier are NOT
  * treated as versioned. "agnes-2.5-flash" and "agnes-3.0-flash" are
- * singletons and both stay visible. If Agnes starts shipping both
- * "-flash" variants at once, use /model-filter keep or the config
- * file to pin one.
+ * singletons and both stay visible. If a provider ships both "-flash"
+ * variants at once, use /model-filter keep to pin the one you want.
  *
  * How it's wired in
- *   The extension patches pi.registerProvider / pi.registerNativeProvider
- *   on the extension `pi` object at factory time. Because pi flushes
- *   provider registrations queued during loading in extension order,
- *   this extension must load BEFORE provider-owning extensions for its
- *   patch to intercept their registerProvider calls. See README for
- *   ordering guidance.
+ *   A provider-owning extension (like pi-agnes-tools) can add:
  *
- *   The wrapped paths filter:
- *     - config.models (static catalog arrays)
- *     - config.refreshModels (live /v1/models discovery callbacks)
- *     - native Provider.getModels()
+ *       import { filterModelList, loadConfigFor, getAgentDir } from
+ *         "pi-model-filter/extensions/model-filter";
  *
- * Config file: ~/.pi/agent/model-filter.json
+ *       // when registering the provider, wrap the model list and the
+ *       // refreshModels callback:
+ *       models: filterModelList(AGNES_SEED.map(toModelConfig), "agnes",
+ *         new Set(loadConfigFor(getAgentDir()).keep),
+ *         loadConfigFor(getAgentDir()).disabled),
+ *       refreshModels: wrapRefreshModels(originalRefresh, "agnes"),
+ *
+ *   This extension also ships a standalone fallback: if a provider
+ *   re-registers itself via this plugin's patched registerProvider,
+ *   its models/refreshModels are filtered automatically. Because every
+ *   extension receives its own `pi` object, this patching only catches
+ *   registrations that flow through THIS extension's `pi`, so the
+ *   primary integration is the explicit import above.
+ *
+ *   Config file: ~/.pi/agent/model-filter.json
  *   {
  *     "disabled": false,
  *     "keep": ["agnes/agnes-2.0-flash"]
@@ -50,8 +56,8 @@
  *   /model-filter keep <id>    – protect a model from filtering
  *   /model-filter unkeep <id>
  *
- * Config changes persist immediately; the filtered catalog re-applies on
- * the next /reload or new session (provider registration re-runs).
+ * Config changes persist immediately; call sites that capture the config
+ * at registration time re-apply on the next /reload or new session.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -68,7 +74,7 @@ export interface FilterConfig {
   keep: string[];
 }
 
-const DEFAULT_CONFIG: FilterConfig = { version: 1, disabled: false, keep: [] };
+export const DEFAULT_CONFIG: FilterConfig = { version: 1, disabled: false, keep: [] };
 
 export type ModelDef = Record<string, unknown> & { id: string; name?: string };
 export type RefreshModelsFn = (ctx: unknown) => Promise<ModelDef[] | undefined | null>;
@@ -147,6 +153,12 @@ export function compareVersions(a: string, b: string): number {
 
 // ─── Core filter ────────────────────────────────────────────────────────────
 
+/**
+ * Filter a flat array of model definitions. Within each
+ * provider:base group only the numerically highest version survives.
+ * `keepSet` contains fully-qualified "provider/id" strings that must
+ * always survive. Returns the input array unchanged when `disabled`.
+ */
 export function filterModelList(
   models: ModelDef[],
   provider: string,
@@ -208,21 +220,35 @@ export function filterModelList(
   return result;
 }
 
-// ─── Provider interception ─────────────────────────────────────────────────
+// ─── Integration helpers (exported for provider-owning extensions) ─────────
 
-function wrapRefreshModels(
+/**
+ * Wrap an existing `refreshModels` callback so its returned model list
+ * is filtered through the current config each time it runs. Returns
+ * the original when `original` is undefined.
+ */
+export function wrapRefreshModels(
   original: RefreshModelsFn | undefined,
   provider: string,
-  getCfg: () => FilterConfig,
 ): RefreshModelsFn | undefined {
   if (!original) return original;
   return (async (ctx: unknown) => {
     const result = await original(ctx);
     if (!result) return result;
-    const cfg = getCfg();
+    const cfg = loadConfigFor(getAgentDir());
     return filterModelList(result, provider, new Set(cfg.keep), cfg.disabled);
   }) as RefreshModelsFn;
 }
+
+/**
+ * Convenience: filter a static model list using the live config on disk.
+ */
+export function filterModelsForProvider(models: ModelDef[], provider: string): ModelDef[] {
+  const cfg = loadConfigFor(getAgentDir());
+  return filterModelList(models, provider, new Set(cfg.keep), cfg.disabled);
+}
+
+// ─── Provider interception (standalone fallback) ───────────────────────────
 
 interface PatchablePi {
   registerProvider(providerOrName: string | unknown, config?: unknown): void;
@@ -232,6 +258,11 @@ interface PatchablePi {
 /**
  * Patch the pi object so every provider registration made through it
  * goes through the version filter. Idempotent.
+ *
+ * Caveat: each extension receives its own `pi` object from the loader,
+ * so patching this object only affects registrations that flow through
+ * THIS extension's api. Use the explicit import helpers above for
+ * reliable cross-extension filtering.
  */
 export function patchPi(
   pi: PatchablePi,
@@ -266,11 +297,13 @@ export function patchPi(
         );
       }
       if (typeof c.refreshModels === "function") {
-        c.refreshModels = wrapRefreshModels(
-          c.refreshModels as RefreshModelsFn,
-          providerName,
-          getCfg,
-        );
+        const originalRefresh = c.refreshModels as RefreshModelsFn;
+        c.refreshModels = (async (ctx: unknown) => {
+          const result = await originalRefresh(ctx);
+          if (!result) return result;
+          const cfgNow = getCfg();
+          return filterModelList(result, providerName, new Set(cfgNow.keep), cfgNow.disabled);
+        }) as RefreshModelsFn;
       }
       return originalRegisterProvider(providerOrName, c);
     }
@@ -285,7 +318,6 @@ export function patchPi(
         const cfg = getCfg();
         return filterModelList(models, providerName, new Set(cfg.keep), cfg.disabled);
       };
-      // pi.registerProvider also accepts a Provider object in the first arg
       return originalRegisterProvider(wrapped);
     }
 
@@ -295,7 +327,7 @@ export function patchPi(
   if (originalRegisterNative) {
     pi.registerNativeProvider = (provider: unknown) => {
       const p = provider as Record<string, unknown>;
-      const providerName: string = p?.id ?? "unknown";
+      const providerName: string = (p?.id as string) ?? "unknown";
       if (p && typeof p.getModels === "function") {
         const originalGetModels = p.getModels.bind(p);
         const wrapped: Record<string, unknown> = { ...p };
@@ -324,12 +356,10 @@ export default function (pi: ExtensionAPI) {
     cfg = loadConfigFor(getAgentDir());
   }
 
-  // Patch now, at factory time. This catches any provider registration
-  // that flows through this `pi` object after this point. Extensions
-  // that register providers in their own factories run in load order;
-  // to ensure the filter catches them, load pi-model-filter first
-  // (e.g. list it before provider extensions in --extension args or
-  // in the user extensions directory ordering).
+  // Standalone fallback: patch this extension's own pi object so that
+  // any provider registered through it gets filtered. Cross-extension
+  // filtering is achieved by the importing extension using the helpers
+  // above (filterModelsForProvider / wrapRefreshModels).
   try {
     patchPi(pi as unknown as PatchablePi, getCfg);
   } catch {
@@ -349,7 +379,8 @@ export default function (pi: ExtensionAPI) {
           const lines = [
             `Filter: ${cfg.disabled ? "DISABLED" : "active"}`,
             `Kept models: ${cfg.keep.length === 0 ? "(none)" : cfg.keep.join(", ")}`,
-            "Note: config changes re-apply on the next /reload or new session",
+            "Config is read live by provider refresh callbacks.",
+            "Static model lists re-apply on the next /reload or session.",
           ];
           notify(lines.join("\n"));
           break;
@@ -358,14 +389,14 @@ export default function (pi: ExtensionAPI) {
           cfg.disabled = false;
           saveConfigFor(dir, cfg);
           refreshConfig();
-          notify("model-filter: enabled. Run /reload to re-apply to all providers.");
+          notify("model-filter: enabled. Refresh callbacks pick it up on next model refresh.");
           break;
         }
         case "disable": {
           cfg.disabled = true;
           saveConfigFor(dir, cfg);
           refreshConfig();
-          notify("model-filter: disabled. Run /reload to re-apply to all providers.");
+          notify("model-filter: disabled. Refresh callbacks pick it up on next model refresh.");
           break;
         }
         case "keep": {
@@ -378,7 +409,7 @@ export default function (pi: ExtensionAPI) {
           if (!cfg.keep.includes(id)) cfg.keep.push(id);
           saveConfigFor(dir, cfg);
           refreshConfig();
-          notify(`model-filter: keeping ${id}. Run /reload to re-apply.`);
+          notify(`model-filter: keeping ${id}. Refresh callbacks pick it up on next model refresh.`);
           break;
         }
         case "unkeep": {
@@ -391,7 +422,7 @@ export default function (pi: ExtensionAPI) {
           cfg.keep = cfg.keep.filter((k) => k !== id);
           saveConfigFor(dir, cfg);
           refreshConfig();
-          notify(`model-filter: released ${id}. Run /reload to re-apply.`);
+          notify(`model-filter: released ${id}. Refresh callbacks pick it up on next model refresh.`);
           break;
         }
         default:
