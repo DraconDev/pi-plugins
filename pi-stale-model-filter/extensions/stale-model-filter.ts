@@ -131,8 +131,7 @@ function versionParts(version: string): ComparableVersion {
 }
 
 function versionClass(version: string): string {
-  const { date } = versionParts(version);
-  return date ? "dated" : `semantic:${version.split(".").length}`;
+  return versionParts(version).date ? "dated" : "semantic";
 }
 
 /** Compare semantic components first, then an optional date suffix. */
