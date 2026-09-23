@@ -1,95 +1,132 @@
 # pi-stale-model-filter
 
-Hide superseded model versions from pi's `/model` selector, `Ctrl+P` model
-cycling, and `--models` CLI scoping. No per-provider wiring required.
+A standalone Pi extension that hides superseded model versions from Pi's model
+pickers and cycling flows. It works across every provider through Pi's live model
+registry; no Agnes-specific or other per-provider wiring is required.
 
-## How it works
+## What it filters
 
-On every session start (or `/reload`) the extension:
+Once a session starts (and again after `/reload`), the extension:
 
-1. Reads `~/.pi/agent/models-store.json` — pi's own cache of the last
-   models returned by each provider's live discovery.
-2. Groups models by `provider + base name`, where the base name is
-   everything around the rightmost numeric version token in the id:
+1. Enumerates every built-in, `models.json`, and extension-registered provider.
+2. Composes a stale-version filter after each provider's existing
+   `filterModels` policy.
+3. Refreshes Pi's cached available-model snapshot without network access.
+4. Keeps the wrapper attached, so later provider catalog refreshes cannot
+   reintroduce stale entries.
 
-   | Model ID | Base | Version |
-   |---|---|---|
-   | `agnes-2.0-flash` | `agnes-flash` | `2.0` |
-   | `agnes-3.0-flash` | `agnes-flash` | `3.0` |
-   | `gpt-5.5` | `gpt` | `5.5` |
-   | `claude-sonnet-4-5` | `claude-sonnet` | `4.5` |
-   | `my-model` | — | never filtered |
+The filtered snapshot is used by:
 
-3. Within each group only the numerically highest version survives.
-   Older versions are removed from the provider's model list.
+- `/model` in both **all** and **scoped** views
+- `Ctrl+P` model cycling
+- `/scoped-models`
+- model RPC commands such as `get_available_models`
+- `enabledModels` / `--models` scopes after session initialization
 
-The filter runs on **every provider** — built-in, `models.json`, and
-extension-registered — without any provider-specific code. It re-applies
-on session start and `/reload`.
+Pi resolves `--models` before extension `session_start` handlers run. The
+extension therefore also rewrites the live scoped list: a removed entry is
+replaced by the newest available model in the same family when one exists. If
+the currently selected model was filtered, Pi switches to that replacement.
 
-### Example: real data
+## Version detection
 
-Against the user's actual `models-store.json`:
+Models are grouped by provider plus the text around the rightmost contiguous
+numeric version token:
 
-- `agnes` 3 → 1 (drops `agnes-2.0-flash`, keeps `agnes-3.0-flash`)
-- `openrouter` 386 → 306 (drops 80 older versions of claude-opus, gpt, gemini, grok, etc.)
-- `amazon-bedrock` 118 → 96
-- `gmi` 85 → 69
-- `meta` 5 → 2 (keeps `muse-spark-1.3`)
+| Model ID | Base | Version |
+|---|---|---|
+| `agnes-2.0-flash` | `agnes-flash` | `2.0` |
+| `agnes-3.0-flash` | `agnes-flash` | `3.0` |
+| `gpt-5.5` | `gpt` | `5.5` |
+| `claude-sonnet-4-5` | `claude-sonnet` | `4.5` |
+| `my-model` | — | never filtered |
+
+Within each group, only the numerically highest version remains. Qualifiers
+such as `flash`, `pro`, and `coder` remain part of the base, so variants only
+compete with the same variant family.
+
+Models without a numeric version token are treated as singletons. The filter is
+additive only in the sense that it removes entries: it never edits model
+metadata, auth, streaming, or persistence behavior.
 
 ## Install
 
-```bash
-cp -r pi-stale-model-filter ~/.pi/agent/extensions/
-```
-
-Or load directly during development:
+From this repository:
 
 ```bash
-pi --extension ./pi-stale-model-filter/extensions/stale-model-filter.ts
+pi install ./pi-stale-model-filter
 ```
+
+Then start a new Pi process or run:
+
+```text
+/reload
+```
+
+Verify the package is discovered:
+
+```bash
+pi list
+```
+
+The package's `pi.extensions` entry loads
+`extensions/stale-model-filter.ts`; no copy into `~/.pi/agent/extensions` is
+needed.
 
 ## Commands
 
 | Command | Description |
 |---|---|
-| `/stale-model-filter status` | Show whether the filter is active and which models are explicitly kept |
-| `/stale-model-filter enable` | Re-enable filtering |
-| `/stale-model-filter disable` | Turn off filtering (all versions shown) |
-| `/stale-model-filter keep <provider/model-id>` | Protect a model so it survives even when a newer version exists |
+| `/stale-model-filter status` | Show enabled state, estimated hidden entries, and kept models |
+| `/stale-model-filter enable` | Enable filtering and refresh the current snapshot |
+| `/stale-model-filter disable` | Disable filtering and restore the full snapshot/scope |
+| `/stale-model-filter keep <provider/model-id>` | Always show a protected model |
 | `/stale-model-filter unkeep <provider/model-id>` | Remove a model from the keep list |
 
-## Config
+Configuration changes apply immediately; `/reload` is not required.
 
-Persisted at `~/.pi/agent/stale-model-filter.json`:
+Example:
+
+```text
+/stale-model-filter keep openrouter/anthropic/claude-opus-4.1
+```
+
+## Configuration
+
+Configuration is stored at:
+
+```text
+~/.pi/agent/stale-model-filter.json
+```
+
+Example:
 
 ```json
 {
+  "version": 1,
   "disabled": false,
-  "keep": ["agnes/agnes-2.0-flash"]
+  "keep": [
+    "agnes/agnes-2.0-flash"
+  ]
 }
 ```
 
-- `disabled: true` — skip all version filtering.
-- `keep` — array of `"provider/model-id"` strings always shown even when a
-  newer version exists in the same base group.
+- `disabled: true` passes all models through and restores the original scope.
+- `keep` contains exact `provider/model-id` entries that survive even when a
+  newer version exists.
 
-## Notes
+## Known lifecycle boundary
 
-- The filter is **additive**: it only removes models, never adds or
-  changes metadata.
-- Models without a numeric version token are never filtered.
-- Filtering applies to `/model`, `Ctrl+P` cycling, and `--models` scoping
-  because all three read the same filtered catalog.
-- No external dependencies; pure logic is unit-testable under a bare
-  `node --test` harness.
+`pi --list-models` is a startup-only command that exits before `session_start`
+is dispatched, so that diagnostic listing is not filtered. Interactive model
+selection, cycling, configured scopes, and RPC model availability are filtered.
 
 ## Tests
 
 ```bash
-node --test tests/*.test.mjs
+npm test
 ```
 
-Covers `parseModelVersion`, `compareVersions`, and `filterSuperseded`
-(18 cases), including real-world examples from openrouter and agnes
-catalogs.
+The unit suite covers version parsing, numeric comparison, supersession,
+ordering, keep rules, disabled pass-through, empty catalogs, and realistic
+OpenRouter/Agnes identifiers.

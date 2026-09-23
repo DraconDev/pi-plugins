@@ -10,7 +10,7 @@
  *
  *   1. Reads the live model registry, including built-in, models.json,
  *      and extension-registered providers.
- *   2. Re-registers every provider with a model-list filter in front of
+ *   2. Re-registers every provider with a version filter composed after
  *      its existing provider filter.
  *   3. Groups models by provider + base name (everything around the
  *      rightmost numeric version token, e.g. "agnes-2.0-flash" → base
@@ -18,6 +18,8 @@
  *   4. Within each group, keeps only the numerically highest version.
  *      Older versions are removed from availability, so they disappear
  *      from /model, Ctrl+P cycling, /scoped-models, and RPC model lists.
+ *   5. Rewrites the already-resolved --models scope to available models,
+ *      replacing a filtered entry with its newest relative when possible.
  *
  * The wrapper remains attached when pi refreshes provider catalogs, so
  * live discovery cannot reintroduce stale entries.
@@ -235,7 +237,7 @@ type MarkedProvider = Provider & {
 function isMarkedProvider(
   provider: Provider | undefined,
 ): provider is MarkedProvider {
-  return Boolean(provider?.[PROVIDER_FILTER_MARKER]);
+  return Boolean((provider as MarkedProvider | undefined)?.[PROVIDER_FILTER_MARKER]);
 }
 
 /**
@@ -395,6 +397,7 @@ async function useLatestIfCurrentIsFiltered(
   ctx: any,
 ): Promise<void> {
   const current = ctx.model as Model<Api> | undefined;
+  debugLog(`current model at session_start=${current ? `${current.provider}/${current.id}` : "undefined"}`);
   if (!current) return;
   const available = ctx.modelRegistry.getAvailable() as Model<Api>[];
   if (available.some((model) => modelKey(model) === modelKey(current))) return;
