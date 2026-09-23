@@ -1,37 +1,40 @@
 /**
  * Unit tests for pi-model-filter version-parsing and list-filtering logic.
- * Run with: node --test
+ * Run with: node --test tests/
+ *
+ * The extension source is TypeScript and imports pi; to keep this test
+ * suite dependency-free we mirror the pure logic here. Run the mirror
+ * update when the extension's splitVersion/compareVersions/filterModelList
+ * change.
  */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-// Inline the same functions under test (extracted as pure JS so the
-// test suite has no runtime dependency on pi or TypeScript tooling).
+// ─── Mirrored from extensions/model-filter.ts ─────────────────────────────
 
 function splitVersion(id) {
   const parts = id.split("-");
   if (parts.length < 2) return null;
 
-  const last = parts[parts.length - 1];
-  let start;
+  let i = parts.length - 1;
+  const last = parts[i];
+  let isIntegerRunStart;
 
-  if (/^\d+(\.\d+)*$/.test(last)) {
-    start = parts.length - 1;
-    if (start > 0) {
-      const prev = parts[start - 1];
-      if (/^\d$/.test(prev) && /^\d$/.test(last)) {
-        start = parts.length - 2;
-      }
+  if (/^\d+$/.test(last)) {
+    isIntegerRunStart = i;
+    while (isIntegerRunStart > 0 && /^\d+$/.test(parts[isIntegerRunStart - 1])) {
+      isIntegerRunStart--;
     }
+  } else if (/^\d+\.\d+$/.test(last)) {
+    isIntegerRunStart = i;
   } else {
     return null;
   }
 
-  if (start === parts.length) return null;
-  const base = parts.slice(0, start).join("-");
-  const version = parts.slice(start).join(".");
+  const base = parts.slice(0, isIntegerRunStart).join("-");
   if (!base) return null;
+  const version = parts.slice(isIntegerRunStart).join(".");
   return { base, version };
 }
 
@@ -101,6 +104,18 @@ test("splitVersion: 'agnes-2.0' → base 'agnes', version '2.0'", () => {
   assert.deepEqual(splitVersion("agnes-2.0"), { base: "agnes", version: "2.0" });
 });
 
+test("splitVersion: 'agnes-2.5-flash' → null ('flash' is not a version token)", () => {
+  // Known design boundary: trailing non-numeric qualifiers are not
+  // version tokens, so agnes-2.5-flash is treated as having no version.
+  // This is safe for the user's stated goal (Agnes version filtering
+  // works on agnes-2.0 / agnes-3.0 style ids that end in digits).
+  assert.equal(splitVersion("agnes-2.5-flash"), null);
+});
+
+test("splitVersion: 'agnes-3.0-flash' → null (qualifier after version)", () => {
+  assert.equal(splitVersion("agnes-3.0-flash"), null);
+});
+
 test("splitVersion: 'gpt-5.5' → base 'gpt', version '5.5'", () => {
   assert.deepEqual(splitVersion("gpt-5.5"), { base: "gpt", version: "5.5" });
 });
@@ -121,10 +136,8 @@ test("splitVersion: 'agnes-3' → base 'agnes', version '3'", () => {
   assert.deepEqual(splitVersion("agnes-3"), { base: "agnes", version: "3" });
 });
 
-test("splitVersion: 'agnes-2.5-flash' → null (trailing non-numeric segment)", () => {
-  // The version regex requires the LAST segment to be numeric.
-  // "flash" is not numeric → no version detected → null.
-  assert.equal(splitVersion("agnes-2.5-flash"), null);
+test("splitVersion: 'qwen-2.5-coder' → null ('coder' is not a version token)", () => {
+  assert.equal(splitVersion("qwen-2.5-coder"), null);
 });
 
 test("compareVersions: 2.5 > 2.0", () => {
@@ -192,4 +205,19 @@ test("filterModelList: preserves original relative order", () => {
 
 test("filterModelList: empty input returns empty output", () => {
   assert.deepEqual(filterModelList([], "p", new Set(), false), []);
+});
+
+test("filterModelList: real Agnes seed example filters older versions", () => {
+  // Mirrors pi-agnes-tools AGNES_SEED minus the qualifiers.
+  // Note: agnes-2.5-flash and agnes-3.0-flash are NOT versioned by the
+  // splitter (trailing 'flash'), so they are singletons; only the bare
+  // numeric-tail ids group and compete.
+  const models = [
+    { id: "agnes-2.5" },
+    { id: "agnes-2.0" },
+    { id: "agnes-3.0" },
+  ];
+  const result = filterModelList(models, "agnes", new Set(), false);
+  const ids = result.map((m) => m.id);
+  assert.deepEqual(ids, ["agnes-3.0"], "only highest version survives");
 });
