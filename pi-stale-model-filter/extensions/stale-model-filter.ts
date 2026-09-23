@@ -61,6 +61,12 @@ export const DEFAULT_CONFIG: FilterConfig = { version: 1, disabled: false, keep:
 const PROVIDER_FILTER_MARKER = Symbol.for("pi-stale-model-filter/provider");
 const SCOPED_MODELS_BACKUP = Symbol.for("pi-stale-model-filter/scoped-backup");
 
+function debugLog(message: string): void {
+  if (process.env.PI_STALE_MODEL_FILTER_DEBUG) {
+    console.error(`[pi-stale-model-filter] ${message}`);
+  }
+}
+
 // ─── Pure version logic ───────────────────────────────────────────────────
 
 /**
@@ -311,6 +317,32 @@ type ScopedModelList = ScopedModelEntry[] & {
   [SCOPED_MODELS_BACKUP]?: ScopedModelEntry[];
 };
 
+function modelKey(model: { provider: string; id: string }): string {
+  return `${model.provider}\0${model.id}`;
+}
+
+function findLatestReplacement(
+  current: { provider: string; id: string },
+  available: readonly Model<Api>[],
+): Model<Api> | undefined {
+  const parsed = parseModelVersion(current.id);
+  if (!parsed) return undefined;
+
+  let winner: Model<Api> | undefined;
+  let winnerVersion: string | undefined;
+  for (const candidate of available) {
+    if (candidate.provider !== current.provider) continue;
+    const candidateVersion = parseModelVersion(candidate.id);
+    if (!candidateVersion || candidateVersion.base !== parsed.base) continue;
+    if (compareVersions(candidateVersion.version, parsed.version) <= 0) continue;
+    if (!winnerVersion || compareVersions(candidateVersion.version, winnerVersion) > 0) {
+      winner = candidate;
+      winnerVersion = candidateVersion.version;
+    }
+  }
+  return winner;
+}
+
 /**
  * Pi resolves --models before session_start, so its scoped list can still
  * contain entries removed from the available snapshot. Keep a private backup
@@ -335,20 +367,48 @@ function syncScopedModels(ctx: any, disabled: boolean): void {
     }
   }
 
-  const available = new Set(
-    ctx.modelRegistry
-      .getAvailable()
-      .map((model: { provider: string; id: string }) =>
-        `${model.provider}\0${model.id}`
-      )
-  );
-  const next = disabled
-    ? fullScope
-    : fullScope.filter(
-        (entry) => available.has(`${entry.model.provider}\0${entry.model.id}`)
-      );
+  if (disabled) {
+    scoped.splice(0, scoped.length, ...fullScope);
+    return;
+  }
 
+  const available = ctx.modelRegistry.getAvailable() as Model<Api>[];
+  const availableByKey = new Map(available.map((model) => [modelKey(model), model]));
+  const next: ScopedModelEntry[] = [];
+  const included = new Set<string>();
+  for (const entry of fullScope) {
+    const originalModel = entry.model;
+    const model =
+      availableByKey.get(modelKey(originalModel)) ??
+      findLatestReplacement(originalModel, available);
+    if (!model) continue;
+    const key = modelKey(model);
+    if (included.has(key)) continue;
+    included.add(key);
+    next.push({ ...entry, model });
+  }
   scoped.splice(0, scoped.length, ...next);
+}
+
+async function useLatestIfCurrentIsFiltered(
+  pi: ExtensionAPI,
+  ctx: any,
+): Promise<void> {
+  const current = ctx.model as Model<Api> | undefined;
+  if (!current) return;
+  const available = ctx.modelRegistry.getAvailable() as Model<Api>[];
+  if (available.some((model) => modelKey(model) === modelKey(current))) return;
+
+  const replacement = findLatestReplacement(current, available);
+  debugLog(
+    `current ${current.provider}/${current.id} is filtered; replacement=${
+      replacement ? `${replacement.provider}/${replacement.id}` : "none"
+    }`,
+  );
+  if (replacement) {
+    const changed = await pi.setModel(replacement);
+    debugLog(`setModel(${replacement.id}) returned ${changed}`);
+  }
 }
 
 function catalogStats(
@@ -400,6 +460,7 @@ export default function (pi: ExtensionAPI) {
     reloadConfig();
     await ctx.modelRegistry.refresh({ allowNetwork: false });
     syncScopedModels(ctx, cfg.disabled);
+    if (!cfg.disabled) await useLatestIfCurrentIsFiltered(pi, ctx);
   };
 
   // Install after all extensions have registered their providers, then rebuild
@@ -407,9 +468,11 @@ export default function (pi: ExtensionAPI) {
   // filterModels, so stale entries cannot reappear after a catalog refresh.
   pi.on("session_start", async (_event, ctx) => {
     reloadConfig();
-    installStaleModelFilter(pi, ctx.modelRegistry, agentDir);
+    const installed = installStaleModelFilter(pi, ctx.modelRegistry, agentDir);
+    debugLog(`session_start wrapped ${installed} provider(s)`);
     await ctx.modelRegistry.refresh({ allowNetwork: false });
     syncScopedModels(ctx, cfg.disabled);
+    if (!cfg.disabled) await useLatestIfCurrentIsFiltered(pi, ctx);
   });
 
   pi.registerCommand("stale-model-filter", {
