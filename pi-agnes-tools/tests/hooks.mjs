@@ -6,7 +6,6 @@ const dir = dirname(fileURLToPath(import.meta.url));
 const stubs = join(dir, "stubs.mjs");
 const repoRoot = join(dir, "..", "..");
 const modelFilter = join(repoRoot, "pi-model-filter", "extensions", "model-filter.ts");
-const modelFilterCore = join(repoRoot, "pi-model-filter", "extensions", "model-filter-core.ts");
 
 /**
  * Resolve pi-model-filter source files to their .ts paths even when the
@@ -14,8 +13,7 @@ const modelFilterCore = join(repoRoot, "pi-model-filter", "extensions", "model-f
  * standard ESM-TS convention jiti follows at runtime).
  */
 function resolveModelFilter(specifier) {
-  const m = specifier.match(/pi-model-filter\/extensions\/(model-filter(-core)?)\.js$/);
-  if (m) return m[2] ? modelFilterCore : modelFilter;
+  if (specifier === "../../pi-model-filter/extensions/model-filter.js") return modelFilter;
   return null;
 }
 
