@@ -25,15 +25,12 @@
  * variants at once, use /model-filter keep to pin the one you want.
  *
  * Integration
- *   Provider-owning extensions (like pi-agnes-tools) import the pure
- *   core from ./model-filter-core (no pi dependency) and call:
- *
- *     import { filterModelList, loadConfigFor, getAgentDir,
- *              wrapRefreshModels } from "pi-model-filter/extensions/...";
- *
- *   This file (model-filter.ts) is the pi extension entry point: it
- *   registers the /model-filter command, owns the on-disk config, and
- *   exports the convenience helpers used by other extensions.
+ *   Provider-owning extensions (like pi-agnes-tools) import from this
+ *   file. The pure version logic lives in ./model-filter-core.js so it
+ *   can be unit-tested without a pi installation. The convenience
+ *   helpers here (filterModelsForProvider / wrapRefreshModels) read
+ *   the on-disk config at call time, so live refresh callbacks always
+ *   see the latest filter state without needing a /reload.
  *
  * Config file: ~/.pi/agent/model-filter.json
  *   {
