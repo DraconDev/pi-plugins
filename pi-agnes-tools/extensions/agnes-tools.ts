@@ -36,7 +36,7 @@ import {
 import {
   filterModelsForProvider,
   wrapRefreshModels,
-} from "../../pi-model-filter/extensions/model-filter";
+} from "../../pi-model-filter/extensions/model-filter.js";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
