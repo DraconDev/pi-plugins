@@ -247,8 +247,9 @@ function isMarkedProvider(
 export function withStaleModelFilter(
   provider: Provider,
   agentDir: string,
+  force = false,
 ): Provider {
-  if (isMarkedProvider(provider)) return provider;
+  if (!force && isMarkedProvider(provider)) return provider;
 
   const originalFilter = provider.filterModels?.bind(provider);
   const filterModels: NonNullable<Provider["filterModels"]> = (
@@ -287,17 +288,14 @@ function installStaleModelFilter(
 
   let installed = 0;
   for (const providerId of providerIds) {
-    // A composed models.json provider does not retain our marker even though
-    // its registered native base already carries the filter.
-    if (isMarkedProvider(registry.getRegisteredNativeProvider(providerId))) {
-      continue;
-    }
-
     const provider = registry.getProvider(providerId);
-    if (!provider || isMarkedProvider(provider)) continue;
+    if (!provider) continue;
 
     try {
-      pi.registerProvider(withStaleModelFilter(provider, agentDir));
+      // Re-wrap the current composed provider on every session start/reload.
+      // This repairs stale runtime registrations left by older extension
+      // versions; duplicate stale filtering is idempotent.
+      pi.registerProvider(withStaleModelFilter(provider, agentDir, true));
       installed++;
     } catch (error) {
       console.warn(
@@ -489,6 +487,14 @@ export default function (pi: ExtensionAPI) {
       switch (action) {
         case "":
         case "status": {
+          // Status is also a self-healing checkpoint: rebuild the snapshot
+          // before reporting what the picker can currently see.
+          await ctx.modelRegistry.refresh({ allowNetwork: false });
+          syncScopedModels(ctx, cfg.disabled);
+          const available = ctx.modelRegistry.getAvailable() as Model<Api>[];
+          const agnes = available
+            .filter((model) => model.provider === "agnes")
+            .map((model) => model.id);
           const stats = catalogStats(ctx.modelRegistry, agentDir);
           const keep = cfg.keep.length === 0
             ? "No models explicitly kept."
@@ -499,7 +505,8 @@ export default function (pi: ExtensionAPI) {
             ? "Version filtering is disabled."
             : `Hiding ${stats.hidden} catalog ${stats.hidden === 1 ? "entry" : "entries"} across ${stats.providers} providers.`;
           notify([
-            `Stale-model filter: ${cfg.disabled ? "DISABLED" : "active"}`,
+            `Stale-model filter v0.2.1: ${cfg.disabled ? "DISABLED" : "active"}`,
+            `Available now: ${available.length} models; agnes: ${agnes.join(", ") || "none"}`,
             hidden,
             keep,
           ].join("\n"));
