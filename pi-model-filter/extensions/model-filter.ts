@@ -364,7 +364,6 @@ export default function (pi: ExtensionAPI) {
         case "disable": {
           cfg.disabled = true;
           saveConfigFor(dir, cfg);
-          saveConfigFor(dir, cfg); // noop, keeps symmetry
           refreshConfig();
           notify("model-filter: disabled. Run /reload to re-apply to all providers.");
           break;
