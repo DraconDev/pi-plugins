@@ -62,6 +62,7 @@ export const DEFAULT_CONFIG: FilterConfig = { version: 1, disabled: false, keep:
 
 const PROVIDER_FILTER_MARKER = Symbol.for("pi-stale-model-filter/provider");
 const SCOPED_MODELS_BACKUP = Symbol.for("pi-stale-model-filter/scoped-backup");
+const RUNTIME_AVAILABILITY_STATE = Symbol.for("pi-stale-model-filter/runtime-state");
 
 function debugLog(message: string): void {
   if (process.env.PI_STALE_MODEL_FILTER_DEBUG) {
@@ -412,6 +413,125 @@ async function useLatestIfCurrentIsFiltered(
   }
 }
 
+type AvailabilityModel = { provider: string; id: string };
+
+type RuntimeAvailabilityState = {
+  agentDir: string;
+  filter: (models: readonly AvailabilityModel[]) => readonly AvailabilityModel[];
+  snapshotWrapper: (this: unknown) => readonly AvailabilityModel[];
+  availableWrapper: (
+    this: unknown,
+    providerId?: string,
+    options?: unknown,
+  ) => Promise<readonly AvailabilityModel[]>;
+};
+
+type RuntimeWithAvailability = {
+  getAvailableSnapshot(): readonly AvailabilityModel[];
+  getAvailable(
+    providerId?: string,
+    options?: unknown,
+  ): Promise<readonly AvailabilityModel[]>;
+  [RUNTIME_AVAILABILITY_STATE]?: RuntimeAvailabilityState;
+};
+
+function filterAvailableCatalog<T extends AvailabilityModel>(
+  models: readonly T[],
+  agentDir: string,
+): readonly T[] {
+  const cfg = loadConfig(agentDir);
+  if (cfg.disabled || models.length === 0) return models;
+
+  const grouped = new Map<string, T[]>();
+  for (const model of models) {
+    const group = grouped.get(model.provider) ?? [];
+    group.push(model);
+    grouped.set(model.provider, group);
+  }
+
+  const included = new Set<T>();
+  for (const [provider, providerModels] of grouped) {
+    for (const model of filterSuperseded(
+      providerModels,
+      provider,
+      new Set(cfg.keep),
+      false,
+    )) {
+      included.add(model);
+    }
+  }
+  return models.filter((model) => included.has(model));
+}
+
+/**
+ * Pi's public provider filter works in new runtimes, but some long-lived
+ * sessions can retain a pre-reload provider composition. This runtime-level
+ * safety net filters the exact availability arrays consumed by /model and
+ * Ctrl+P. Access is feature-detected and remains harmless if Pi changes it.
+ */
+function installRuntimeAvailabilityFilter(
+  registry: ExtensionContext["modelRegistry"],
+  agentDir: string,
+): boolean {
+  const runtime = (registry as unknown as { runtime?: RuntimeWithAvailability }).runtime;
+  if (
+    !runtime ||
+    typeof runtime.getAvailableSnapshot !== "function" ||
+    typeof runtime.getAvailable !== "function"
+  ) {
+    return false;
+  }
+
+  let state = runtime[RUNTIME_AVAILABILITY_STATE];
+  if (!state) {
+    const originalSnapshot = runtime.getAvailableSnapshot.bind(runtime);
+    const originalAvailable = runtime.getAvailable.bind(runtime);
+    const newState = {} as RuntimeAvailabilityState;
+    newState.agentDir = agentDir;
+    newState.filter = (models) =>
+      filterAvailableCatalog(models, newState.agentDir);
+    newState.snapshotWrapper = function (this: unknown) {
+      return newState.filter(originalSnapshot());
+    };
+    newState.availableWrapper = async function (
+      this: unknown,
+      providerId?: string,
+      options?: unknown,
+    ) {
+      return newState.filter(await originalAvailable(providerId, options));
+    };
+    state = newState;
+    runtime.getAvailableSnapshot = newState.snapshotWrapper;
+    runtime.getAvailable = newState.availableWrapper;
+    Object.defineProperty(runtime, RUNTIME_AVAILABILITY_STATE, {
+      value: state,
+      configurable: true,
+    });
+  } else {
+    state.agentDir = agentDir;
+    // Re-apply if another extension replaced either patched method.
+    if (runtime.getAvailableSnapshot !== state.snapshotWrapper) {
+      const currentSnapshot = runtime.getAvailableSnapshot.bind(runtime);
+      state.snapshotWrapper = function (this: unknown) {
+        return state!.filter(currentSnapshot());
+      };
+      runtime.getAvailableSnapshot = state.snapshotWrapper;
+    }
+    if (runtime.getAvailable !== state.availableWrapper) {
+      const currentAvailable = runtime.getAvailable.bind(runtime);
+      state.availableWrapper = async function (
+        this: unknown,
+        providerId?: string,
+        options?: unknown,
+      ) {
+        return state!.filter(await currentAvailable(providerId, options));
+      };
+      runtime.getAvailable = state.availableWrapper;
+    }
+  }
+  return true;
+}
+
 function catalogStats(
   registry: ExtensionContext["modelRegistry"],
   agentDir: string,
@@ -459,6 +579,7 @@ export default function (pi: ExtensionAPI) {
 
   const refreshSnapshot = async (ctx: any) => {
     reloadConfig();
+    installRuntimeAvailabilityFilter(ctx.modelRegistry, agentDir);
     await ctx.modelRegistry.refresh({ allowNetwork: false });
     syncScopedModels(ctx, cfg.disabled);
     if (!cfg.disabled) await useLatestIfCurrentIsFiltered(pi, ctx);
@@ -470,7 +591,15 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     reloadConfig();
     const installed = installStaleModelFilter(pi, ctx.modelRegistry, agentDir);
-    debugLog(`session_start wrapped ${installed} provider(s)`);
+    const runtimeFilterInstalled = installRuntimeAvailabilityFilter(
+      ctx.modelRegistry,
+      agentDir,
+    );
+    debugLog(
+      `session_start wrapped ${installed} provider(s); runtime filter=${
+        runtimeFilterInstalled ? "installed" : "unavailable"
+      }`,
+    );
     await ctx.modelRegistry.refresh({ allowNetwork: false });
     syncScopedModels(ctx, cfg.disabled);
     if (!cfg.disabled) await useLatestIfCurrentIsFiltered(pi, ctx);
@@ -487,8 +616,12 @@ export default function (pi: ExtensionAPI) {
       switch (action) {
         case "":
         case "status": {
-          // Status is also a self-healing checkpoint: rebuild the snapshot
-          // before reporting what the picker can currently see.
+          // Status is also a self-healing checkpoint: install/refresh the
+          // runtime safety net before reporting what the picker can see.
+          const runtimeFilterInstalled = installRuntimeAvailabilityFilter(
+            ctx.modelRegistry,
+            agentDir,
+          );
           await ctx.modelRegistry.refresh({ allowNetwork: false });
           syncScopedModels(ctx, cfg.disabled);
           const available = ctx.modelRegistry.getAvailable() as Model<Api>[];
@@ -505,7 +638,8 @@ export default function (pi: ExtensionAPI) {
             ? "Version filtering is disabled."
             : `Hiding ${stats.hidden} catalog ${stats.hidden === 1 ? "entry" : "entries"} across ${stats.providers} providers.`;
           notify([
-            `Stale-model filter v0.2.1: ${cfg.disabled ? "DISABLED" : "active"}`,
+            `Stale-model filter v0.2.2: ${cfg.disabled ? "DISABLED" : "active"}`,
+            `Runtime safety net: ${runtimeFilterInstalled ? "active" : "unavailable"}`,
             `Available now: ${available.length} models; agnes: ${agnes.join(", ") || "none"}`,
             hidden,
             keep,
