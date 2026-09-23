@@ -43,7 +43,9 @@ numeric version token:
 
 Within each group, only the numerically highest version remains. Qualifiers
 such as `flash`, `pro`, and `coder` remain part of the base, so variants only
-compete with the same variant family.
+compete with the same exact family. For example, `tool-3.0-flash` and
+`tool-2.0-pro` are separate families and both remain visible; `tool-1.0-pro`
+would only compete with other `tool-*-pro` models.
 
 Models without a numeric version token are treated as singletons. The filter is
 additive only in the sense that it removes entries: it never edits model
@@ -127,6 +129,7 @@ selection, cycling, configured scopes, and RPC model availability are filtered.
 npm test
 ```
 
-The unit suite covers version parsing, numeric comparison, supersession,
+The unit suite covers version parsing, numeric comparison, same-family
+supersession, cross-family preservation (for example flash versus pro),
 ordering, keep rules, disabled pass-through, empty catalogs, and realistic
-OpenRouter/Agnes identifiers.
+provider identifiers.

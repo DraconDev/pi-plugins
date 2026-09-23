@@ -156,6 +156,25 @@ test("filterSuperseded: agnes flash group keeps only 3.0", () => {
   assert.ok(ids.includes("agnes-2.5-pro"), "singleton (no competing version) survives");
 });
 
+test("filterSuperseded: flash and pro are separate variant families", () => {
+  const models = [
+    { id: "agnes-3.0-flash" },
+    { id: "agnes-2.0-pro" },
+  ];
+  const ids = filterSuperseded(models, "agnes", new Set(), false).map((m) => m.id);
+  assert.deepEqual(ids, ["agnes-3.0-flash", "agnes-2.0-pro"]);
+});
+
+test("filterSuperseded: version comparison stays inside the pro family", () => {
+  const models = [
+    { id: "agnes-3.0-flash" },
+    { id: "agnes-1.0-pro" },
+    { id: "agnes-2.0-pro" },
+  ];
+  const ids = filterSuperseded(models, "agnes", new Set(), false).map((m) => m.id);
+  assert.deepEqual(ids, ["agnes-3.0-flash", "agnes-2.0-pro"]);
+});
+
 test("filterSuperseded: disabled passes everything through", () => {
   const models = [{ id: "a-1.0" }, { id: "a-2.0" }];
   assert.equal(filterSuperseded(models, "p", new Set(), true).length, 2);
