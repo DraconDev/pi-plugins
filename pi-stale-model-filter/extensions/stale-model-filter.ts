@@ -41,9 +41,10 @@
  *   /stale-model-filter unkeep <id>
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { join } from "node:path";
+import type { Api, Model, Provider } from "@earendil-works/pi-ai";
+import { dirname, join } from "node:path";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -56,6 +57,8 @@ export interface FilterConfig {
 }
 
 export const DEFAULT_CONFIG: FilterConfig = { version: 1, disabled: false, keep: [] };
+
+const PROVIDER_FILTER_MARKER = Symbol.for("pi-stale-model-filter/provider");
 
 // ─── Pure version logic ───────────────────────────────────────────────────
 
@@ -209,102 +212,129 @@ export function loadConfig(agentDir: string): FilterConfig {
 export function saveConfig(agentDir: string, cfg: FilterConfig): void {
   try {
     const p = configPathFor(agentDir);
-    mkdirSync(join(p, ".."), { recursive: true });
+    mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, JSON.stringify(cfg, null, 2));
   } catch {
     // non-fatal
   }
 }
 
-// ─── Provider wrapping helpers ─────────────────────────────────────────────
+// ─── Live provider filtering ────────────────────────────────────────────────
 
-/**
- * Wrap a Provider object so that getModels() returns a filtered list.
- */
-export function wrapProviderGetModels<T extends { id: string }>(
-  provider: { getModels: () => T[] },
-  providerId: string,
-  agentDir: string,
-): () => T[] {
-  const original = provider.getModels.bind(provider);
-  return () => {
-    const cfg = loadConfig(agentDir);
-    return filterSuperseded(original(), providerId, new Set(cfg.keep), cfg.disabled);
-  };
+type MarkedProvider = Provider & {
+  [PROVIDER_FILTER_MARKER]?: true;
+};
+
+function isMarkedProvider(
+  provider: Provider | undefined,
+): provider is MarkedProvider {
+  return Boolean(provider?.[PROVIDER_FILTER_MARKER]);
 }
 
 /**
- * Wrap a refreshModels callback so its returned list is filtered on
- * each call (re-reads config live).
+ * Compose the stale-version filter after any provider filter already supplied
+ * by the provider or another extension.
  */
-export function wrapRefreshModels<T extends { id: string }>(
-  original:
-    | ((ctx: unknown) => Promise<T[] | undefined | null>)
-    | undefined,
-  providerId: string,
+export function withStaleModelFilter(
+  provider: Provider,
   agentDir: string,
-): typeof original {
-  if (!original) return original;
-  return (async (ctx: unknown) => {
-    const result = await original(ctx);
-    if (!result) return result;
-    const cfg = loadConfig(agentDir);
-    return filterSuperseded(result, providerId, new Set(cfg.keep), cfg.disabled);
-  }) as typeof original;
-}
+): Provider {
+  if (isMarkedProvider(provider)) return provider;
 
-/**
- * Filter a static model list using the live config on disk.
- */
-export function filterModelsForProvider<T extends { id: string }>(
-  models: T[],
-  providerId: string,
-  agentDir: string,
-): T[] {
-  const cfg = loadConfig(agentDir);
-  return filterSuperseded(models, providerId, new Set(cfg.keep), cfg.disabled);
-}
-
-// ─── Runtime provider wrapping ─────────────────────────────────────────────
-
-/**
- * Return a provider whose existing `filterModels` hook is composed with
- * this extension's stale-version filter.
- *
- * Registering the returned provider through pi.registerProvider(provider)
- * makes the filter part of the normal provider availability pipeline.
- * Pi's createModels()/ModelRuntime applies provider.filterModels whenever
- * it builds the available-model snapshot used by every model picker.
- */
-export function withStaleModelFilter<TModel extends { id: string }>(
-  provider: {
-    id: string;
-    filterModels?: (
-      models: readonly TModel[],
-      credential: unknown,
-    ) => readonly TModel[];
-  } & Record<string, unknown>,
-  agentDir: string,
-): typeof provider {
   const originalFilter = provider.filterModels?.bind(provider);
-
-  return {
-    ...provider,
-    filterModels(models: readonly TModel[], credential: unknown): readonly TModel[] {
-      // Preserve provider-specific availability rules (for example
-      // GitHub Copilot's OAuth model allowlist) before version filtering.
-      const providerVisible = originalFilter
-        ? originalFilter(models, credential)
-        : models;
-      const cfg = loadConfig(agentDir);
-      return filterSuperseded(
-        [...providerVisible],
-        provider.id,
-        new Set(cfg.keep),
-        cfg.disabled,
-      );
-    },
+  const filterModels: NonNullable<Provider["filterModels"]> = (
+    models,
+    credential,
+  ) => {
+    // Preserve provider-specific availability rules (for example
+    // GitHub Copilot's OAuth model allowlist) before version filtering.
+    const providerVisible = originalFilter
+      ? originalFilter(models, credential)
+      : models;
+    const cfg = loadConfig(agentDir);
+    return filterSuperseded(
+      [...providerVisible],
+      provider.id,
+      new Set(cfg.keep),
+      cfg.disabled,
+    );
   };
+
+  const wrapped = { ...provider, filterModels } as Provider;
+  Object.defineProperty(wrapped, PROVIDER_FILTER_MARKER, { value: true });
+  return wrapped;
+}
+
+/** Install the filter on every provider currently known to pi. */
+function installStaleModelFilter(
+  pi: ExtensionAPI,
+  registry: ExtensionContext["modelRegistry"],
+  agentDir: string,
+): number {
+  const providerIds = new Set<string>([
+    ...registry.getAll().map((model) => model.provider),
+    ...registry.getRegisteredProviderIds(),
+  ]);
+
+  let installed = 0;
+  for (const providerId of providerIds) {
+    // A composed models.json provider does not retain our marker even though
+    // its registered native base already carries the filter.
+    if (isMarkedProvider(registry.getRegisteredNativeProvider(providerId))) {
+      continue;
+    }
+
+    const provider = registry.getProvider(providerId);
+    if (!provider || isMarkedProvider(provider)) continue;
+
+    try {
+      pi.registerProvider(withStaleModelFilter(provider, agentDir));
+      installed++;
+    } catch (error) {
+      console.warn(
+        `[pi-stale-model-filter] Could not wrap provider "${providerId}": ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+  return installed;
+}
+
+function catalogStats(registry: ExtensionContext["modelRegistry"]): {
+  hidden: number;
+  providers: number;
+} {
+  const grouped = new Map<string, Model<Api>[]>();
+  for (const model of registry.getAll()) {
+    const models = grouped.get(model.provider) ?? [];
+    models.push(model);
+    grouped.set(model.provider, models);
+  }
+
+  const cfg = loadConfig(agentDirForStats());
+  if (cfg.disabled) return { hidden: 0, providers: 0 };
+
+  let hidden = 0;
+  let providers = 0;
+  for (const [provider, models] of grouped) {
+    const filtered = filterSuperseded(
+      models,
+      provider,
+      new Set(cfg.keep),
+      false,
+    );
+    const count = models.length - filtered.length;
+    if (count > 0) {
+      hidden += count;
+      providers++;
+    }
+  }
+  return { hidden, providers };
+}
+
+function agentDirForStats(): string {
+  return getAgentDir();
 }
 
 // ─── Extension entry ────────────────────────────────────────────────────────
@@ -313,37 +343,26 @@ export default function (pi: ExtensionAPI) {
   const agentDir = getAgentDir();
   let cfg: FilterConfig = loadConfig(agentDir);
 
-  function refresh() {
+  const reloadConfig = () => {
     cfg = loadConfig(agentDir);
-  }
+  };
 
-  // Install the filter on the live provider objects. This is deliberately
-  // done through the public extension API rather than by rewriting
-  // models-store.json: the latter would lose provider auth, streaming,
-  // refresh, and model metadata, and would not affect the in-memory
-  // availability snapshot used by /model.
+  const refreshSnapshot = async (ctx: any) => {
+    reloadConfig();
+    await ctx.modelRegistry.refresh({ allowNetwork: false });
+  };
+
+  // Install during extension load, before pi performs its initial model and
+  // --models scope resolution. This also makes non-interactive model listings
+  // honor the same provider filter.
+  installStaleModelFilter(pi, (pi as any).modelRegistry ?? currentRegistry(pi), agentDir);
+
+  // Re-check after all extensions have registered their providers, and after
+  // /reload. Provider refreshes continue to flow through filterModels, so the
+  // filtered snapshot is rebuilt without reading models-store.json directly.
   pi.on("session_start", async (_event, ctx) => {
-    refresh();
-
-    const providerIds = new Set<string>();
-    for (const model of ctx.modelRegistry.getAll()) {
-      providerIds.add(model.provider);
-    }
-    for (const providerId of ctx.modelRegistry.getRegisteredProviderIds()) {
-      providerIds.add(providerId);
-    }
-
-    for (const providerId of providerIds) {
-      const provider = ctx.modelRegistry.getProvider(providerId);
-      if (!provider) continue;
-      pi.registerProvider(
-        withStaleModelFilter(provider as any, agentDir) as any,
-      );
-    }
-
-    // Recompute the available-model snapshot after all provider wrappers
-    // are registered. This is offline: it preserves the current catalog
-    // while making the filtered result immediately visible to /model.
+    reloadConfig();
+    installStaleModelFilter(pi, ctx.modelRegistry, agentDir);
     await ctx.modelRegistry.refresh({ allowNetwork: false });
   });
 
@@ -351,34 +370,41 @@ export default function (pi: ExtensionAPI) {
     description:
       "Configure stale-model filtering (hide superseded version suffixes from /model)",
     handler: async (args: string, ctx: any) => {
+      reloadConfig();
       const action = args.trim();
       const notify = (msg: string, type = "info") => ctx.ui.notify?.(msg, type);
 
       switch (action) {
         case "":
         case "status": {
-          const lines = [
+          const stats = catalogStats(ctx.modelRegistry);
+          const keep = cfg.keep.length === 0
+            ? "No models explicitly kept."
+            : `Kept: ${cfg.keep.slice(0, 12).join(", ")}${
+                cfg.keep.length > 12 ? `, +${cfg.keep.length - 12} more` : ""
+              }`;
+          const hidden = cfg.disabled
+            ? "Version filtering is disabled."
+            : `Hiding ${stats.hidden} catalog ${stats.hidden === 1 ? "entry" : "entries"} across ${stats.providers} providers.`;
+          notify([
             `Stale-model filter: ${cfg.disabled ? "DISABLED" : "active"}`,
-            cfg.keep.length === 0
-              ? "No models explicitly kept."
-              : `Kept: ${cfg.keep.join(", ")}`,
-            "Takes effect on next /reload or new session.",
-          ];
-          notify(lines.join("\n"));
+            hidden,
+            keep,
+          ].join("\n"));
           break;
         }
         case "enable": {
           cfg.disabled = false;
           saveConfig(agentDir, cfg);
-          refresh();
-          notify("stale-model-filter: enabled. Takes effect on next /reload or new session.");
+          await refreshSnapshot(ctx);
+          notify("stale-model-filter: enabled and applied.");
           break;
         }
         case "disable": {
           cfg.disabled = true;
           saveConfig(agentDir, cfg);
-          refresh();
-          notify("stale-model-filter: disabled. Takes effect on next /reload or new session.");
+          await refreshSnapshot(ctx);
+          notify("stale-model-filter: disabled and applied.");
           break;
         }
         case "keep": {
@@ -389,8 +415,8 @@ export default function (pi: ExtensionAPI) {
           }
           if (!cfg.keep.includes(id)) cfg.keep.push(id);
           saveConfig(agentDir, cfg);
-          refresh();
-          notify(`stale-model-filter: keeping ${id}`);
+          await refreshSnapshot(ctx);
+          notify(`stale-model-filter: keeping ${id} and applied.`);
           break;
         }
         case "unkeep": {
@@ -401,8 +427,8 @@ export default function (pi: ExtensionAPI) {
           }
           cfg.keep = cfg.keep.filter((k) => k !== id);
           saveConfig(agentDir, cfg);
-          refresh();
-          notify(`stale-model-filter: released ${id}`);
+          await refreshSnapshot(ctx);
+          notify(`stale-model-filter: released ${id} and applied.`);
           break;
         }
         default:
@@ -419,4 +445,8 @@ export default function (pi: ExtensionAPI) {
       }
     },
   });
+}
+
+function currentRegistry(_pi: ExtensionAPI): ExtensionContext["modelRegistry"] {
+  throw new Error("Model registry is only available from an extension event context");
 }
