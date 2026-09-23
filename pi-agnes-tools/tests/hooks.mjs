@@ -17,8 +17,7 @@ export async function resolve(specifier, context, next) {
   }
   // Cross-extension import: resolve the pi-model-filter TS source directly
   // (jiti is not available in the bare-node test harness).
-  if (specifier.endsWith("pi-model-filter/extensions/model-filter") ||
-      specifier.endsWith("pi-model-filter/extensions/model-filter.ts")) {
+  if (specifier.endsWith("pi-model-filter/extensions/model-filter.js")) {
     return { url: "file://" + modelFilter, shortCircuit: true };
   }
   if (specifier.endsWith("pi-model-filter/extensions/model-filter-core") ||
