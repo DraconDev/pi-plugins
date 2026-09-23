@@ -6,15 +6,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-// Inline the same functions under test (extracted as pure logic) so the
-// test suite has no runtime dependency on pi itself.
+// Inline the same functions under test (extracted as pure JS so the
+// test suite has no runtime dependency on pi or TypeScript tooling).
 
-function splitVersion(id: string): { base: string; version: string } | null {
+function splitVersion(id) {
   const parts = id.split("-");
   if (parts.length < 2) return null;
 
   const last = parts[parts.length - 1];
-  let start: number;
+  let start;
 
   if (/^\d+(\.\d+)*$/.test(last)) {
     start = parts.length - 1;
@@ -35,7 +35,7 @@ function splitVersion(id: string): { base: string; version: string } | null {
   return { base, version };
 }
 
-function compareVersions(a: string, b: string): number {
+function compareVersions(a, b) {
   const pa = a.split(".").map((s) => Number(s) || 0);
   const pb = b.split(".").map((s) => Number(s) || 0);
   const len = Math.max(pa.length, pb.length);
@@ -47,23 +47,11 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-function filterModelList(
-  models: { id: string }[],
-  provider: string,
-  keepSet: ReadonlySet<string>,
-  disabled: boolean,
-): { id: string }[] {
+function filterModelList(models, provider, keepSet, disabled) {
   if (disabled) return models;
   if (models.length === 0) return models;
 
-  interface Group {
-    key: string;
-    winner: { id: string };
-    winnerVersion: string | null;
-    members: { id: string }[];
-  }
-
-  const groups = new Map<string, Group>();
+  const groups = new Map();
 
   for (const m of models) {
     const sv = splitVersion(m.id);
@@ -85,8 +73,8 @@ function filterModelList(
     }
   }
 
-  const result: { id: string }[] = [];
-  const included = new Set<{ id: string }>();
+  const result = [];
+  const included = new Set();
 
   for (const g of groups.values()) {
     for (const m of g.members) {
@@ -109,51 +97,50 @@ function filterModelList(
 
 // ─── splitVersion tests ──────────────────────────────────────────────────
 
-test("splitVersion: agnes-2.0-flash → base 'agnes', version '2.0'", () => {
-  const r = splitVersion("agnes-2.0-flash");
-  // "flash" is not numeric so last segment fails the numeric test → null
-  // Actually this reveals a design gap: we only match trailing numeric segments.
-  assert.equal(r, null); // "flash" is not a version
+test("splitVersion: 'agnes-2.0' → base 'agnes', version '2.0'", () => {
+  assert.deepEqual(splitVersion("agnes-2.0"), { base: "agnes", version: "2.0" });
 });
 
-test("splitVersion: agnes-2.0 → base 'agnes', version '2.0'", () => {
-  const r = splitVersion("agnes-2.0");
-  assert.deepEqual(r, { base: "agnes", version: "2.0" });
+test("splitVersion: 'gpt-5.5' → base 'gpt', version '5.5'", () => {
+  assert.deepEqual(splitVersion("gpt-5.5"), { base: "gpt", version: "5.5" });
 });
 
-test("splitVersion: gpt-5.5 → base 'gpt', version '5.5'", () => {
-  const r = splitVersion("gpt-5.5");
-  assert.deepEqual(r, { base: "gpt", version: "5.5" });
+test("splitVersion: 'claude-sonnet-4-5' → base 'claude-sonnet', version '4.5'", () => {
+  assert.deepEqual(splitVersion("claude-sonnet-4-5"), { base: "claude-sonnet", version: "4.5" });
 });
 
-test("splitVersion: claude-sonnet-4-5 → base 'claude-sonnet', version '4.5'", () => {
-  const r = splitVersion("claude-sonnet-4-5");
-  assert.deepEqual(r, { base: "claude-sonnet", version: "4.5" });
-});
-
-test("splitVersion: my-model (no version) → null", () => {
+test("splitVersion: 'my-model' (no version) → null", () => {
   assert.equal(splitVersion("my-model"), null);
 });
 
-test("splitVersion: single segment → null", () => {
+test("splitVersion: 'gpt' (single segment) → null", () => {
   assert.equal(splitVersion("gpt"), null);
 });
 
-test("splitVersion: agnes-3 → base 'agnes', version '3'", () => {
-  const r = splitVersion("agnes-3");
-  assert.deepEqual(r, { base: "agnes", version: "3" });
+test("splitVersion: 'agnes-3' → base 'agnes', version '3'", () => {
+  assert.deepEqual(splitVersion("agnes-3"), { base: "agnes", version: "3" });
 });
 
-test("splitVersion: version 2.5 vs 2.0 → 2.5 wins", () => {
+test("splitVersion: 'agnes-2.5-flash' → null (trailing non-numeric segment)", () => {
+  // The version regex requires the LAST segment to be numeric.
+  // "flash" is not numeric → no version detected → null.
+  assert.equal(splitVersion("agnes-2.5-flash"), null);
+});
+
+test("compareVersions: 2.5 > 2.0", () => {
   assert.ok(compareVersions("2.5", "2.0") > 0);
 });
 
-test("splitVersion: version 3 vs 2.9 → 3 wins", () => {
+test("compareVersions: 3 > 2.9", () => {
   assert.ok(compareVersions("3", "2.9") > 0);
 });
 
-test("splitVersion: version 4.5 vs 4.5 → tie", () => {
+test("compareVersions: 4.5 == 4.5", () => {
   assert.equal(compareVersions("4.5", "4.5"), 0);
+});
+
+test("compareVersions: 4.5 < 5", () => {
+  assert.ok(compareVersions("4.5", "5") < 0);
 });
 
 // ─── filterModelList tests ───────────────────────────────────────────────
@@ -169,7 +156,7 @@ test("filterModelList: keeps highest version per base group", () => {
   const ids = result.map((m) => m.id);
   assert.ok(ids.includes("agnes-3.0"), "should keep highest version");
   assert.ok(!ids.includes("agnes-2.0"), "should drop older version");
-  assert.ok(!ids.includes("agnes-2.5"), "should drop older version");
+  assert.ok(!ids.includes("agnes-2.5"), "should drop middle version");
   assert.ok(ids.includes("other-model"), "models without versions are kept");
 });
 
@@ -179,13 +166,14 @@ test("filterModelList: disabled passes everything through", () => {
   assert.equal(result.length, 2);
 });
 
-test("filterModelList: keep list protects a model", () => {
+test("filterModelList: keep list protects an older version", () => {
   const models = [{ id: "a-1" }, { id: "a-2" }];
   const keep = new Set(["p/a-1"]);
   const result = filterModelList(models, "p", keep, false);
   const ids = result.map((m) => m.id);
   assert.ok(ids.includes("a-1"), "kept model survives");
   assert.ok(ids.includes("a-2"), "winner also survives");
+  assert.equal(result.length, 2);
 });
 
 test("filterModelList: single-version group keeps the model", () => {
@@ -195,9 +183,13 @@ test("filterModelList: single-version group keeps the model", () => {
   assert.equal(result[0].id, "agnes-2.5");
 });
 
-test("filterModelList: preserves original order", () => {
+test("filterModelList: preserves original relative order", () => {
   const models = [{ id: "b-1" }, { id: "a-2" }, { id: "a-1" }];
   const result = filterModelList(models, "p", new Set(), false);
   const ids = result.map((m) => m.id);
   assert.deepEqual(ids, ["b-1", "a-2"]);
+});
+
+test("filterModelList: empty input returns empty output", () => {
+  assert.deepEqual(filterModelList([], "p", new Set(), false), []);
 });
