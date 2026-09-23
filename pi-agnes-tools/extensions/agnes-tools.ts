@@ -29,6 +29,15 @@ import {
   openAICompletionsApi,
 } from "@earendil-works/pi-ai";
 
+// Model version filtering (pi-model-filter): hides superseded versions from
+// the catalog. Import path is relative so this works when both extensions
+// live in the same repo; the helper degrades to pass-through when the
+// config file is absent or the filter is disabled.
+import {
+  filterModelsForProvider,
+  wrapRefreshModels,
+} from "../../pi-model-filter/extensions/model-filter";
+
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
@@ -372,6 +381,8 @@ function makeRefreshModels(baseUrl, apiKeyEnv, providerId) {
       if (cached) return cached;
       throw error;
     }
+    // Apply the version filter so superseded models don't reach the catalog.
+    models = filterModelsForProvider(models, providerId);
     if (models.length > 0) {
       await publish({ persist: { provider: providerId, models } });
       return models;
@@ -507,14 +518,17 @@ function registerAgnesProviders(pi) {
     // Omit apiKey when the env var is absent so /login can supply the key —
     // same convention pi-agnes uses.
     const apiKeyRef = process.env[def.apiKeyEnv] ? "$" + def.apiKeyEnv : undefined;
+    // Filter the static seed catalog so old versions are hidden immediately,
+    // and wrap refreshModels so live discovery results are filtered too.
+    const seedModels = filterModelsForProvider(AGNES_SEED.map((id) => toModelConfig(id)), def.id);
     pi.registerProvider(def.id, {
       name: def.name,
       baseUrl: def.baseUrl,
       ...(apiKeyRef ? { apiKey: apiKeyRef } : {}),
       api: "openai-completions",
       streamSimple: streamStandalone,
-      models: AGNES_SEED.map((id) => toModelConfig(id)),
-      refreshModels: makeRefreshModels(def.baseUrl, def.apiKeyEnv, def.id),
+      models: seedModels,
+      refreshModels: wrapRefreshModels(makeRefreshModels(def.baseUrl, def.apiKeyEnv, def.id), def.id),
     });
   }
 }
