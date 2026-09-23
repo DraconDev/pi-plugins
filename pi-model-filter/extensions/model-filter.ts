@@ -208,3 +208,117 @@ export default function (pi: ExtensionAPI) {
     },
   });
 }
+
+// ─── Pure core (inlined so provider extensions can import this file directly) ───
+
+export interface FilterConfig {
+  version: 1;
+  disabled: boolean;
+  /** "provider/model-id" entries that must survive filtering. */
+  keep: string[];
+}
+
+export const DEFAULT_CONFIG: FilterConfig = { version: 1, disabled: false, keep: [] };
+
+export type ModelDef = Record<string, unknown> & { id: string; name?: string };
+export type RefreshModelsFn = (ctx: unknown) => Promise<ModelDef[] | undefined | null>;
+
+export function splitVersion(
+  id: string,
+): { base: string; version: string } | null {
+  const parts = id.split("-");
+  if (parts.length < 2) return null;
+
+  let i = parts.length - 1;
+  const last = parts[i];
+  let isIntegerRunStart: number;
+
+  if (/^\d+$/.test(last)) {
+    isIntegerRunStart = i;
+    while (isIntegerRunStart > 0 && /^\d+$/.test(parts[isIntegerRunStart - 1])) {
+      isIntegerRunStart--;
+    }
+  } else if (/^\d+\.\d+$/.test(last)) {
+    isIntegerRunStart = i;
+  } else {
+    return null; // trailing non-numeric qualifier → not a version token
+  }
+
+  const base = parts.slice(0, isIntegerRunStart).join("-");
+  if (!base) return null;
+  const version = parts.slice(isIntegerRunStart).join(".");
+  return { base, version };
+}
+
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map((s) => Number(s) || 0);
+  const pb = b.split(".").map((s) => Number(s) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const va = pa[i] ?? 0;
+    const vb = pb[i] ?? 0;
+    if (va !== vb) return va < vb ? -1 : 1;
+  }
+  return 0;
+}
+
+export function filterModelList(
+  models: ModelDef[],
+  provider: string,
+  keepSet: ReadonlySet<string>,
+  disabled: boolean,
+): ModelDef[] {
+  if (disabled) return models;
+  if (models.length === 0) return models;
+
+  interface Group {
+    key: string;
+    winner: ModelDef;
+    winnerVersion: string | null;
+    members: ModelDef[];
+  }
+
+  const groups = new Map<string, Group>();
+
+  for (const m of models) {
+    const sv = splitVersion(m.id);
+    const groupKey = sv ? `${provider}:${sv.base}` : `${provider}:${m.id}::__singleton__`;
+
+    let g = groups.get(groupKey);
+    if (!g) {
+      g = { key: groupKey, winner: m, winnerVersion: sv?.version ?? null, members: [] };
+      groups.set(groupKey, g);
+    }
+    g.members.push(m);
+
+    if (sv) {
+      const cmp = g.winnerVersion === null ? 1 : compareVersions(sv.version, g.winnerVersion);
+      if (cmp > 0) {
+        g.winner = m;
+        g.winnerVersion = sv.version;
+      }
+    }
+  }
+
+  const result: ModelDef[] = [];
+  const included = new Set<ModelDef>();
+
+  for (const g of groups.values()) {
+    for (const m of g.members) {
+      const fq = `${provider}/${m.id}`;
+      if (keepSet.has(fq) && !included.has(m)) {
+        result.push(m);
+        included.add(m);
+      }
+    }
+    if (!included.has(g.winner)) {
+      result.push(g.winner);
+      included.add(g.winner);
+    }
+  }
+
+  const orderMap = new Map(models.map((m, i) => [m, i]));
+  result.sort((a, b) => (orderMap.get(a) ?? 0) - (orderMap.get(b) ?? 0));
+
+  return result;
+}
