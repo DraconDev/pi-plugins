@@ -10,6 +10,11 @@ export async function resolve(specifier, context, next) {
   if (specifier === "typebox" || specifier === "@earendil-works/pi-ai") {
     return { url: "file://" + stubs, shortCircuit: true };
   }
+  // pi-model-filter's entry point imports @earendil-works/pi-coding-agent
+  // (for getAgentDir). Redirect it to a minimal stub in test mode.
+  if (specifier === "@earendil-works/pi-coding-agent") {
+    return { url: "file://" + join(dir, "pi-coding-agent-stub.mjs"), shortCircuit: true };
+  }
   // Cross-extension import: resolve the pi-model-filter TS source directly
   // (jiti is not available in the bare-node test harness).
   if (specifier.endsWith("pi-model-filter/extensions/model-filter") ||
