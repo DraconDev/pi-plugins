@@ -170,8 +170,62 @@ interface ModelOverride {
   maxTokens?: number;
 }
 
+interface ModelDefinition {
+  id: string;
+  name?: string;
+  api?: string;
+  baseUrl?: string;
+  reasoning?: boolean;
+  thinkingLevelMap?: Record<string, string | null>;
+  input?: string[];
+  cost?: Record<string, number>;
+  contextWindow?: number;
+  maxTokens?: number;
+  [key: string]: unknown;
+}
+
+interface ProviderConfigShape {
+  modelOverrides?: Record<string, ModelOverride>;
+  models?: ModelDefinition[];
+  [key: string]: unknown;
+}
+
 interface ModelsJsonShape {
-  providers: Record<string, { modelOverrides?: Record<string, ModelOverride> }>;
+  providers: Record<string, ProviderConfigShape>;
+}
+
+// This model is served by OpenCode's live gateway but is not yet present in
+// Pi's generated model catalog. Keep the definition in models.json so catalog
+// refreshes and the context-limit rewriter cannot silently remove it.
+const PINNED_SPACE_BUNNY_MODEL: ModelDefinition = {
+  id: "space-bunny-free",
+  name: "Space Bunny Free",
+  api: "openai-completions",
+  reasoning: true,
+  input: ["text", "image"],
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  contextWindow: 1048576,
+  maxTokens: 524288,
+  thinkingLevelMap: {
+    off: null,
+    minimal: null,
+    low: "low",
+    medium: "medium",
+    high: "high",
+    xhigh: "xhigh",
+    max: "max",
+  },
+};
+
+function ensurePinnedModels(existing: ModelsJsonShape): void {
+  for (const providerId of ["opencode", "opencode-go"]) {
+    const provider = (existing.providers[providerId] ??= {});
+    const models = Array.isArray(provider.models) ? provider.models : (provider.models = []);
+    const index = models.findIndex((model) => model.id === PINNED_SPACE_BUNNY_MODEL.id);
+    const pinned = structuredClone(PINNED_SPACE_BUNNY_MODEL);
+    if (index < 0) models.push(pinned);
+    else models[index] = { ...models[index], ...pinned, thinkingLevelMap: { ...pinned.thinkingLevelMap } };
+  }
 }
 
 /**
@@ -394,6 +448,11 @@ function rebuildModelOverrides(limit: number): { scanned: number; written: numbe
       existing = { providers: {} };
     }
   }
+
+  // Re-assert user-defined models after every catalog/context-limit rebuild.
+  // The live gateway catalog may not include newly added models yet, and this
+  // file is the durable source for custom model definitions.
+  ensurePinnedModels(existing);
 
   // Reconcile: keep non-`globalContextLimit` overrides as-is, replace ours.
   let written = 0;
