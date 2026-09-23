@@ -2,29 +2,41 @@
  * pi-model-filter
  *
  * Hides superseded version-suffixed models from pi's /model selector,
- * Ctrl+P model cycling, and the --models CLI scope.
+ * Ctrl+P model cycling, and the --models CLI scope. Works across every
+ * provider — built-in, models.json, and extension-registered.
  *
- * How it works
- *   Models are grouped by `${provider}:${base}` where `base` is the model
- *   id with the trailing version token stripped. A version token is the
- *   rightmost run of purely numeric hyphen-separated segments in the id:
+ * Version detection
+ *   A model id groups under its "base name" = everything before the
+ *   rightmost run of purely numeric hyphen-separated segments:
  *
- *     "agnes-2.5-flash"    → base "agnes",       version "2.5"
- *     "agnes-3.0-flash"    → base "agnes",       version "3.0"
- *     "agnes-2.0"          → base "agnes",       version "2.0"
- *     "claude-sonnet-4-5"  → base "claude-sonnet", version "4.5"
- *     "my-model"           → no version (never filtered)
+ *     "agnes-2.0"         → base "agnes",         version "2.0"
+ *     "agnes-3.0"         → base "agnes",         version "3.0"
+ *     "gpt-5.5"           → base "gpt",           version "5.5"
+ *     "claude-sonnet-4-5" → base "claude-sonnet", version "4.5"
+ *     "my-model"          → no version, never filtered
  *
- *   Within each group only the highest version is kept. Models that have
- *   no numeric version token (e.g. "claude-haiku", "gpt-codex") are
- *   singletons and always survive.
+ *   Within each provider:base group only the numerically highest
+ *   version survives. Models without a numeric version tail are
+ *   singletons and always shown.
  *
- *   The filter is applied by patching `registerProvider` /
- *   `registerNativeProvider` on the extension context's `pi` object at
- *   `session_start` (which runs after all extension factories, but before
- *   the session's first model refresh). The wrapped `models` arrays and
- *   `refreshModels` callbacks are filtered in place, so both the static
- *   catalog and live /v1/models discovery are covered.
+ * Design boundary: ids ending in a non-numeric qualifier are NOT
+ * treated as versioned. "agnes-2.5-flash" and "agnes-3.0-flash" are
+ * singletons and both stay visible. If Agnes starts shipping both
+ * "-flash" variants at once, use /model-filter keep or the config
+ * file to pin one.
+ *
+ * How it's wired in
+ *   The extension patches pi.registerProvider / pi.registerNativeProvider
+ *   on the extension `pi` object at factory time. Because pi flushes
+ *   provider registrations queued during loading in extension order,
+ *   this extension must load BEFORE provider-owning extensions for its
+ *   patch to intercept their registerProvider calls. See README for
+ *   ordering guidance.
+ *
+ *   The wrapped paths filter:
+ *     - config.models (static catalog arrays)
+ *     - config.refreshModels (live /v1/models discovery callbacks)
+ *     - native Provider.getModels()
  *
  * Config file: ~/.pi/agent/model-filter.json
  *   {
@@ -38,12 +50,11 @@
  *   /model-filter keep <id>    – protect a model from filtering
  *   /model-filter unkeep <id>
  *
- * Note: changing keep/disable persists immediately; the filtered catalog
- * re-applies on the next /reload or new session because that is when
- * session_start re-runs and the provider registration is re-wrapped.
+ * Config changes persist immediately; the filtered catalog re-applies on
+ * the next /reload or new session (provider registration re-runs).
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
@@ -101,29 +112,23 @@ export function splitVersion(
   const parts = id.split("-");
   if (parts.length < 2) return null;
 
-  // Find the rightmost run of integer parts; a trailing dotted token
-  // ("2.5") also counts as a single version part.
   let i = parts.length - 1;
   const last = parts[i];
-
-  let isIntegerRunStart: number; // index of first integer in the tail run
+  let isIntegerRunStart: number;
 
   if (/^\d+$/.test(last)) {
-    // Tail is a plain integer; walk left while integers continue.
     isIntegerRunStart = i;
     while (isIntegerRunStart > 0 && /^\d+$/.test(parts[isIntegerRunStart - 1])) {
       isIntegerRunStart--;
     }
   } else if (/^\d+\.\d+$/.test(last)) {
-    // Tail is a dotted version ("2.5"). The integer before it ("2" in
-    // "agnes-2-2.5"? unusual, but treat as part of version).
     isIntegerRunStart = i;
   } else {
-    return null; // no version token at the tail
+    return null; // trailing non-numeric qualifier → not a version token
   }
 
   const base = parts.slice(0, isIntegerRunStart).join("-");
-  if (!base) return null; // entire id is numeric → not a model we know
+  if (!base) return null;
   const version = parts.slice(isIntegerRunStart).join(".");
   return { base, version };
 }
@@ -222,21 +227,17 @@ function wrapRefreshModels(
 interface PatchablePi {
   registerProvider(providerOrName: string | unknown, config?: unknown): void;
   registerNativeProvider?(provider: unknown): void;
-  unregisterProvider?(name: string): void;
 }
 
 /**
- * Patch the pi object so that every provider registration made AFTER this
- * call (including by other extensions that registered earlier, when their
- * refreshModels is later invoked) goes through the version filter.
- *
- * Idempotent: re-patching an already-patched object is a no-op.
+ * Patch the pi object so every provider registration made through it
+ * goes through the version filter. Idempotent.
  */
 export function patchPi(
   pi: PatchablePi,
   getCfg: () => FilterConfig,
 ): void {
-  const anyPi = pi as any;
+  const anyPi = pi as Record<string, unknown>;
   if (anyPi.__modelFilterPatched) return;
   anyPi.__modelFilterPatched = true;
 
@@ -252,6 +253,7 @@ export function patchPi(
         ? providerOrName
         : ((providerOrName as Record<string, unknown>)?.id as string) ?? "unknown";
 
+    // Legacy form: pi.registerProvider("name", { models, refreshModels })
     if (typeof providerOrName === "string" && config !== undefined) {
       const c = { ...(config as Record<string, unknown>) };
       const cfg = getCfg();
@@ -273,18 +275,17 @@ export function patchPi(
       return originalRegisterProvider(providerOrName, c);
     }
 
-    // Native Provider object form – models live inside provider.getModels();
-    // we wrap the object in a Proxy-less shallow copy with filtered
-    // getModels().
+    // Native Provider object form – wrap getModels()
     const p = providerOrName as Record<string, unknown>;
     if (p && typeof p.getModels === "function") {
-      const wrapped = { ...p };
       const originalGetModels = p.getModels.bind(p);
+      const wrapped: Record<string, unknown> = { ...p };
       wrapped.getModels = () => {
         const models = originalGetModels() as ModelDef[];
         const cfg = getCfg();
         return filterModelList(models, providerName, new Set(cfg.keep), cfg.disabled);
       };
+      // pi.registerProvider also accepts a Provider object in the first arg
       return originalRegisterProvider(wrapped);
     }
 
@@ -294,10 +295,10 @@ export function patchPi(
   if (originalRegisterNative) {
     pi.registerNativeProvider = (provider: unknown) => {
       const p = provider as Record<string, unknown>;
-      const providerName = ((p?.id as string) ?? "unknown");
+      const providerName: string = p?.id ?? "unknown";
       if (p && typeof p.getModels === "function") {
-        const wrapped = { ...p };
         const originalGetModels = p.getModels.bind(p);
+        const wrapped: Record<string, unknown> = { ...p };
         wrapped.getModels = () => {
           const models = originalGetModels() as ModelDef[];
           const cfg = getCfg();
@@ -315,21 +316,25 @@ export function patchPi(
 export default function (pi: ExtensionAPI) {
   let cfg: FilterConfig = loadConfigFor(getAgentDir());
 
+  function getCfg(): FilterConfig {
+    return cfg;
+  }
+
   function refreshConfig() {
     cfg = loadConfigFor(getAgentDir());
   }
 
-  // Patch at session_start: all extension factories have already run, so
-  // re-registering is the only moment when provider registration flows
-  // through a still-active extension context. Also safe to re-patch on
-  // /reload because patchPi() is idempotent.
-  pi.on("session_start", (event, ctx: ExtensionContext) => {
-    try {
-      patchPi(ctx as unknown as PatchablePi, () => cfg);
-    } catch {
-      // never block session start
-    }
-  });
+  // Patch now, at factory time. This catches any provider registration
+  // that flows through this `pi` object after this point. Extensions
+  // that register providers in their own factories run in load order;
+  // to ensure the filter catches them, load pi-model-filter first
+  // (e.g. list it before provider extensions in --extension args or
+  // in the user extensions directory ordering).
+  try {
+    patchPi(pi as unknown as PatchablePi, getCfg);
+  } catch {
+    // never block extension loading
+  }
 
   pi.registerCommand("model-filter", {
     description: "Configure the model version filter (hide superseded versions)",
@@ -344,7 +349,7 @@ export default function (pi: ExtensionAPI) {
           const lines = [
             `Filter: ${cfg.disabled ? "DISABLED" : "active"}`,
             `Kept models: ${cfg.keep.length === 0 ? "(none)" : cfg.keep.join(", ")}`,
-            "Note: config changes apply to the next /reload or session",
+            "Note: config changes re-apply on the next /reload or new session",
           ];
           notify(lines.join("\n"));
           break;
@@ -359,6 +364,7 @@ export default function (pi: ExtensionAPI) {
         case "disable": {
           cfg.disabled = true;
           saveConfigFor(dir, cfg);
+          saveConfigFor(dir, cfg); // noop, keeps symmetry
           refreshConfig();
           notify("model-filter: disabled. Run /reload to re-apply to all providers.");
           break;
