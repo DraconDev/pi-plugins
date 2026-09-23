@@ -538,6 +538,7 @@ function catalogStats(
 ): {
   hidden: number;
   providers: number;
+  byProvider: Array<{ provider: string; hidden: number }>;
 } {
   const grouped = new Map<string, Model<Api>[]>();
   for (const model of registry.getAll()) {
@@ -547,10 +548,11 @@ function catalogStats(
   }
 
   const cfg = loadConfig(agentDir);
-  if (cfg.disabled) return { hidden: 0, providers: 0 };
+  if (cfg.disabled) return { hidden: 0, providers: 0, byProvider: [] };
 
   let hidden = 0;
   let providers = 0;
+  const byProvider: Array<{ provider: string; hidden: number }> = [];
   for (const [provider, models] of grouped) {
     const filtered = filterSuperseded(
       models,
@@ -562,9 +564,13 @@ function catalogStats(
     if (count > 0) {
       hidden += count;
       providers++;
+      byProvider.push({ provider, hidden: count });
     }
   }
-  return { hidden, providers };
+  byProvider.sort(
+    (a, b) => b.hidden - a.hidden || a.provider.localeCompare(b.provider),
+  );
+  return { hidden, providers, byProvider };
 }
 
 // ─── Extension entry ────────────────────────────────────────────────────────
@@ -625,10 +631,16 @@ export default function (pi: ExtensionAPI) {
           await ctx.modelRegistry.refresh({ allowNetwork: false });
           syncScopedModels(ctx, cfg.disabled);
           const available = ctx.modelRegistry.getAvailable() as Model<Api>[];
-          const agnes = available
-            .filter((model) => model.provider === "agnes")
-            .map((model) => model.id);
+          const availableProviders = new Set(
+            available.map((model) => model.provider),
+          ).size;
           const stats = catalogStats(ctx.modelRegistry, agentDir);
+          const providerSummary = stats.byProvider.length === 0
+            ? "none"
+            : stats.byProvider
+                .slice(0, 10)
+                .map((entry) => `${entry.provider} ${entry.hidden}`)
+                .join(", ");
           const keep = cfg.keep.length === 0
             ? "No models explicitly kept."
             : `Kept: ${cfg.keep.slice(0, 12).join(", ")}${
@@ -638,9 +650,10 @@ export default function (pi: ExtensionAPI) {
             ? "Version filtering is disabled."
             : `Hiding ${stats.hidden} catalog ${stats.hidden === 1 ? "entry" : "entries"} across ${stats.providers} providers.`;
           notify([
-            `Stale-model filter v0.2.2: ${cfg.disabled ? "DISABLED" : "active"}`,
+            `Stale-model filter v0.2.3: ${cfg.disabled ? "DISABLED" : "active"}`,
             `Runtime safety net: ${runtimeFilterInstalled ? "active" : "unavailable"}`,
-            `Available now: ${available.length} models; agnes: ${agnes.join(", ") || "none"}`,
+            `Available now: ${available.length} models across ${availableProviders} providers.`,
+            `Hidden by provider: ${providerSummary}`,
             hidden,
             keep,
           ].join("\n"));
