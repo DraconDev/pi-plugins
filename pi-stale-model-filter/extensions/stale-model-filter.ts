@@ -88,8 +88,6 @@ export function parseModelVersion(
     runStart = i;
     while (runStart > 0 && /^\d+$/.test(parts[runStart - 1])) runStart--;
   } else {
-    return null;
-  }
 
   const base = parts.slice(0, runStart).join("-");
   if (!base) return null;
