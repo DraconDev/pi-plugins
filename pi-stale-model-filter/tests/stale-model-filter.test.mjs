@@ -123,8 +123,8 @@ test("parseModelVersion: 'agnes-3' → base 'agnes', version '3'", () => {
   assert.deepEqual(parseModelVersion("agnes-3"), { base: "agnes", version: "3" });
 });
 
-test("parseModelVersion: 'qwen-2.5-coder' → null (trailing non-numeric qualifier)", () => {
-  assert.equal(parseModelVersion("qwen-2.5-coder"), null);
+test("parseModelVersion: 'qwen-2.5-coder' → base 'qwen-coder', version '2.5'", () => {
+  assert.deepEqual(parseModelVersion("qwen-2.5-coder"), { base: "qwen-coder", version: "2.5" });
 });
 
 // ─── compareVersions tests ──────────────────────────────────────────────────
