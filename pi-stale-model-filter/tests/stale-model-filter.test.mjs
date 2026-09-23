@@ -16,23 +16,18 @@ function parseModelVersion(id) {
   const parts = id.split("-");
   if (parts.length < 2) return null;
 
-  let i = parts.length - 1;
-  const last = parts[i];
-  let runStart;
+  const isNumSeg = (s) => /^\d+$/.test(s) || /^\d+(\.\d+)+$/.test(s);
 
-  if (/^\d+$/.test(last)) {
-    runStart = i;
-    while (runStart > 0 && /^\d+$/.test(parts[runStart - 1])) runStart--;
-  } else if (/^\d+\.\d+$/.test(last)) {
-    runStart = i;
-    while (runStart > 0 && /^\d+$/.test(parts[runStart - 1])) runStart--;
-  } else {
-    return null;
-  }
+  let end = parts.length;
+  while (end > 0 && !isNumSeg(parts[end - 1])) end--;
+  if (end === 0) return null;
 
-  const base = parts.slice(0, runStart).join("-");
+  let start = end;
+  while (start > 0 && isNumSeg(parts[start - 1])) start--;
+
+  const base = [...parts.slice(0, start), ...parts.slice(end)].join("-");
   if (!base) return null;
-  const version = parts.slice(runStart).join(".");
+  const version = parts.slice(start, end).join(".");
   return { base, version };
 }
 
