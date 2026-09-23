@@ -60,14 +60,19 @@ export const DEFAULT_CONFIG: FilterConfig = { version: 1, disabled: false, keep:
 /**
  * Parse a model id into { base, version }.
  *
- * The version is the rightmost run of purely numeric hyphen-separated
- * segments, OR a trailing "N.N" token. Everything before it is the base.
+ * The version is the rightmost contiguous run of numeric or dotted-numeric
+ * hyphen-separated segments. Everything else (qualifiers like "flash",
+ * "pro", "coder" that come before or after the version) is part of the base.
  *
- *   "agnes-2.0-flash"     → base "agnes-flash", version "2.0"
- *   "agnes-3.0-flash"     → base "agnes-flash", version "3.0"
- *   "gpt-5.5"            → base "gpt",           version "5.5"
- *   "claude-sonnet-4-5"  → base "claude-sonnet", version "4.5"
+ *   "agnes-2.0-flash"     → base "agnes-flash",    version "2.0"
+ *   "agnes-3.0-flash"     → base "agnes-flash",    version "3.0"
+ *   "gpt-5.5"            → base "gpt",             version "5.5"
+ *   "claude-sonnet-4-5"  → base "claude-sonnet",   version "4.5"
  *   "my-model"           → null
+ *
+ * A "numeric segment" is a plain integer ("4", "5") or a dotted number
+ * ("2.0", "4.5"). We find the rightmost contiguous run of numeric
+ * segments; that run becomes the version (joined with ".").
  */
 export function parseModelVersion(
   id: string,
@@ -75,23 +80,20 @@ export function parseModelVersion(
   const parts = id.split("-");
   if (parts.length < 2) return null;
 
-  let i = parts.length - 1;
-  const last = parts[i];
-  let runStart: number;
+  const isNumSeg = (s: string) =>
+    /^\d+$/.test(s) || /^\d+(\.\d+)+$/.test(s);
 
-  if (/^\d+$/.test(last)) {
-    runStart = i;
-    while (runStart > 0 && /^\d+$/.test(parts[runStart - 1])) runStart--;
-  } else if (/^\d+\.\d+$/.test(last)) {
-    // Dotted numeric token like "2.0" — take it plus any preceding bare-int
-    // segments that form a contiguous numeric run: e.g. "4-5" → version "4.5"
-    runStart = i;
-    while (runStart > 0 && /^\d+$/.test(parts[runStart - 1])) runStart--;
-  } else {
+  // Find the rightmost run of numeric segments.
+  let end = parts.length;
+  while (end > 0 && !isNumSeg(parts[end - 1])) end--;
+  if (end === 0) return null;
 
-  const base = parts.slice(0, runStart).join("-");
+  let start = end;
+  while (start > 0 && isNumSeg(parts[start - 1])) start--;
+
+  const base = [...parts.slice(0, start), ...parts.slice(end)].join("-");
   if (!base) return null;
-  const version = parts.slice(runStart).join(".");
+  const version = parts.slice(start, end).join(".");
   return { base, version };
 }
 
