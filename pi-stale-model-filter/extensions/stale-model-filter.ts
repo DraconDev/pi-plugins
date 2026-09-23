@@ -13,8 +13,8 @@
  *   2. Re-registers every provider with a version filter composed after
  *      its existing provider filter.
  *   3. Groups models by provider + base name (everything around the
- *      rightmost numeric version token, e.g. "agnes-2.0-flash" → base
- *      "agnes-flash", version "2.0").
+ *      rightmost numeric version token, e.g. "tool-2.0-flash" → base
+ *      "tool-flash", version "2.0").
  *   4. Within each group, keeps only the numerically highest version.
  *      Older versions are removed from availability, so they disappear
  *      from /model, Ctrl+P cycling, /scoped-models, and RPC model lists.
@@ -27,8 +27,8 @@
  * Design boundary
  * ────────────────
  * Version detection is based purely on numeric suffixes. A model ID like
- * "agnes-2.0-flash" is parsed as base "agnes-flash", version "2.0".
- * "agnes-3.0-flash" → base "agnes-flash", version "3.0". So the two group
+ * "tool-2.0-flash" is parsed as base "tool-flash", version "2.0".
+ * "tool-3.0-flash" → base "tool-flash", version "3.0". So the two group
  * together and only 3.0 survives.
  *
  * Models without a numeric version suffix are singletons and are never
@@ -79,8 +79,8 @@ function debugLog(message: string): void {
  * hyphen-separated segments. Everything else (qualifiers like "flash",
  * "pro", "coder" that come before or after the version) is part of the base.
  *
- *   "agnes-2.0-flash"     → base "agnes-flash",    version "2.0"
- *   "agnes-3.0-flash"     → base "agnes-flash",    version "3.0"
+ *   "tool-2.0-flash"      → base "tool-flash",     version "2.0"
+ *   "tool-3.0-flash"      → base "tool-flash",     version "3.0"
  *   "gpt-5.5"            → base "gpt",             version "5.5"
  *   "claude-sonnet-4-5"  → base "claude-sonnet",   version "4.5"
  *   "my-model"           → null
@@ -130,7 +130,7 @@ export function compareVersions(a: string, b: string): number {
  * Returns a new array with superseded versions removed.
  *
  * @param models     – model array (each entry must have an `id` field)
- * @param provider   – provider id (e.g. "agnes", "openai")
+ * @param provider   – provider id (e.g. "openrouter", "anthropic")
  * @param keepSet    – fully-qualified "provider/id" strings to always keep
  * @param disabled   – when true, returns the input array unchanged
  */

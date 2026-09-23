@@ -115,6 +115,11 @@ test("parseModelVersion: 'llama3-8b-instruct' → null (no numeric suffix)", () 
   assert.equal(parseModelVersion("llama3-8b-instruct"), null);
 });
 
+test("parseModelVersion: size suffixes stay in the family base", () => {
+  assert.deepEqual(parseModelVersion("llama-3-8b"), { base: "llama-8b", version: "3" });
+  assert.deepEqual(parseModelVersion("llama-3-70b"), { base: "llama-70b", version: "3" });
+});
+
 test("parseModelVersion: 'my-model' → null", () => {
   assert.equal(parseModelVersion("my-model"), null);
 });
@@ -125,6 +130,13 @@ test("parseModelVersion: 'agnes-3' → base 'agnes', version '3'", () => {
 
 test("parseModelVersion: 'qwen-2.5-coder' → base 'qwen-coder', version '2.5'", () => {
   assert.deepEqual(parseModelVersion("qwen-2.5-coder"), { base: "qwen-coder", version: "2.5" });
+});
+
+test("parseModelVersion: dated snapshots share a family and ordered date version", () => {
+  assert.deepEqual(parseModelVersion("openai/gpt-4o-2024-05-13"), {
+    base: "openai/gpt-4o",
+    version: "2024.05.13",
+  });
 });
 
 // ─── compareVersions tests ──────────────────────────────────────────────────
@@ -175,6 +187,16 @@ test("filterSuperseded: version comparison stays inside the pro family", () => {
   assert.deepEqual(ids, ["agnes-3.0-flash", "agnes-2.0-pro"]);
 });
 
+test("filterSuperseded: model sizes remain separate families", () => {
+  const models = [
+    { id: "llama-3-8b" },
+    { id: "llama-4-8b" },
+    { id: "llama-3-70b" },
+  ];
+  const ids = filterSuperseded(models, "meta", new Set(), false).map((m) => m.id);
+  assert.deepEqual(ids, ["llama-4-8b", "llama-3-70b"]);
+});
+
 test("filterSuperseded: disabled passes everything through", () => {
   const models = [{ id: "a-1.0" }, { id: "a-2.0" }];
   assert.equal(filterSuperseded(models, "p", new Set(), true).length, 2);
@@ -205,6 +227,28 @@ test("filterSuperseded: preserves original relative order", () => {
 
 test("filterSuperseded: empty input returns empty output", () => {
   assert.deepEqual(filterSuperseded([], "p", new Set(), false), []);
+});
+
+test("filterSuperseded: dated snapshots keep only the latest date", () => {
+  const models = [
+    { id: "openai/gpt-4o-2024-05-13" },
+    { id: "openai/gpt-4o-2024-08-06" },
+    { id: "openai/gpt-4o-2024-11-20" },
+  ];
+  const ids = filterSuperseded(models, "openrouter", new Set(), false).map((m) => m.id);
+  assert.deepEqual(ids, ["openai/gpt-4o-2024-11-20"]);
+});
+
+test("filterSuperseded: identical ids in separate providers do not compete", () => {
+  const models = [{ id: "shared-1.0" }, { id: "shared-2.0" }];
+  assert.deepEqual(
+    filterSuperseded(models, "provider-a", new Set(), false).map((m) => m.id),
+    ["shared-2.0"],
+  );
+  assert.deepEqual(
+    filterSuperseded(models, "provider-b", new Set(), false).map((m) => m.id),
+    ["shared-2.0"],
+  );
 });
 
 test("filterSuperseded: openrouter-style ids with slashes in base", () => {

@@ -35,8 +35,8 @@ numeric version token:
 
 | Model ID | Base | Version |
 |---|---|---|
-| `agnes-2.0-flash` | `agnes-flash` | `2.0` |
-| `agnes-3.0-flash` | `agnes-flash` | `3.0` |
+| `tool-2.0-flash` | `tool-flash` | `2.0` |
+| `tool-3.0-flash` | `tool-flash` | `3.0` |
 | `gpt-5.5` | `gpt` | `5.5` |
 | `claude-sonnet-4-5` | `claude-sonnet` | `4.5` |
 | `my-model` | — | never filtered |
@@ -108,7 +108,7 @@ Example:
   "version": 1,
   "disabled": false,
   "keep": [
-    "agnes/agnes-2.0-flash"
+    "openrouter/anthropic/claude-opus-4.1"
   ]
 }
 ```
