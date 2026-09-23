@@ -508,17 +508,14 @@ function registerAgnesProviders(pi) {
     // Omit apiKey when the env var is absent so /login can supply the key —
     // same convention pi-agnes uses.
     const apiKeyRef = process.env[def.apiKeyEnv] ? "$" + def.apiKeyEnv : undefined;
-    // Filter the static seed catalog so old versions are hidden immediately,
-    // and wrap refreshModels so live discovery results are filtered too.
-    const seedModels = filterModelsForProvider(AGNES_SEED.map((id) => toModelConfig(id)), def.id);
     pi.registerProvider(def.id, {
       name: def.name,
       baseUrl: def.baseUrl,
       ...(apiKeyRef ? { apiKey: apiKeyRef } : {}),
       api: "openai-completions",
       streamSimple: streamStandalone,
-      models: seedModels,
-      refreshModels: wrapRefreshModels(makeRefreshModels(def.baseUrl, def.apiKeyEnv, def.id), def.id),
+      models: AGNES_SEED.map((id) => toModelConfig(id)),
+      refreshModels: makeRefreshModels(def.baseUrl, def.apiKeyEnv, def.id),
     });
   }
 }
