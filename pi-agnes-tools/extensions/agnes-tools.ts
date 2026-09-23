@@ -29,15 +29,6 @@ import {
   openAICompletionsApi,
 } from "@earendil-works/pi-ai";
 
-// Model version filtering (pi-model-filter): hides superseded versions from
-// the catalog. Import path is relative so this works when both extensions
-// live in the same repo; the helper degrades to pass-through when the
-// config file is absent or the filter is disabled.
-import {
-  filterModelsForProvider,
-  wrapRefreshModels,
-} from "../../pi-model-filter/extensions/model-filter.js";
-
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
