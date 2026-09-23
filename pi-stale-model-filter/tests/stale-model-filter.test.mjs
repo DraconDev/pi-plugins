@@ -31,16 +31,35 @@ function parseModelVersion(id) {
   return { base, version };
 }
 
+function versionParts(version) {
+  const raw = version.split(".");
+  const parts = raw.map((part) => Number(part) || 0);
+  let dateStart = raw.findIndex((part, index) => index > 0 && part.length >= 4);
+  if (dateStart === -1 && raw[0].length >= 4) dateStart = 0;
+  return {
+    semantic: dateStart < 0 ? parts : parts.slice(0, dateStart),
+    date: dateStart < 0 ? null : parts.slice(dateStart),
+  };
+}
+
+function versionClass(version) {
+  const { date } = versionParts(version);
+  return date ? "dated" : `semantic:${version.split(".").length}`;
+}
+
 function compareVersions(a, b) {
-  const pa = a.split(".").map((s) => Number(s) || 0);
-  const pb = b.split(".").map((s) => Number(s) || 0);
-  const len = Math.max(pa.length, pb.length);
-  for (let i = 0; i < len; i++) {
-    const va = pa[i] ?? 0;
-    const vb = pb[i] ?? 0;
+  const pa = versionParts(a);
+  const pb = versionParts(b);
+  const semanticLength = Math.max(pa.semantic.length, pb.semantic.length);
+  for (let i = 0; i < semanticLength; i++) {
+    const va = pa.semantic[i] ?? 0;
+    const vb = pb.semantic[i] ?? 0;
     if (va !== vb) return va < vb ? -1 : 1;
   }
-  return 0;
+  const da = pa.date ? Number(pa.date.join("")) : -1;
+  const db = pb.date ? Number(pb.date.join("")) : -1;
+  if (da === db) return 0;
+  return da < db ? -1 : 1;
 }
 
 function filterSuperseded(models, provider, keepSet, disabled) {
@@ -52,7 +71,7 @@ function filterSuperseded(models, provider, keepSet, disabled) {
   for (const m of models) {
     const pv = parseModelVersion(m.id);
     const groupKey = pv
-      ? `${provider}:${pv.base}`
+      ? `${provider}:${pv.base}:${versionClass(pv.version)}`
       : `${provider}:${m.id}::__singleton__`;
 
     let g = groups.get(groupKey);
@@ -153,6 +172,14 @@ test("compareVersions: 4.5 < 5", () => {
   assert.ok(compareVersions("4.5", "5") < 0);
 });
 
+test("compareVersions: semantic major/minor wins before checkpoint date", () => {
+  assert.ok(compareVersions("4.20250514", "4.5.20250929") < 0);
+});
+
+test("compareVersions: equivalent date formats compare equal", () => {
+  assert.equal(compareVersions("2024.05.06", "20240506"), 0);
+});
+
 // ─── filterSuperseded tests ────────────────────────────────────────────────
 
 test("filterSuperseded: agnes flash group keeps only 3.0", () => {
@@ -237,6 +264,34 @@ test("filterSuperseded: dated snapshots keep only the latest date", () => {
   ];
   const ids = filterSuperseded(models, "openrouter", new Set(), false).map((m) => m.id);
   assert.deepEqual(ids, ["openai/gpt-4o-2024-11-20"]);
+});
+
+test("filterSuperseded: checkpoint versions compare semantic version before date", () => {
+  const models = [
+    { id: "anthropic.claude-sonnet-4-20250514-v1:0" },
+    { id: "anthropic.claude-sonnet-4-5-20250929-v1:0" },
+  ];
+  const ids = filterSuperseded(models, "amazon-bedrock", new Set(), false).map((m) => m.id);
+  assert.deepEqual(ids, ["anthropic.claude-sonnet-4-5-20250929-v1:0"]);
+});
+
+test("filterSuperseded: semantic aliases and dated snapshots remain separate", () => {
+  const models = [
+    { id: "mistral-medium-3.5" },
+    { id: "mistral-medium-2505" },
+    { id: "mistral-medium-2604" },
+  ];
+  const ids = filterSuperseded(models, "mistral", new Set(), false).map((m) => m.id);
+  assert.deepEqual(ids, ["mistral-medium-3.5", "mistral-medium-2604"]);
+});
+
+test("filterSuperseded: compact and semantic date forms are not guessed together", () => {
+  const models = [
+    { id: "qwen/qwen3.5-plus-02-15" },
+    { id: "qwen/qwen3.5-plus-20260420" },
+  ];
+  const ids = filterSuperseded(models, "openrouter", new Set(), false).map((m) => m.id);
+  assert.deepEqual(ids, ["qwen/qwen3.5-plus-02-15", "qwen/qwen3.5-plus-20260420"]);
 });
 
 test("filterSuperseded: identical ids in separate providers do not compete", () => {

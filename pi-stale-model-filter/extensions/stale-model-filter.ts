@@ -669,7 +669,7 @@ export default function (pi: ExtensionAPI) {
             ? "Version filtering is disabled."
             : `Hiding ${stats.hidden} catalog ${stats.hidden === 1 ? "entry" : "entries"} across ${stats.providers} providers.`;
           notify([
-            `Stale-model filter v0.2.5: ${cfg.disabled ? "DISABLED" : "active"}`,
+            `Stale-model filter v0.2.6: ${cfg.disabled ? "DISABLED" : "active"}`,
             `Runtime safety net: ${runtimeFilterInstalled ? "active" : "unavailable"}`,
             `Available now: ${available.length} models across ${availableProviders} providers.`,
             `Hidden by provider: ${providerSummary}`,

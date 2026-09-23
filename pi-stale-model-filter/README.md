@@ -47,6 +47,11 @@ compete with the same exact family. For example, `tool-3.0-flash` and
 `tool-2.0-pro` are separate families and both remain visible; `tool-1.0-pro`
 would only compete with other `tool-*-pro` models.
 
+Date-bearing versions are handled conservatively. Semantic components are
+compared before checkpoint dates, so `4.5.20250929` correctly supersedes
+`4.20250514`. Semantic-only and date-coded aliases are kept in separate groups
+when their formats cannot be compared confidently.
+
 Models without a numeric version token are treated as singletons. The filter is
 additive only in the sense that it removes entries: it never edits model
 metadata, auth, streaming, or persistence behavior.
