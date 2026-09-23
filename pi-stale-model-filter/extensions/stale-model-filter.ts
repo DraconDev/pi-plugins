@@ -301,7 +301,10 @@ function installStaleModelFilter(
   return installed;
 }
 
-function catalogStats(registry: ExtensionContext["modelRegistry"]): {
+function catalogStats(
+  registry: ExtensionContext["modelRegistry"],
+  agentDir: string,
+): {
   hidden: number;
   providers: number;
 } {
@@ -312,7 +315,7 @@ function catalogStats(registry: ExtensionContext["modelRegistry"]): {
     grouped.set(model.provider, models);
   }
 
-  const cfg = loadConfig(agentDirForStats());
+  const cfg = loadConfig(agentDir);
   if (cfg.disabled) return { hidden: 0, providers: 0 };
 
   let hidden = 0;
@@ -333,10 +336,6 @@ function catalogStats(registry: ExtensionContext["modelRegistry"]): {
   return { hidden, providers };
 }
 
-function agentDirForStats(): string {
-  return getAgentDir();
-}
-
 // ─── Extension entry ────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
@@ -352,14 +351,9 @@ export default function (pi: ExtensionAPI) {
     await ctx.modelRegistry.refresh({ allowNetwork: false });
   };
 
-  // Install during extension load, before pi performs its initial model and
-  // --models scope resolution. This also makes non-interactive model listings
-  // honor the same provider filter.
-  installStaleModelFilter(pi, (pi as any).modelRegistry ?? currentRegistry(pi), agentDir);
-
-  // Re-check after all extensions have registered their providers, and after
-  // /reload. Provider refreshes continue to flow through filterModels, so the
-  // filtered snapshot is rebuilt without reading models-store.json directly.
+  // Install after all extensions have registered their providers, then rebuild
+  // the available-model snapshot. Provider refreshes continue to flow through
+  // filterModels, so stale entries cannot reappear after a catalog refresh.
   pi.on("session_start", async (_event, ctx) => {
     reloadConfig();
     installStaleModelFilter(pi, ctx.modelRegistry, agentDir);
@@ -377,7 +371,7 @@ export default function (pi: ExtensionAPI) {
       switch (action) {
         case "":
         case "status": {
-          const stats = catalogStats(ctx.modelRegistry);
+          const stats = catalogStats(ctx.modelRegistry, agentDir);
           const keep = cfg.keep.length === 0
             ? "No models explicitly kept."
             : `Kept: ${cfg.keep.slice(0, 12).join(", ")}${
@@ -447,6 +441,3 @@ export default function (pi: ExtensionAPI) {
   });
 }
 
-function currentRegistry(_pi: ExtensionAPI): ExtensionContext["modelRegistry"] {
-  throw new Error("Model registry is only available from an extension event context");
-}
