@@ -1,0 +1,13 @@
+{
+  "name": "pi-stale-model-filter",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Hide superseded model versions from pi's /model selector via dynamic detection",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "typecheck": "npx -p typescript tsc --noEmit -p tsconfig.json"
+  },
+  "pi": {
+    "extensions": ["extensions/stale-model-filter.ts"]
+  }
+}
