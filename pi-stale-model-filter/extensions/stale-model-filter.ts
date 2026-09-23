@@ -59,6 +59,7 @@ export interface FilterConfig {
 export const DEFAULT_CONFIG: FilterConfig = { version: 1, disabled: false, keep: [] };
 
 const PROVIDER_FILTER_MARKER = Symbol.for("pi-stale-model-filter/provider");
+const SCOPED_MODELS_BACKUP = Symbol.for("pi-stale-model-filter/scoped-backup");
 
 // ─── Pure version logic ───────────────────────────────────────────────────
 
@@ -301,6 +302,55 @@ function installStaleModelFilter(
   return installed;
 }
 
+type ScopedModelEntry = {
+  model: { provider: string; id: string };
+  thinkingLevel?: string;
+};
+
+type ScopedModelList = ScopedModelEntry[] & {
+  [SCOPED_MODELS_BACKUP]?: ScopedModelEntry[];
+};
+
+/**
+ * Pi resolves --models before session_start, so its scoped list can still
+ * contain entries removed from the available snapshot. Keep a private backup
+ * and update the live list in place; otherwise the scoped branch of /model
+ * would bypass the provider filter.
+ */
+function syncScopedModels(ctx: any, disabled: boolean): void {
+  const scoped = ctx.scopedModels as ScopedModelList | undefined;
+  if (!scoped) return;
+
+  let fullScope = scoped[SCOPED_MODELS_BACKUP];
+  if (!Array.isArray(fullScope)) {
+    fullScope = [...scoped];
+    try {
+      Object.defineProperty(scoped, SCOPED_MODELS_BACKUP, {
+        value: fullScope,
+        enumerable: false,
+      });
+    } catch {
+      // A live scope is normally mutable; if pi ever freezes it, the
+      // available-model snapshot still protects the all-models selector.
+    }
+  }
+
+  const available = new Set(
+    ctx.modelRegistry
+      .getAvailable()
+      .map((model: { provider: string; id: string }) =>
+        `${model.provider}\0${model.id}`
+      )
+  );
+  const next = disabled
+    ? fullScope
+    : fullScope.filter(
+        (entry) => available.has(`${entry.model.provider}\0${entry.model.id}`)
+      );
+
+  scoped.splice(0, scoped.length, ...next);
+}
+
 function catalogStats(
   registry: ExtensionContext["modelRegistry"],
   agentDir: string,
@@ -349,6 +399,7 @@ export default function (pi: ExtensionAPI) {
   const refreshSnapshot = async (ctx: any) => {
     reloadConfig();
     await ctx.modelRegistry.refresh({ allowNetwork: false });
+    syncScopedModels(ctx, cfg.disabled);
   };
 
   // Install after all extensions have registered their providers, then rebuild
@@ -358,6 +409,7 @@ export default function (pi: ExtensionAPI) {
     reloadConfig();
     installStaleModelFilter(pi, ctx.modelRegistry, agentDir);
     await ctx.modelRegistry.refresh({ allowNetwork: false });
+    syncScopedModels(ctx, cfg.disabled);
   });
 
   pi.registerCommand("stale-model-filter", {
