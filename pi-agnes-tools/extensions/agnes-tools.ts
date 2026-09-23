@@ -373,8 +373,7 @@ function makeRefreshModels(baseUrl, apiKeyEnv, providerId) {
       throw error;
     }
     // Apply the version filter so superseded models don't reach the catalog.
-    models = filterModelsForProvider(models, providerId);
-    if (models.length > 0) {
+    models = filterModelsForProvider(models, providerId);    if (models.length > 0) {
       await publish({ persist: { provider: providerId, models } });
       return models;
     }
