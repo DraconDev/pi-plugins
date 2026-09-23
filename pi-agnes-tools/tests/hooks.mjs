@@ -16,5 +16,9 @@ export async function resolve(specifier, context, next) {
       specifier.endsWith("pi-model-filter/extensions/model-filter.ts")) {
     return { url: "file://" + modelFilter, shortCircuit: true };
   }
+  if (specifier.endsWith("pi-model-filter/extensions/model-filter-core") ||
+      specifier.endsWith("pi-model-filter/extensions/model-filter-core.ts")) {
+    return { url: "file://" + join(dir, "..", "..", "pi-model-filter", "extensions", "model-filter-core.ts"), shortCircuit: true };
+  }
   return next(specifier, context);
 }
