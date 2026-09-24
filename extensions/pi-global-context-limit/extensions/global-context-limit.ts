@@ -542,7 +542,7 @@ export default function globalContextLimitExtension(pi: ExtensionAPI): void {
     try {
       await ctx.modelRegistry.refresh({ allowNetwork: false });
       const replacement = ctx.modelRegistry.find(current.provider, current.id);
-      if (replacement) await pi.setModel(replacement);
+      if (replacement) await pi.setModel(replacement as Parameters<ExtensionAPI["setModel"]>[0]);
     } catch {
       // The request hook remains the final supported boundary for this turn.
     }
