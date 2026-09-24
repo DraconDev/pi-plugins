@@ -268,6 +268,24 @@ describe("image references and explicit generation", () => {
     );
   });
 
+  it("rejects image bytes that do not match the provider MIME type", async () => {
+    const review = normalizeReview({
+      reviewId: "bad-image",
+      stages: [{ header: "Choice", prompt: "Choose", options: [
+        { label: "A", generate: { prompt: "A" } },
+        { label: "B" },
+      ] }],
+    });
+    await assert.rejects(
+      generateReviewImages(review, {
+        cwd: process.cwd(),
+        resolveCredential: () => "test-key",
+        fetchImpl: async () => new Response(JSON.stringify({ data: [{ b64_json: "aGVsbG8=", mime_type: "image/png" }] }), { status: 200 }),
+      }),
+      (error) => error instanceof ImageGenerationError && error.code === "invalid_response",
+    );
+  });
+
   it("loads a supplied data URI and never generates an image", async () => {
     const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
     const loaded = await loadImage({ dataUri: `data:image/png;base64,${png}` }, process.cwd());

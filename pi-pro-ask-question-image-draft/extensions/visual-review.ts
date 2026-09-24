@@ -9,6 +9,7 @@ import {
   findReviewState,
   makeReviewState,
   mergeAnswers,
+  type GeneratedImageReference,
   type ReviewAnswer,
   type ReviewResult,
   type ReviewState,
@@ -119,6 +120,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
     executionMode: "sequential",
     async execute(_toolCallId, rawParams, signal, onUpdate, ctx): Promise<AgentToolResult<VisualReviewResultDetails>> {
       let review: NormalizedReview;
+      let generatedImages: GeneratedImageReference[] = [];
       try {
         review = normalizeReview(rawParams as ReviewParams);
         validateReview(review);
@@ -167,6 +169,20 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
           }),
         });
         review = generated.review;
+        generatedImages = generated.images.map((image) => {
+          const match = review.stages.flatMap((stage) => stage.options
+            .filter((option) => option.image?.path === image.path)
+            .map((option) => ({ stageId: stage.id, optionId: option.id })))[0] ?? { stageId: "unknown", optionId: "unknown" };
+          return {
+            ...match,
+            path: image.path,
+            mimeType: image.mimeType,
+            provider: image.provider,
+            model: image.model,
+            byteCount: image.byteCount,
+            generated: true,
+          };
+        });
       } catch (error) {
         const message = error instanceof ImageGenerationError
           ? `Image generation failed (${error.code}): ${error.message}`
@@ -190,6 +206,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
             decision: "revision",
             cancelled: false,
             answers: initialAnswers,
+            ...(generatedImages.length > 0 ? { generatedImages } : {}),
             revision: {
               stageId: review.stages[0]?.id ?? "review",
               stageIndex: 0,
@@ -217,6 +234,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
               decision: "cancel",
               cancelled: true,
               answers: initialAnswers,
+              ...(generatedImages.length > 0 ? { generatedImages } : {}),
             };
           } else {
             result = makeFallbackResult(review, "rpc");
@@ -236,6 +254,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
               decision: "cancel",
               cancelled: true,
               answers: initialAnswers,
+              ...(generatedImages.length > 0 ? { generatedImages } : {}),
             };
           } else if (ctx.mode === "tui" && hasDialogUI(ctx)) {
             try {
@@ -251,7 +270,8 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
         result = makeFallbackResult(review, ctx.mode === "json" || ctx.mode === "print" ? "no_ui" : "no_custom_ui");
       }
 
-      pi.appendEntry(REVIEW_STATE_CUSTOM_TYPE, makeReviewState(review, result.answers, result.status, result.skippedStageIds));
+      if (generatedImages.length > 0) result = { ...result, generatedImages };
+      pi.appendEntry(REVIEW_STATE_CUSTOM_TYPE, makeReviewState(review, result.answers, result.status, result.skippedStageIds, result.generatedImages));
       return textResult(result, review);
     },
     renderCall(args, theme, _context) {

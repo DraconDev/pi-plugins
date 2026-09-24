@@ -31,6 +31,8 @@ export interface GeneratedImageReference {
   provider: string;
   model: string;
   byteCount: number;
+  /** True when the image came from an explicit option.generate request. */
+  generated?: boolean;
 }
 
 export interface ReviewResult {
@@ -90,7 +92,8 @@ function isGeneratedImageReference(value: unknown): value is GeneratedImageRefer
   return typeof value.stageId === "string" && typeof value.optionId === "string" &&
     typeof value.path === "string" && typeof value.mimeType === "string" &&
     typeof value.provider === "string" && typeof value.model === "string" &&
-    Number.isInteger(value.byteCount) && (value.byteCount as number) > 0;
+    Number.isInteger(value.byteCount) && (value.byteCount as number) > 0 &&
+    (value.generated === undefined || typeof value.generated === "boolean");
 }
 
 function isAnswerShape(value: unknown): value is ReviewAnswer {
