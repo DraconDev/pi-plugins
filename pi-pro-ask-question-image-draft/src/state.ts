@@ -109,6 +109,7 @@ function answerIsValid(answer: ReviewAnswer, stage: NormalizedStage, index: numb
   if (ids.some((id) => !optionsById.has(id))) return false;
   if (answer.kind === "option" && (ids.length !== 1 || stage.multiSelect)) return false;
   if (answer.kind === "multi" && !stage.multiSelect) return false;
+  if (answer.kind !== "option" && answer.kind !== "multi") return false;
   if (answer.optionLabels !== undefined) {
     if (answer.optionLabels.length !== ids.length) return false;
     if (ids.some((id, i) => answer.optionLabels?.[i] !== optionsById.get(id)?.label)) return false;
