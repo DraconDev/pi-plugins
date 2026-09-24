@@ -31,6 +31,8 @@ export interface ReviewResult {
   decision: ReviewDecision;
   cancelled: boolean;
   answers: ReviewAnswer[];
+  /** Optional stages explicitly skipped by the user. */
+  skippedStageIds?: string[];
   revision?: ReviewRevision;
   fallback?: {
     reason: "no_ui" | "no_custom_ui" | "rpc";
@@ -52,6 +54,8 @@ export interface ReviewState {
   resetStageIds: string[];
   stages: NormalizedStage[];
   answers: ReviewAnswer[];
+  /** Optional stages explicitly skipped by the user. */
+  skippedStageIds?: string[];
   status: ReviewStatus;
   updatedAt: string;
 }
@@ -130,12 +134,34 @@ export function isStageAnswered(stage: NormalizedStage, index: number, answer: R
   return isUsableAnswer(answer, stage, index, true);
 }
 
+/** Return stages that still need either a valid answer or an explicit skip. */
+export function unresolvedStages(
+  review: NormalizedReview,
+  answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewAnswer[],
+  skippedStageIds: readonly string[] = [],
+): NormalizedStage[] {
+  const byId = answerMap(answers);
+  const skipped = new Set(skippedStageIds);
+  return review.stages.filter((stage, index) => {
+    return !skipped.has(stage.id) && !isStageAnswered(stage, index, byId.get(stage.id));
+  });
+}
+
 /** Return the first required stage that cannot yet be approved. */
 export function firstMissingRequiredStage(
   review: NormalizedReview,
   answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewAnswer[],
 ): NormalizedStage | undefined {
   return missingRequiredStages(review, answers)[0];
+}
+
+/** Return the first stage that must be answered or explicitly skipped. */
+export function firstUnresolvedStage(
+  review: NormalizedReview,
+  answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewAnswer[],
+  skippedStageIds: readonly string[] = [],
+): NormalizedStage | undefined {
+  return unresolvedStages(review, answers, skippedStageIds)[0];
 }
 
 export function isReviewState(value: unknown): value is ReviewState {
@@ -149,6 +175,7 @@ export function isReviewState(value: unknown): value is ReviewState {
     !Array.isArray(value.answers) ||
     !value.answers.every(isAnswerShape) ||
     !isStringArray(value.resetStageIds) ||
+    (value.skippedStageIds !== undefined && !isStringArray(value.skippedStageIds)) ||
     (value.status !== "completed" &&
       value.status !== "revision" &&
       value.status !== "rejected" &&
@@ -183,9 +210,20 @@ export function isReviewState(value: unknown): value is ReviewState {
 
   const stages = value.stages as NormalizedStage[];
   const answers = value.answers as ReviewAnswer[];
+  const skippedStageIds = (value.skippedStageIds as string[] | undefined) ?? [];
+  const skipped = new Set(skippedStageIds);
+  if (skippedStageIds.some((id) => {
+    const stage = stages.find((candidate) => candidate.id === id);
+    return !stage || stage.required || answers.some((answer) => answer.stageId === id);
+  })) return false;
+  if (value.status === "completed" && unresolvedStages(
+    { reviewId: value.reviewId, round: value.round as number, resetStageIds: value.resetStageIds as string[], stages },
+    answers,
+    skippedStageIds,
+  ).length > 0) return false;
   return answers.every((answer) => {
     const index = stages.findIndex((stage) => stage.id === answer.stageId);
-    return index >= 0 && answerIsValid(answer, stages[index], index, true);
+    return index >= 0 && !skipped.has(answer.stageId) && answerIsValid(answer, stages[index], index, true);
   });
 }
 
@@ -210,7 +248,16 @@ function cloneAnswer(answer: ReviewAnswer, stageIndex = answer.stageIndex): Revi
   };
 }
 
-export function makeReviewState(review: NormalizedReview, answers: readonly ReviewAnswer[], status: ReviewStatus): ReviewState {
+export function makeReviewState(
+  review: NormalizedReview,
+  answers: readonly ReviewAnswer[],
+  status: ReviewStatus,
+  skippedStageIds: readonly string[] = [],
+): ReviewState {
+  const skipped = normalizeSkippedStageIds(review, skippedStageIds, answers);
+  if (status === "completed" && unresolvedStages(review, answers, skipped).length > 0) {
+    throw new Error("Cannot persist a completed review while a stage is unresolved.");
+  }
   return {
     version: 1,
     reviewId: review.reviewId,
@@ -224,6 +271,7 @@ export function makeReviewState(review: NormalizedReview, answers: readonly Revi
     resetStageIds: [...review.resetStageIds],
     stages: review.stages,
     answers: answers.map((answer) => cloneAnswer(answer)),
+    ...(skipped.length > 0 ? { skippedStageIds: skipped } : {}),
     status,
     updatedAt: new Date().toISOString(),
   };
@@ -284,6 +332,23 @@ function answerMap(answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewA
   return answers as ReadonlyMap<string, ReviewAnswer>;
 }
 
+function normalizeSkippedStageIds(
+  review: NormalizedReview,
+  skippedStageIds: readonly string[],
+  answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewAnswer[],
+): string[] {
+  const byId = answerMap(answers);
+  const seen = new Set<string>();
+  for (const id of skippedStageIds) {
+    const stage = review.stages.find((candidate) => candidate.id === id);
+    if (!stage) throw new Error(`Cannot skip unknown stage id: ${id}`);
+    if (stage.required) throw new Error(`Required stage cannot be skipped: ${id}`);
+    if (byId.has(id)) throw new Error(`A stage cannot be both answered and skipped: ${id}`);
+    if (!seen.has(id)) seen.add(id);
+  }
+  return [...seen];
+}
+
 export function missingRequiredStages(review: NormalizedReview, answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewAnswer[]): NormalizedStage[] {
   const byId = answerMap(answers);
   return review.stages.filter((stage, index) => stage.required && !isUsableAnswer(byId.get(stage.id), stage, index, true));
@@ -307,10 +372,17 @@ export function makeReviewResult(
   decision: Exclude<ReviewDecision, "fallback">,
   answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewAnswer[],
   revision?: ReviewRevision,
+  skippedStageIds: readonly string[] = [],
 ): ReviewResult {
+  const skipped = normalizeSkippedStageIds(review, skippedStageIds, answers);
   const ordered = orderedAnswers(review, answers);
-  if (decision === "approve" && !hasRequiredAnswers(review, answers)) {
-    throw new Error("Cannot approve a visual review before every required stage has an answer.");
+  if (decision === "approve" && unresolvedStages(review, answers, skipped).length > 0) {
+    const missingRequired = missingRequiredStages(review, answers);
+    throw new Error(
+      missingRequired.length > 0
+        ? "Cannot approve a visual review before every required stage has an answer."
+        : "Cannot approve a visual review before every optional stage is answered or explicitly skipped.",
+    );
   }
   if (decision === "revision") {
     if (!revision) throw new Error("A revision result requires revision details.");
@@ -341,6 +413,7 @@ export function makeReviewResult(
     decision,
     cancelled: decision === "cancel",
     answers: ordered,
+    ...(skipped.length > 0 ? { skippedStageIds: skipped } : {}),
     ...(revision ? { revision: { ...revision } } : {}),
   };
 }
@@ -369,5 +442,5 @@ export function resultFromState(state: ReviewState, decision: ReviewDecision, re
     resetStageIds: state.resetStageIds,
     stages: state.stages,
   };
-  return makeReviewResult(review, decision, state.answers, revision);
+  return makeReviewResult(review, decision, state.answers, revision, state.skippedStageIds);
 }
