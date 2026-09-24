@@ -5,7 +5,7 @@
   "description": "Hide superseded model versions across Pi model pickers, cycling, and configured scopes",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "typecheck": "npx -p typescript tsc --noEmit -p tsconfig.json"
+    "typecheck": "node scripts/typecheck.mjs"
   },
   "pi": {
     "extensions": ["extensions/stale-model-filter.ts"]

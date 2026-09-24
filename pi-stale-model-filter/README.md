@@ -142,7 +142,12 @@ selection, cycling, configured scopes, and RPC model availability are filtered.
 
 ```bash
 npm test
+npm run typecheck
 ```
+
+`typecheck` resolves declarations from the same host Pi installation that loads
+the extension, creates a temporary path-mapped config, runs strict TypeScript,
+and removes the generated config afterward.
 
 The unit suite covers plain/dotted/embedded/marked/compact versions,
 semantic-versus-date ordering, marker-family isolation, model sizes, same-family
