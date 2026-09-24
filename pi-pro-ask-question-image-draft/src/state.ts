@@ -260,8 +260,12 @@ export function makeCustomAnswer(stage: NormalizedStage, stageIndex: number, tex
   };
 }
 
+function answerMap(answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewAnswer[]): ReadonlyMap<string, ReviewAnswer> {
+  return Array.isArray(answers) ? new Map(answers.map((answer) => [answer.stageId, answer])) : answers;
+}
+
 export function missingRequiredStages(review: NormalizedReview, answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewAnswer[]): NormalizedStage[] {
-  const byId = answers instanceof Map ? answers : new Map(answers.map((answer) => [answer.stageId, answer]));
+  const byId = answerMap(answers);
   return review.stages.filter((stage, index) => stage.required && !isUsableAnswer(byId.get(stage.id), stage, index, true));
 }
 
@@ -270,7 +274,7 @@ export function hasRequiredAnswers(review: NormalizedReview, answers: ReadonlyMa
 }
 
 export function orderedAnswers(review: NormalizedReview, answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewAnswer[]): ReviewAnswer[] {
-  const byId = answers instanceof Map ? answers : new Map(answers.map((answer) => [answer.stageId, answer]));
+  const byId = answerMap(answers);
   return review.stages.flatMap((stage, index) => {
     const answer = byId.get(stage.id);
     return answer && isUsableAnswer(answer, stage, index, true) ? [cloneAnswer(answer, index)] : [];
