@@ -15,8 +15,11 @@ import {
 import { canRenderImages, imageFileLink, loadImage, type LoadedImage } from "./image-loader.ts";
 import type { NormalizedOption, NormalizedReview, NormalizedStage } from "./schema.ts";
 import {
+  isStageAnswered,
   makeCustomAnswer,
   makeOptionAnswer,
+  makeReviewResult,
+  unresolvedStages,
   type ReviewAnswer,
   type ReviewResult,
   type ReviewRevision,
@@ -30,6 +33,7 @@ interface LoadedOption {
 
 type Row =
   | { kind: "option"; option: NormalizedOption }
+  | { kind: "done" }
   | { kind: "other" }
   | { kind: "skip" }
   | { kind: "revision" }
@@ -40,6 +44,7 @@ export interface VisualReviewWizardOptions {
   review: NormalizedReview;
   cwd: string;
   initialAnswers?: readonly ReviewAnswer[];
+  initialSkippedStageIds?: readonly string[];
   signal?: AbortSignal;
 }
 
@@ -65,6 +70,7 @@ function editorTheme(theme: Theme): EditorTheme {
 
 function rowsForStage(stage: NormalizedStage): Row[] {
   const rows: Row[] = stage.options.map((option) => ({ kind: "option", option }));
+  if (stage.multiSelect) rows.push({ kind: "done" });
   if (stage.allowOther) rows.push({ kind: "other" });
   if (!stage.required) rows.push({ kind: "skip" });
   if (stage.allowRevision) rows.push({ kind: "revision" });
@@ -74,6 +80,7 @@ function rowsForStage(stage: NormalizedStage): Row[] {
 
 function rowLabel(row: Row): string {
   if (row.kind === "option") return row.option.label;
+  if (row.kind === "done") return DONE_LABEL;
   if (row.kind === "other") return OTHER_LABEL;
   if (row.kind === "skip") return SKIP_LABEL;
   if (row.kind === "revision") return REVISION_LABEL;
@@ -82,6 +89,7 @@ function rowLabel(row: Row): string {
 
 function rowDescription(row: Row): string | undefined {
   if (row.kind === "option") return row.option.description;
+  if (row.kind === "done") return "Commit the checked options";
   if (row.kind === "revision") return "Describe changes, then return to the model for regeneration";
   if (row.kind === "approve") return "Approve the review and continue";
   if (row.kind === "reject") return "Reject this proposal without changing it";
@@ -144,18 +152,14 @@ function fallbackPreview(option: NormalizedOption, loaded: LoadedOption | undefi
   return lines;
 }
 
-function resultFor(review: NormalizedReview, decision: "approve" | "reject" | "cancel" | "revision", answers: Map<string, ReviewAnswer>, revision?: ReviewRevision): ReviewResult {
-  const status = decision === "approve" ? "completed" : decision === "reject" ? "rejected" : decision === "cancel" ? "cancelled" : "revision";
-  return {
-    version: 1,
-    reviewId: review.reviewId,
-    round: review.round,
-    status,
-    decision,
-    cancelled: decision === "cancel",
-    answers: [...answers.values()],
-    ...(revision ? { revision } : {}),
-  };
+function resultFor(
+  review: NormalizedReview,
+  decision: "approve" | "reject" | "cancel" | "revision",
+  answers: Map<string, ReviewAnswer>,
+  skippedStageIds: ReadonlySet<string>,
+  revision?: ReviewRevision,
+): ReviewResult {
+  return makeReviewResult(review, decision, answers, revision, [...skippedStageIds]);
 }
 
 export class VisualReviewWizard implements Component {
