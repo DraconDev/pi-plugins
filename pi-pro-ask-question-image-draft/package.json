@@ -16,6 +16,8 @@
   "files": [
     "extensions",
     "src",
+    "scripts",
+    "tests",
     "README.md"
   ],
   "scripts": {
