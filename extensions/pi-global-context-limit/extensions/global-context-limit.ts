@@ -139,8 +139,11 @@ export function modelOverrideFor(model: ModelLike, limit: number): ModelOverride
   const override: ModelOverride = {};
 
   if (contextWindow !== undefined && contextWindow > limit) override.contextWindow = limit;
-  if (maxTokens !== undefined) {
-    const outputCap = safeModelOutputCap(contextWindow === undefined ? limit : Math.min(contextWindow, limit), maxTokens);
+  // A model without known context capacity cannot be safely capped by this
+  // extension: guessing would replace a valid provider composition with a
+  // potentially invalid one. Pi's request boundary still protects its output.
+  if (contextWindow !== undefined && maxTokens !== undefined) {
+    const outputCap = safeModelOutputCap(Math.min(contextWindow, limit), maxTokens);
     if (maxTokens > outputCap) override.maxTokens = outputCap;
   }
 
@@ -201,7 +204,12 @@ function providerEntry(models: ModelsJsonShape, provider: string): ProviderConfi
 function removeEmptyOverrides(models: ModelsJsonShape, provider: string): void {
   const config = providerEntry(models, provider);
   if (!config) return;
-  if (config.modelOverrides && Object.keys(config.modelOverrides).length === 0) delete config.modelOverrides;
+  if (config.modelOverrides) {
+    for (const [model, override] of Object.entries(config.modelOverrides)) {
+      if (Object.keys(override).length === 0) delete config.modelOverrides[model];
+    }
+    if (Object.keys(config.modelOverrides).length === 0) delete config.modelOverrides;
+  }
   if (Object.keys(config).length === 0) delete models.providers[provider];
 }
 
@@ -315,6 +323,10 @@ export function rebuildModelOverrides(
     }
   }
 
+  // Drop provider shells and empty model maps created solely for managed
+  // entries. User-authored provider fields remain untouched.
+  for (const provider of Object.keys(models.providers)) removeEmptyOverrides(models, provider);
+
   const nextModelsText = serializeJson(models);
   const nextStateText = serializeJson(nextState);
   const rawState = existsSync(paths.statePath) ? readFileSync(paths.statePath, "utf8") : undefined;
@@ -347,6 +359,7 @@ export function clearManagedModelOverrides(paths = getContextLimitPaths()): Rebu
   restoreManagedFields(models, state, (_provider, _model, field, value) => {
     restored += value === undefined || field === "contextWindow" || field === "maxTokens" ? 1 : 0;
   });
+  for (const provider of Object.keys(models.providers)) removeEmptyOverrides(models, provider);
   const nextModelsText = serializeJson(models);
   const changed = nextModelsText !== rawModels;
   if (!changed) {
@@ -415,8 +428,17 @@ function writePath(payload: JsonRecord, path: readonly string[], value: number):
 
 function outputPathsForModel(model: JsonRecord): string[][] {
   switch (model.api) {
-    case "openai-completions":
-      return [["max_tokens"], ["max_completion_tokens"]];
+    case "openai-completions": {
+      const compatMaxTokensField = isRecord(model.compat) ? model.compat.maxTokensField : undefined;
+      if (compatMaxTokensField === "max_tokens") return [["max_tokens"]];
+      if (compatMaxTokensField === "max_completion_tokens") return [["max_completion_tokens"]];
+      // Pi's OpenAI-completions compatibility may use either spelling. Respect
+      // the field already present; only synthesize one for an empty payload.
+      if (isRecord(model.compat) && typeof model.compat.maxTokensField === "string") {
+        return [[model.compat.maxTokensField]];
+      }
+      return [["max_completion_tokens"], ["max_tokens"]];
+    }
     case "openai-responses":
     case "azure-openai-responses":
     case "openai-codex-responses":
@@ -458,10 +480,23 @@ export function capProviderPayload(payload: unknown, modelValue: unknown, limit:
   let changed = false;
   for (const path of paths) {
     const current = readPath(capped, path);
-    if (typeof current !== "number" || !Number.isFinite(current) || current <= 0 || current > budget) {
-      capped = writePath(capped, path, budget);
-      changed = true;
+    if (typeof current === "number" && Number.isFinite(current) && current > 0) {
+      // pi-ai may already have clamped a near-cap request to one token before
+      // this payload hook runs. Replace that degenerate positive value with a
+      // usable bounded budget; smaller deliberate provider choices stay intact.
+      if (current === 1) {
+        capped = writePath(capped, path, MIN_EFFECTIVE_OUTPUT_TOKENS);
+        changed = true;
+        continue;
+      }
+      if (current > budget) {
+        capped = writePath(capped, path, budget);
+        changed = true;
+      }
+      continue;
     }
+    capped = writePath(capped, path, budget);
+    changed = true;
   }
   return changed ? capped : payload;
 }

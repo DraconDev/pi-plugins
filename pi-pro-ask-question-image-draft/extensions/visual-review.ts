@@ -4,6 +4,7 @@ import { Type } from "typebox";
 
 import { buildResponse, errorResponse, type VisualReviewResultDetails } from "../src/envelope.ts";
 import { fallbackText, makeFallbackResult, runDialogReview } from "../src/fallback.ts";
+import { generateReviewImages, ImageGenerationError } from "../src/image-generator.ts";
 import {
   findReviewState,
   makeReviewState,
@@ -27,14 +28,14 @@ export const TOOL_DESCRIPTION = `Ask the user for a staged visual review with op
 
 Use this tool when a decision requires the user's approval, especially when comparing generated mockups, charts, UI concepts, or other visual artifacts. Generate the first image with a separate image-generation tool (Agnes, Codex, or another configured provider), then pass its returned local path, URL, or data URI in an option's image field. This tool consumes image references; it does not generate images itself.
 
-For staged review, provide stages with ordered prompts and options. For compatibility, the legacy questions[] shape is also accepted. Each stage defaults to allowOther: true, allowRevision: true, required: true, and multiSelect: false. Do not author reserved sentinel labels such as "Type something." or "Request revision".
+For staged review, provide stages with ordered prompts and options. For compatibility, the legacy questions[] shape is also accepted. Each stage defaults to allowOther: true, allowRevision: true, required: true, and multiSelect: false. To generate an image as part of the review, set option.generate.prompt explicitly; the tool calls the selected provider (Agnes by default) and then displays the saved local image. Do not author reserved sentinel labels such as "Type something." or "Request revision".
 
 If a user requests changes, return a revision result and call this tool again with the same reviewId, the next round, regenerated image references, and resetStageIds for stages that must be reconsidered. Preserve the reviewId in the model workflow.`;
 
 export const PROMPT_GUIDELINES = [
   "Use ask_user_question for decisions and approvals that require user input; group independent decisions into one invocation.",
-  "For a visual comparison, generate the first image before calling this tool, then pass its path/URL/data URI in options[].image. Prefer a concise option.preview fallback for non-image hosts.",
-  "Use stable stage and option ids when a review may span multiple rounds. Preserve reviewId, send the next round after a revision, and reset only the affected stage ids.",
+  "For a visual comparison, either set options[].generate.prompt to generate an image through the configured provider, or generate the first image with a separate image-generation tool and pass its path/URL/data URI in options[].image. Prefer a concise option.preview fallback for non-image hosts.",
+  "Use stable stage and option ids when a review may span multiple rounds. Preserve reviewId, send the next round after a revision, and reset only the affected stage ids. Image generation is explicit and may consume provider quota; never add generate to an option unless the user asked for a generated visual.",
   "Treat a returned cancelled decision as an explicit user cancellation, not as approval. Treat a fallback decision as host unavailability and ask the questions in plain chat.",
 ];
 
@@ -123,6 +124,20 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
         validateReview(review);
       } catch (error) {
         return inputErrorResult(error instanceof Error ? error.message : String(error));
+      }
+
+      // Generation is deliberately explicit in the input contract. Existing image
+      // references are left untouched; only options carrying `generate` are sent to
+      // the configured provider. This keeps ordinary clarification questions free of
+      // hidden network calls and provider quota consumption.
+      try {
+        const generated = await generateReviewImages(review, { cwd: ctx.cwd, signal: signal ?? ctx.signal });
+        review = generated.review;
+      } catch (error) {
+        const message = error instanceof ImageGenerationError
+          ? `Image generation failed (${error.code}): ${error.message}`
+          : `Image generation failed: ${error instanceof Error ? error.message : String(error)}`;
+        return errorResponse(message, review);
       }
 
       const previous = getPriorState(ctx, review.reviewId);

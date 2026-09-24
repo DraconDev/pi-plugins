@@ -553,8 +553,8 @@ export function validateReview(review: NormalizedReview): void {
   if (review.model && review.model.length > 200) throw new Error("model is too long.");
   if (review.imagePrompt && review.imagePrompt.length > 20_000) throw new Error("imagePrompt is too long.");
   if (review.generation) {
-    if (review.generation.prompt && review.generation.prompt.length > 20_000) throw new Error("generation.prompt is too long.");
-    if (review.generation.negativePrompt && review.generation.negativePrompt.length > 20_000) {
+    if (review.generation.prompt && review.generation.prompt.length > MAX_GENERATION_PROMPT_LENGTH) throw new Error("generation.prompt is too long.");
+    if (review.generation.negativePrompt && review.generation.negativePrompt.length > MAX_GENERATION_PROMPT_LENGTH) {
       throw new Error("generation.negativePrompt is too long.");
     }
     if (review.generation.provider && review.generation.provider.length > 100) throw new Error("generation.provider is too long.");

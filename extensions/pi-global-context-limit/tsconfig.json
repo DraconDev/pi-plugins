@@ -10,8 +10,9 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["extensions/**/*.ts"],
+  "include": ["extensions/**/*.ts", "tests/**/*.ts"],
   "exclude": ["node_modules"]
 }
