@@ -20,7 +20,7 @@ TUI evidence  (round 1)
   Preview: Grid
   
   Image:
-  [tests/fixtures/tiny.png](file:///home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft/tes
+  [tests/fixtures/tiny.png](file://<repo>/tes
   ts/fixtures/tiny.png)
   Alt: Tiny checked-in fixture
 

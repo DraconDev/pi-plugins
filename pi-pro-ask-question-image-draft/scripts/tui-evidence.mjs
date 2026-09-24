@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { VisualReviewWizard } from "../src/tui.ts";
 import { normalizeReview } from "../src/schema.ts";
@@ -43,7 +44,9 @@ export function renderEvidenceText(root) {
     () => {},
   );
   try {
-    return `${component.render(EVIDENCE_WIDTH).map(stripTerminalMarkup).join("\n")}\n`;
+    const rendered = component.render(EVIDENCE_WIDTH).map(stripTerminalMarkup).join("\n");
+    const rootUrl = pathToFileURL(root).href;
+    return `${rendered.split(rootUrl).join("file://<repo>").split(root).join("<repo>")}\n`;
   } finally {
     component.dispose();
   }
