@@ -11,7 +11,7 @@ const extension = loaded.extensions.find((item) => item.resolvedPath.endsWith("/
 assert.ok(extension);
 const names = [...extension.tools.keys()];
 assert.deepEqual(names, ["ask_user_question"]);
-const tool = extension.tools.get("ask_user_question");
+const tool = extension.tools.get("ask_user_question")?.definition;
 assert.equal(tool?.executionMode, "sequential");
 assert.equal(tool?.parameters?.type, "object");
 assert.match(tool?.description ?? "", /staged visual review/);

@@ -31,7 +31,7 @@ const extension = loaded.extensions.find((item) => item.resolvedPath.endsWith("/
 assert.ok(extension, "the local extension was not loaded");
 const tools = [...extension.tools.keys()];
 assert.deepEqual(tools, ["ask_user_question"]);
-const tool = extension.tools.get("ask_user_question");
+const tool = extension.tools.get("ask_user_question")?.definition;
 assert.equal(tool?.description.includes("staged visual review"), true);
 assert.equal(tool?.parameters?.type, "object");
 assert.equal(tool?.executionMode, "sequential");
