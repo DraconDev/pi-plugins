@@ -21,7 +21,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-const MIN_EFFECTIVE_OUTPUT_TOKENS = 256;
+export const MIN_EFFECTIVE_OUTPUT_TOKENS = 1_024;
 const TARGET_OUTPUT_TOKENS = 1_024;
 const PAYLOAD_CONTEXT_RESERVE_TOKENS = 4_096;
 const STATE_VERSION = 1;
@@ -89,26 +89,6 @@ export interface RebuildResult {
 }
 
 type JsonRecord = Record<string, unknown>;
-
-const PINNED_SPACE_BUNNY_MODEL = {
-  id: "space-bunny-free",
-  name: "Space Bunny Free",
-  api: "openai-completions",
-  reasoning: true,
-  input: ["text", "image"],
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-  contextWindow: 1_048_576,
-  maxTokens: 524_288,
-  thinkingLevelMap: {
-    off: null,
-    minimal: null,
-    low: "low",
-    medium: "medium",
-    high: "high",
-    xhigh: "xhigh",
-    max: "max",
-  },
-} as const;
 
 export function getAgentDir(): string {
   return process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
@@ -256,26 +236,6 @@ function restoreManagedFields(
   }
 }
 
-function ensurePinnedModels(models: ModelsJsonShape): ModelLike[] {
-  const pinned: ModelLike[] = [];
-  for (const provider of ["opencode", "opencode-go"]) {
-    const config = (models.providers[provider] ??= {});
-    const definitions = Array.isArray(config.models) ? config.models : (config.models = []);
-    let definition = definitions.find((candidate) => isRecord(candidate) && candidate.id === PINNED_SPACE_BUNNY_MODEL.id);
-    if (!definition) {
-      definition = structuredClone(PINNED_SPACE_BUNNY_MODEL) as unknown as Record<string, unknown> & { id: string };
-      definitions.push(definition);
-    }
-    pinned.push({
-      id: PINNED_SPACE_BUNNY_MODEL.id,
-      provider,
-      contextWindow: positiveInteger(definition.contextWindow),
-      maxTokens: positiveInteger(definition.maxTokens),
-    });
-  }
-  return pinned;
-}
-
 function serializeJson(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
@@ -327,12 +287,7 @@ export function rebuildModelOverrides(
   }
 
   restoreManagedFields(models, state);
-  const visibleModels = [
-    ...registryModels,
-    ...ensurePinnedModels(models).filter(
-      (pinned) => !registryModels.some((model) => model.provider === pinned.provider && model.id === pinned.id),
-    ),
-  ];
+  const visibleModels = [...registryModels];
   const desired = buildDesiredOverrides(visibleModels, limit);
   const nextState: ManageStateShape = { version: STATE_VERSION, entries: {} };
   let written = 0;
