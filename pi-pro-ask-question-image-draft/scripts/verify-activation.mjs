@@ -24,7 +24,8 @@ afterUnrelated.packages = afterUnrelated.packages.filter((entry) => entry !== ex
 assert.deepEqual(afterUnrelated, beforeUnrelated, "unrelated settings entries changed");
 
 const { loadExtensions } = await import("/home/dracon/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js");
-const loaded = await loadExtensions([pluginPath], process.cwd());
+const extensionPath = resolve(pluginPath, "extensions/visual-review.ts");
+const loaded = await loadExtensions([extensionPath], process.cwd());
 assert.equal(loaded.errors.length, 0, `extension loader errors: ${JSON.stringify(loaded.errors)}`);
 const extension = loaded.extensions.find((item) => item.resolvedPath.endsWith("/extensions/visual-review.ts"));
 assert.ok(extension, "the local extension was not loaded");

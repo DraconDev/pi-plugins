@@ -41,6 +41,7 @@ try {
   wizard.handleInput("\x1b[B");
   wizard.handleInput("\x1b[B");
   wizard.handleInput("\r");
+  wizard.handleInput("\r");
   assert.equal(result?.status, "completed");
   assert.deepEqual(result?.answers.map((answer) => answer.stageId), ["single", "multi"]);
   assert.deepEqual(result?.skippedStageIds, ["optional"]);
