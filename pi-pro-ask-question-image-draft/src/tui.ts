@@ -111,6 +111,10 @@ async function loadOptionImages(review: NormalizedReview, cwd: string, signal?: 
   return loaded;
 }
 
+function isImageLine(line: string): boolean {
+  return line.includes("\u001b_G") || line.includes("\u001b]1337;File=");
+}
+
 function imageLines(image: LoadedImage, theme: Theme, width: number, maxHeight = 16): string[] {
   const component = new Image(
     image.base64,
@@ -197,16 +201,17 @@ export class VisualReviewWizard implements Component {
 
     for (const [stageIndex, stage] of review.stages.entries()) {
       const answer = initialAnswers.find((candidate) => candidate.stageId === stage.id);
-      if (answer) this.answers.set(stage.id, { ...answer });
-      if (stage.multiSelect && answer?.kind === "multi" && answer.optionIds) {
-        this.selections.set(stage.id, new Set(answer.optionIds));
+      if (answer) {
+        const resumedAnswer: ReviewAnswer = { ...answer, stageId: stage.id, stageIndex };
+        this.answers.set(stage.id, resumedAnswer);
+        this.selections.set(
+          stage.id,
+          stage.multiSelect && resumedAnswer.kind === "multi" && resumedAnswer.optionIds
+            ? new Set(resumedAnswer.optionIds)
+            : new Set(),
+        );
       } else {
         this.selections.set(stage.id, new Set());
-      }
-          if (answer?.stageIndex !== stageIndex) {
-        // A resumed state may have been normalized against a reordered schema. The
-        // persisted stage id remains authoritative; repair only the display index.
-        this.answers.set(stage.id, { ...answer, stageIndex });
       }
     }
 
@@ -296,7 +301,7 @@ export class VisualReviewWizard implements Component {
       if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) this.finish(resultFor(this.review, "reject", this.answers));
       return;
     }
-    if (row.kind === "other" || row.kind === "revision" || row.kind === "skip") {
+      if (row.kind === "other" || row.kind === "revision" || row.kind === "skip") {
       if (!matchesKey(data, Key.enter) && !matchesKey(data, Key.space)) return;
       if (row.kind === "skip") {
         this.answers.delete(stage.id);
@@ -474,6 +479,7 @@ export class VisualReviewWizard implements Component {
     if (this.inputMode === "revision") {
       if (!text) {
         this.inputMode = "none";
+        this.editor.setText("");
         this.invalidate();
         return;
       }
