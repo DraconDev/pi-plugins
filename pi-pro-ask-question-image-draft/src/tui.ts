@@ -334,7 +334,7 @@ export class VisualReviewWizard implements Component {
       this.invalidate();
       return;
     }
-    if (row.kind !== "option") return;
+    if (row.kind !== "option" && row.kind !== "done") return;
 
     if (stage.multiSelect) {
       if (!matchesKey(data, Key.space) && !matchesKey(data, Key.enter)) return;
@@ -347,7 +347,6 @@ export class VisualReviewWizard implements Component {
         this.advanceAfterAnswer();
         return;
       }
-      if (row.kind !== "option") return;
       if (matchesKey(data, Key.space)) {
         if (selected.has(row.option.id)) selected.delete(row.option.id);
         else selected.add(row.option.id);
@@ -363,6 +362,7 @@ export class VisualReviewWizard implements Component {
     }
 
     if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
+      if (row.kind !== "option") return;
       this.answers.set(stage.id, makeOptionAnswer(stage, this.stageIndex, [row.option]));
       this.skippedStageIds.delete(stage.id);
       this.advanceAfterAnswer();
@@ -570,13 +570,14 @@ export async function runVisualReviewWizard(
   ctx: ExtensionContext,
   review: NormalizedReview,
   initialAnswers: readonly ReviewAnswer[] = [],
+  initialSkippedStageIds: readonly string[] = [],
 ): Promise<ReviewResult> {
   if (ctx.mode !== "tui" || !ctx.hasUI) {
     const { makeFallbackResult } = await import("./fallback.ts");
     return makeFallbackResult(review, ctx.hasUI ? "no_custom_ui" : "no_ui");
   }
   return ctx.ui.custom<ReviewResult>((tui, theme, _keybindings, done) => {
-    return new VisualReviewWizard(tui, theme, review, ctx.cwd, done, initialAnswers, ctx.signal);
+    return new VisualReviewWizard(tui, theme, review, ctx.cwd, done, initialAnswers, ctx.signal, initialSkippedStageIds);
   }, {
     overlay: true,
     overlayOptions: {

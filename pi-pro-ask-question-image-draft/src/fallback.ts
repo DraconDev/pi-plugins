@@ -5,7 +5,6 @@ import {
   makeCustomAnswer,
   makeOptionAnswer,
   makeReviewResult,
-  missingRequiredStages,
   unresolvedStages,
   type ReviewAnswer,
   type ReviewResult,
@@ -123,13 +122,16 @@ export async function runDialogReview(
   ctx: ExtensionContext,
   review: NormalizedReview,
   initialAnswers: readonly ReviewAnswer[] = [],
+  initialSkippedStageIds: readonly string[] = [],
 ): Promise<ReviewResult> {
   const answers = new Map<string, ReviewAnswer>();
   for (const answer of initialAnswers) {
     if (!answers.has(answer.stageId)) answers.set(answer.stageId, { ...answer, optionIds: answer.optionIds ? [...answer.optionIds] : undefined, optionLabels: answer.optionLabels ? [...answer.optionLabels] : undefined, optionValues: answer.optionValues ? [...answer.optionValues] : undefined });
   }
 
-  const skippedStageIds = new Set<string>();
+  const skippedStageIds = new Set<string>(
+    initialSkippedStageIds.filter((stageId) => review.stages.some((stage) => stage.id === stageId && !stage.required)),
+  );
   for (const [stageIndex, stage] of review.stages.entries()) {
     const previous = answers.get(stage.id);
     const optionIds = new Set(
@@ -226,6 +228,7 @@ export async function runDialogReview(
       skippedStageIds.add(stage.id);
       continue;
     }
+    skippedStageIds.delete(stage.id);
     if (revisionFeedback !== undefined) {
       return resultWithRevision(review, answers, stage, stageIndex, revisionFeedback);
     }

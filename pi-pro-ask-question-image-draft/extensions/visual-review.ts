@@ -49,6 +49,12 @@ function initialAnswersFor(review: NormalizedReview, previous: ReviewState | und
   return [...merged.values()];
 }
 
+function initialSkippedStageIdsFor(review: NormalizedReview, previous: ReviewState | undefined): string[] {
+  if (!previous?.skippedStageIds) return [];
+  const valid = new Set(review.stages.filter((stage) => !stage.required).map((stage) => stage.id));
+  return previous.skippedStageIds.filter((stageId) => valid.has(stageId) && !review.resetStageIds.includes(stageId));
+}
+
 function resultDetails(result: ReviewResult, review: NormalizedReview): VisualReviewResultDetails {
   return {
     version: 1,
@@ -121,6 +127,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
 
       const previous = getPriorState(ctx, review.reviewId);
       const initialAnswers = initialAnswersFor(review, previous);
+      const initialSkippedStageIds = initialSkippedStageIdsFor(review, previous);
 
       if (review.round > 1 && previous && previous.round >= review.round && !review.resetStageIds.length) {
         // A model can accidentally reuse a completed round. It is safer to
@@ -150,7 +157,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
         result = makeFallbackResult(review, "no_ui");
       } else if (ctx.mode === "rpc" && hasDialogUI(ctx)) {
         try {
-          result = await runDialogReview(ctx, review, initialAnswers);
+          result = await runDialogReview(ctx, review, initialAnswers, initialSkippedStageIds);
         } catch (error) {
           if (isAbortError(error) || signal?.aborted || ctx.signal?.aborted) {
             result = {
@@ -168,7 +175,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
         }
       } else if (ctx.mode === "tui") {
         try {
-          result = await runVisualReviewWizard(ctx, review, initialAnswers);
+          result = await runVisualReviewWizard(ctx, review, initialAnswers, initialSkippedStageIds);
         } catch (error) {
           if (isAbortError(error) || signal?.aborted || ctx.signal?.aborted) {
             result = {
@@ -182,7 +189,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
             };
           } else if (ctx.mode === "tui" && hasDialogUI(ctx)) {
             try {
-              result = await runDialogReview(ctx, review, initialAnswers);
+              result = await runDialogReview(ctx, review, initialAnswers, initialSkippedStageIds);
             } catch {
               result = makeFallbackResult(review, "no_custom_ui");
             }
@@ -194,7 +201,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
         result = makeFallbackResult(review, ctx.mode === "json" || ctx.mode === "print" ? "no_ui" : "no_custom_ui");
       }
 
-      pi.appendEntry(REVIEW_STATE_CUSTOM_TYPE, makeReviewState(review, result.answers, result.status));
+      pi.appendEntry(REVIEW_STATE_CUSTOM_TYPE, makeReviewState(review, result.answers, result.status, result.skippedStageIds));
       return textResult(result, review);
     },
     renderCall(args, theme, _context) {
