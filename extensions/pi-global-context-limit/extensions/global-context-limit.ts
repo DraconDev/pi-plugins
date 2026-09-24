@@ -515,17 +515,10 @@ interface HostContext {
   model?: JsonRecord;
   modelRegistry: {
     getAll(): ModelLike[];
+    find(provider: string, modelId: string): ModelLike | undefined;
     refresh(options?: { allowNetwork?: boolean }): Promise<unknown>;
   };
   ui: { notify(message: string, level?: string): void };
-}
-
-interface HostPi extends ExtensionAPI {
-  setModel(model: ModelLike): Promise<boolean>;
-}
-
-function sameModel(left: ModelLike | undefined, right: ModelLike | undefined): boolean {
-  return left?.provider === right?.provider && left?.id === right?.id;
 }
 
 export default function globalContextLimitExtension(pi: ExtensionAPI): void {
@@ -548,9 +541,8 @@ export default function globalContextLimitExtension(pi: ExtensionAPI): void {
     if (!currentNeedsCap) return;
     try {
       await ctx.modelRegistry.refresh({ allowNetwork: false });
-      const replacement = ctx.modelRegistry.find?.(current.provider, current.id) as ModelLike | undefined;
-      if (replacement && !sameModel(current, replacement) === false) await pi.setModel(replacement);
-      else if (replacement) await pi.setModel(replacement);
+      const replacement = ctx.modelRegistry.find(current.provider, current.id);
+      if (replacement) await pi.setModel(replacement);
     } catch {
       // The request hook remains the final supported boundary for this turn.
     }
