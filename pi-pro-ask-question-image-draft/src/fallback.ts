@@ -6,6 +6,7 @@ import {
   makeOptionAnswer,
   makeReviewResult,
   missingRequiredStages,
+  unresolvedStages,
   type ReviewAnswer,
   type ReviewResult,
   type ReviewRevision,
@@ -128,6 +129,7 @@ export async function runDialogReview(
     if (!answers.has(answer.stageId)) answers.set(answer.stageId, { ...answer, optionIds: answer.optionIds ? [...answer.optionIds] : undefined, optionLabels: answer.optionLabels ? [...answer.optionLabels] : undefined, optionValues: answer.optionValues ? [...answer.optionValues] : undefined });
   }
 
+  const skippedStageIds = new Set<string>();
   for (const [stageIndex, stage] of review.stages.entries()) {
     const previous = answers.get(stage.id);
     const optionIds = new Set(
@@ -195,21 +197,16 @@ export async function runDialogReview(
         continue;
       }
       if (selected === APPROVE_LABEL) {
-        const missingStage = missingRequiredStages(review, answers)[0];
+        const missingStage = unresolvedStages(review, answers, [...skippedStageIds])[0];
         const missing = missingStage
-          ? `Answer the required stage “${missingStage.header}” before approving. Continue reviewing?`
-          : "Optional stages are still unresolved. Answer or explicitly skip each optional stage before approving. Continue reviewing?";
+          ? `Answer or explicitly skip stage “${missingStage.header}” before approving. Continue reviewing?`
+          : undefined;
         if (missing) {
-          const retry = await ctx.ui.confirm(
-            "Review incomplete",
-            missing,
-            { signal: ctx.signal },
-          );
+          const retry = await ctx.ui.confirm("Review incomplete", missing, { signal: ctx.signal });
           if (retry === false) return cancelledResult(review, answers);
           continue;
         }
-        // Approval is a terminal action. It must not delete the current answer.
-        return makeReviewResult(review, "approve", answers);
+        return makeReviewResult(review, "approve", answers, undefined, [...skippedStageIds]);
       }
       if (selected === REJECT_LABEL) return makeReviewResult(review, "reject", answers);
 
@@ -226,6 +223,7 @@ export async function runDialogReview(
 
     if (skipStage) {
       answers.delete(stage.id);
+      skippedStageIds.add(stage.id);
       continue;
     }
     if (revisionFeedback !== undefined) {
@@ -239,6 +237,6 @@ export async function runDialogReview(
   // Every required stage has been answered at this point. Keep the final
   // confirmation explicit so the portable path has the same approval boundary.
   const approved = await ctx.ui.confirm("Visual review", "Approve these answers and continue?", { signal: ctx.signal });
-  if (!approved) return makeReviewResult(review, "reject", answers);
-  return makeReviewResult(review, "approve", answers);
+  if (!approved) return makeReviewResult(review, "reject", answers, undefined, [...skippedStageIds]);
+  return makeReviewResult(review, "approve", answers, undefined, [...skippedStageIds]);
 }

@@ -343,20 +343,28 @@ export function makeCustomAnswer(stage: NormalizedStage, stageIndex: number, tex
   };
 }
 
-function answerMap(answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewAnswer[]): ReadonlyMap<string, ReviewAnswer> {
+function answerEntries(answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewAnswer[]): readonly (readonly [string, ReviewAnswer])[] {
   if (Array.isArray(answers)) {
-    return new Map((answers as readonly ReviewAnswer[]).map((answer) => [answer.stageId, answer]));
+    return (answers as readonly ReviewAnswer[]).map((answer) => {
+      if (!isRecord(answer) || typeof answer.stageId !== "string") throw new Error("Every answer must identify a stage.");
+      return [answer.stageId, answer as ReviewAnswer] as const;
+    });
   }
-  return answers as ReadonlyMap<string, ReviewAnswer>;
+  if (answers && typeof (answers as ReadonlyMap<string, ReviewAnswer>).entries === "function") {
+    return [...(answers as ReadonlyMap<string, ReviewAnswer>).entries()];
+  }
+  throw new Error("Answers must be an array or a stage-id map.");
+}
+
+function answerMap(answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewAnswer[]): ReadonlyMap<string, ReviewAnswer> {
+  return new Map(answerEntries(answers));
 }
 
 function assertValidAnswerSet(
   review: Pick<NormalizedReview, "stages">,
   answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewAnswer[],
 ): void {
-  const entries = answers instanceof Map
-    ? [...answers.entries()]
-    : (answers as readonly ReviewAnswer[]).map((answer) => [answer.stageId, answer] as const);
+  const entries = answerEntries(answers);
   const seen = new Set<string>();
   for (const [stageId, answer] of entries) {
     if (seen.has(stageId)) throw new Error(`Duplicate answer for stage id: ${stageId}`);
@@ -367,10 +375,8 @@ function assertValidAnswerSet(
       throw new Error(`Answer for stage ${stageId} is not valid.`);
     }
   }
-  if (answers instanceof Map) {
-    for (const stageId of answers.keys()) {
-      if (!review.stages.some((stage) => stage.id === stageId)) throw new Error(`Answer refers to an unknown stage id: ${stageId}`);
-    }
+  for (const [stageId] of entries) {
+    if (!review.stages.some((stage) => stage.id === stageId)) throw new Error(`Answer refers to an unknown stage id: ${stageId}`);
   }
 }
 
