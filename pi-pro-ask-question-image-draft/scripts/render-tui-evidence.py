@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import re
-import subprocess
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -33,8 +32,7 @@ def render(input_path: Path, output_path: Path) -> tuple[int, int, int]:
     text = ANSI.sub("", input_path.read_text(encoding="utf-8"))
     lines = text.splitlines() or [""]
     chosen_font = font()
-    line_height = LINE_HEIGHT
-    height = MARGIN * 2 + line_height * len(lines)
+    height = MARGIN * 2 + LINE_HEIGHT * len(lines)
     image = Image.new("RGB", (WIDTH, height), BACKGROUND)
     draw = ImageDraw.Draw(image)
     draw.rounded_rectangle((12, 12, WIDTH - 12, height - 12), radius=18, outline=BORDER, width=2)
@@ -42,7 +40,7 @@ def render(input_path: Path, output_path: Path) -> tuple[int, int, int]:
     for line in lines:
         color = ACCENT if line.startswith(("TUI evidence", "Visual evidence")) else FOREGROUND
         draw.text((MARGIN, y), line, font=chosen_font, fill=color)
-        y += line_height
+        y += LINE_HEIGHT
     output_path.parent.mkdir(parents=True, exist_ok=True)
     image.save(output_path, format="PNG", optimize=True)
     return image.width, image.height, output_path.stat().st_size
