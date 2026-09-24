@@ -1,0 +1,29 @@
+────────────────────────────────────────────────────────────────────────────────────────────────────
+TUI evidence  (round 1)
+
+  □ Layout  
+
+ Choose a layout
+
+ > Grid
+   Stack
+      A vertical alternative
+   Type something.
+      Enter a custom response
+   Request revision
+      Describe changes, then return to the model for regeneration
+   Approve review
+      Approve the review and continue
+   Reject review
+      Reject this proposal without changing it
+
+  Preview: Grid
+  
+  Image:
+  [tests/fixtures/tiny.png](file:///home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft/tes
+  ts/fixtures/tiny.png)
+  Alt: Tiny checked-in fixture
+
+↑↓ move • Enter select • Tab/←→ stages • Esc cancel
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
