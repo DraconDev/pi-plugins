@@ -347,6 +347,27 @@ function answerMap(answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewA
   return answers as ReadonlyMap<string, ReviewAnswer>;
 }
 
+function assertValidAnswerSet(
+  review: Pick<NormalizedReview, "stages">,
+  answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewAnswer[],
+): void {
+  const entries = answers instanceof Map
+    ? [...answers.entries()]
+    : (answers as readonly ReviewAnswer[]).map((answer) => [answer.stageId, answer] as const);
+  for (const [stageId, answer] of entries) {
+    const index = review.stages.findIndex((stage) => stage.id === stageId);
+    if (index < 0) throw new Error(`Answer refers to an unknown stage id: ${stageId}`);
+    if (!answer || typeof answer !== "object" || !isAnswerShape(answer) || !answerIsValid(answer, review.stages[index], index, true)) {
+      throw new Error(`Answer for stage ${stageId} is not valid.`);
+    }
+  }
+  if (answers instanceof Map) {
+    for (const stageId of answers.keys()) {
+      if (!review.stages.some((stage) => stage.id === stageId)) throw new Error(`Answer refers to an unknown stage id: ${stageId}`);
+    }
+  }
+}
+
 function normalizeSkippedStageIds(
   review: NormalizedReview,
   skippedStageIds: readonly string[],
