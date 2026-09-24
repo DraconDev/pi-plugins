@@ -9,6 +9,8 @@ export interface ReviewAnswer {
   kind: "option" | "multi" | "custom";
   optionIds?: string[];
   optionLabels?: string[];
+  /** Optional machine-readable values supplied by the model. */
+  optionValues?: (string | undefined)[];
   answer: string | null;
   customText?: string;
 }
@@ -72,6 +74,7 @@ export function isReviewState(value: unknown): value is ReviewState {
   );
 }
 
+/** Find the latest state entry for a review on the active session branch. */
 export function findReviewState(entries: readonly unknown[], reviewId: string): ReviewState | undefined {
   let found: ReviewState | undefined;
   for (const entry of entries) {
@@ -91,7 +94,7 @@ export function makeReviewState(review: NormalizedReview, answers: ReviewAnswer[
     provider: review.provider,
     model: review.model,
     stages: review.stages,
-    answers,
+    answers: answers.map((answer) => ({ ...answer })),
     status,
     updatedAt: new Date().toISOString(),
   };
@@ -107,9 +110,8 @@ export function mergeAnswers(previous: readonly ReviewAnswer[], stages: readonly
   for (const answer of previous) {
     const options = validOptions.get(answer.stageId);
     if (!options) continue;
-    if (answer.kind === "option" && answer.optionIds?.some((id) => !options.has(id))) continue;
-    if (answer.kind === "multi" && answer.optionIds?.some((id) => !options.has(id))) continue;
-    merged.set(answer.stageId, answer);
+    if ((answer.kind === "option" || answer.kind === "multi") && answer.optionIds?.some((id) => !options.has(id))) continue;
+    merged.set(answer.stageId, { ...answer });
   }
   return merged;
 }
@@ -127,7 +129,8 @@ export function makeOptionAnswer(stage: NormalizedStage, stageIndex: number, opt
     kind: stage.multiSelect ? "multi" : "option",
     optionIds: options.map((option) => option.id),
     optionLabels: options.map((option) => option.label),
-    answer: options.map((option) => option.label).join(", "),
+    optionValues: options.map((option) => option.value),
+    answer: options.map((option) => option.label).join(", ") || null,
   };
 }
 

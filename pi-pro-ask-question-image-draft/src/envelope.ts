@@ -49,7 +49,9 @@ export function buildResponse(result: ReviewResult, review: NormalizedReview): V
   let text: string;
   switch (result.status) {
     case "completed":
-      text = `${ENVELOPE_PREFIX} ${result.answers.map((answer) => formatAnswer(answer, review.stages[answer.stageIndex]?.prompt ?? answer.stageId)).join(" ")} ${ENVELOPE_SUFFIX}`;
+      text = result.answers.length
+        ? `${ENVELOPE_PREFIX} ${result.answers.map((answer) => formatAnswer(answer, review.stages[answer.stageIndex]?.prompt ?? answer.stageId)).join(" ")} ${ENVELOPE_SUFFIX}`
+        : "Visual review completed with no recorded answers.";
       break;
     case "revision":
       text = `Visual review revision requested (round ${result.round} → ${(result.revision?.requestedRound ?? result.round + 1)}). ${formatRevision(result.revision ?? { stageId: "unknown", stageIndex: 0, feedback: "unspecified", requestedRound: result.round + 1 })}. Regenerate the affected image(s), then call ask_user_question again with the same reviewId and the next round.`;
