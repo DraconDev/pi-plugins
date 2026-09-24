@@ -339,6 +339,15 @@ export class VisualReviewWizard implements Component {
     if (stage.multiSelect) {
       if (!matchesKey(data, Key.space) && !matchesKey(data, Key.enter)) return;
       const selected = this.selection(stage.id);
+      if (row.kind === "done") {
+        if (selected.size === 0) return;
+        const options = stage.options.filter((option) => selected.has(option.id));
+        this.answers.set(stage.id, makeOptionAnswer(stage, this.stageIndex, options));
+        this.skippedStageIds.delete(stage.id);
+        this.advanceAfterAnswer();
+        return;
+      }
+      if (row.kind !== "option") return;
       if (matchesKey(data, Key.space)) {
         if (selected.has(row.option.id)) selected.delete(row.option.id);
         else selected.add(row.option.id);
@@ -348,12 +357,14 @@ export class VisualReviewWizard implements Component {
       if (selected.size === 0) return;
       const options = stage.options.filter((option) => selected.has(option.id));
       this.answers.set(stage.id, makeOptionAnswer(stage, this.stageIndex, options));
+      this.skippedStageIds.delete(stage.id);
       this.advanceAfterAnswer();
       return;
     }
 
     if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
       this.answers.set(stage.id, makeOptionAnswer(stage, this.stageIndex, [row.option]));
+      this.skippedStageIds.delete(stage.id);
       this.advanceAfterAnswer();
     }
   }
@@ -519,6 +530,7 @@ export class VisualReviewWizard implements Component {
       return;
     }
     this.answers.set(stage.id, makeCustomAnswer(stage, this.inputStageIndex, text));
+    this.skippedStageIds.delete(stage.id);
     this.inputMode = "none";
     this.editor.setText("");
     this.advanceAfterAnswer();
@@ -532,9 +544,9 @@ export class VisualReviewWizard implements Component {
       this.invalidate();
       return;
     }
-    const missingIndex = this.review.stages.findIndex((stage) => stage.required && !this.answers.has(stage.id));
-    if (missingIndex >= 0) {
-      this.stageIndex = missingIndex;
+    const missingStage = unresolvedStages(this.review, this.answers, [...this.skippedStageIds])[0];
+    if (missingStage) {
+      this.stageIndex = this.review.stages.indexOf(missingStage);
       this.selectedIndex = 0;
       this.invalidate();
       return;
@@ -547,6 +559,9 @@ export class VisualReviewWizard implements Component {
   private finish(result: ReviewResult): void {
     if (this.finished) return;
     this.finished = true;
+    this.signal?.removeEventListener("abort", this.onAbort);
+    this.editor.setText("");
+    this.editor.focused = false;
     this.done(result);
   }
 }
