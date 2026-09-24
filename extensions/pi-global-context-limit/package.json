@@ -1,7 +1,7 @@
 {
   "name": "pi-global-context-limit",
   "version": "1.1.0",
-  "description": "Caps every model's contextWindow to a single configurable limit, including extension-registered providers",
+  "description": "Requests Pi compaction at a configurable soft token/percentage boundary without changing model limits",
   "keywords": [
     "pi-package",
     "context-limit",

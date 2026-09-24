@@ -1,10 +1,11 @@
 # pi-global-context-limit
 
-Caps every model's `contextWindow` to a single configurable limit, regardless of the model's native context size or whether the provider was registered by a built-in provider, the `models-store.json` user store, or a third-party extension.
+A soft global compaction boundary for Pi. It **never reduces a model's context window, output limit, or provider payload**. Instead, it asks Pi to run its normal compactor at an idle task boundary once context usage reaches the first configured limit:
 
-## Why Use This?
+- an absolute token limit (default `200000`), or
+- a percentage of the selected model's native context window (default `80%`).
 
-Different models have wildly different native context windows (Claude: 200K, GPT-4o: 128K, MiniMax-M3: 1M, Kimi K2.7: 256K-1M). If you want consistent compaction behavior and output-token budgets across all models — or just want to control token usage — this extension lets you set one number that applies to everything.
+The effective boundary is therefore `min(absoluteTokenLimit, nativeContextWindow × contextPercent / 100)`.
 
 ## Setup
 
@@ -12,47 +13,52 @@ Add to `~/.pi/agent/settings.json`:
 
 ```json
 {
-  "globalContextLimit": 200000
+  "globalContextLimit": 200000,
+  "globalContextCompactionPercent": 80
 }
 ```
 
-That's it. The extension will:
+Optional controls:
 
-1. Observe every model already composed into Pi's public `ModelRegistry`, including native, user-store/models-store, and extension-registered models.
-2. Write managed `modelOverrides` into `~/.pi/agent/models.json`, which Pi composes after native and extension model layers. Frozen catalog entries are never mutated.
-3. Refresh the registry and replace the active model with its capped composition.
-4. Re-apply the cap on session start, model selection, and each turn start.
-5. Keep the request output budget non-degenerate near the effective cap, while leaving an already-over-cap request for Pi's normal overflow recovery.
+```json
+{
+  "globalContextCompactionCooldownMs": 30000,
+  "globalContextCompactionHysteresisTokens": 8000
+}
+```
 
-No provider source scanner is used: extension registration is handled through the live registry and Pi's public model-composition layer.
+The cooldown prevents repeated requests immediately after a compaction. Hysteresis requires usage to remain beyond the boundary for a small additional margin. Neither setting changes model capacity.
+
+## Behavior
+
+1. The extension observes `getContextUsage()` and the selected model's native `contextWindow` at Pi's `agent_settled` boundary.
+2. When the effective boundary is crossed, it calls Pi's public `ctx.compact()` once.
+3. Pi remains responsible for automatic/manual compaction mechanics, the cut point, summarization, persistence, and retries.
+4. `session_compact` rearms the coordinator after cooldown; `session_compact_failed` clears the in-flight request so Pi/GLLA recovery can proceed.
+
+The extension does not write `models.json`, `models-store.json`, `auth.json`, or provider payloads. It works the same for native, user-store, extension-registered, refreshed, and frozen models because it reads only the active public context/model objects.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `/context-limit` | Show current limit and how many overrides are in `models.json` |
-| `/context-limit 100000` | Set limit to 100K tokens at runtime |
-| `/context-limit rebuild` | Rebuild managed overrides from the live Pi registry |
-| `/context-limit clear` | Remove extension-managed overrides from `~/.pi/agent/models.json` |
+| `/context-limit` | Show the current effective boundary for the selected model |
+| `/context-limit on` | Enable the coordinator for this session |
+| `/context-limit off` | Disable the coordinator for this session |
+| `/context-limit rebuild` | Re-read settings and evaluate the current idle boundary |
 
-## Effect on Compaction
+Runtime enable/disable is session-local and reversible; it does not mutate user settings.
 
-Pi triggers compaction when `contextTokens > contextWindow - reserveTokens`. With a global limit:
+## Why 200k and 80%?
 
-- A 1M model capped to 200K uses Pi's normal compaction threshold against the 200K effective window.
-- The extension does not replace the host compactor or choose the cut point.
-- GLLA may bound the shared `session_before_compact` preparation, but Pi still performs summarization, persistence, and retries.
-- Near-cap provider requests receive at least a 1,024-token response budget when the bounded request still fits. An already-over-cap request is not sent with a fabricated positive budget; Pi handles it through its overflow path.
+The absolute limit bounds long-context growth even for million-token models, while the percentage protects smaller models before their native window is consumed. The earlier boundary wins. For example:
 
-## How It Works (Mechanics)
+| Native context | Percentage boundary | Effective boundary |
+|---------------:|--------------------:|------------------:|
+| 1,000,000 | 800,000 | 200,000 |
+| 200,000 | 160,000 | 160,000 |
+| 128,000 | 102,400 | 102,400 |
 
-Pi composes `models.json` overrides after built-in providers, `models-store.json`/user models, extension registrations, and extension refreshes. The extension therefore uses one durable path for every visible source:
+## Compaction ownership
 
-| Source of model | How the cap is applied |
-|-----------------|------------------------|
-| Built-in/native model | Managed `models.json` `modelOverrides`, then registry refresh and active-model replacement |
-| `models-store.json` / user-store model | The already-composed registry entry is capped through the same public override layer; the user store is not mutated |
-| Extension-registered or refreshed model | The live registry entry is capped and re-composed on startup, model selection, and turn start |
-| Frozen catalog entry | Never assigned in place; the registry refresh supplies the capped replacement |
-
-Managed state in `global-context-limit-state.json` records prior user values. `/context-limit clear` restores them and removes only fields still owned by the extension.
+Pi remains the host compactor. This extension supplies no `session_before_compact` result and does not select a cut point or generate a summary. GLLA may use its public `session_before_compact` preparation hook to bound summarizer input, but Pi still owns the actual summary and persistence.

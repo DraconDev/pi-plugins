@@ -172,7 +172,11 @@ async function responseError(response: Response): Promise<string> {
   return detail ? `HTTP ${response.status}: ${detail.slice(0, 500)}` : `HTTP ${response.status} ${response.statusText}`.trim();
 }
 
-async function downloadRemoteImage(url: string, signal: AbortSignal): Promise<{ bytes: Buffer; mimeType?: string }> {
+async function downloadRemoteImage(
+  url: string,
+  signal: AbortSignal,
+  fetcher: typeof fetch,
+): Promise<{ bytes: Buffer; mimeType?: string }> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -182,7 +186,6 @@ async function downloadRemoteImage(url: string, signal: AbortSignal): Promise<{ 
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
     throw new ImageGenerationError("invalid_response", "The image provider returned a non-HTTP image URL.");
   }
-  const fetcher = options.fetcher ?? options.fetchImpl ?? fetch;
   const response = await fetcher(url, { signal, redirect: "follow" });
   if (!response.ok) throw new ImageGenerationError("request_failed", `Unable to download generated image (${response.status}).`);
   return { bytes: await readResponseBytes(response, signal), mimeType: response.headers.get("content-type") ?? undefined };
@@ -273,7 +276,7 @@ async function requestImage(
       mimeType = typeof image.mime_type === "string" ? image.mime_type : undefined;
     } else if (typeof image.url === "string" && image.url) {
       remoteUrl = image.url;
-      const downloaded = await downloadRemoteImage(image.url, timeout.signal);
+      const downloaded = await downloadRemoteImage(image.url, timeout.signal, fetchImpl);
       bytes = downloaded.bytes;
       mimeType = downloaded.mimeType;
     } else {

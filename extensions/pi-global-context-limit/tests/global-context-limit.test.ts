@@ -4,287 +4,175 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-
 import globalContextLimitExtension, {
-  MIN_EFFECTIVE_OUTPUT_TOKENS,
-  buildDesiredOverrides,
-  capProviderPayload,
-  clearManagedModelOverrides,
-  getContextLimitPaths,
-  modelOverrideFor,
-  rebuildModelOverrides,
-  type ModelLike,
+  DEFAULT_ABSOLUTE_TOKEN_LIMIT,
+  DEFAULT_CONTEXT_PERCENT,
+  compactionThresholdTokens,
+  decideCompaction,
+  getSettingsPath,
+  readSoftCompactionSettings,
+  type SoftCompactionSettings,
 } from "../extensions/global-context-limit.ts";
 
+function settings(overrides: Partial<SoftCompactionSettings> = {}): SoftCompactionSettings {
+  return {
+    absoluteTokenLimit: 200_000,
+    contextPercent: 80,
+    cooldownMs: 30_000,
+    hysteresisTokens: 8_000,
+    ...overrides,
+  };
+}
+
 function tempAgentDir(): string {
-  return mkdtempSync(join(tmpdir(), "global-context-limit-test-"));
+  return mkdtempSync(join(tmpdir(), "soft-context-boundary-test-"));
 }
 
-function readJson(path: string): any {
-  return JSON.parse(readFileSync(path, "utf8"));
-}
-
-function model(provider: string, id: string, contextWindow: number, maxTokens: number): ModelLike {
-  return { provider, id, contextWindow, maxTokens };
-}
-
-test("model overrides cap every visible registry source without mutating frozen entries", () => {
-  const models = [
-    Object.freeze(model("native", "large", 1_000_000, 128_000)),
-    Object.freeze(model("user-store", "large", 400_000, 64_000)),
-    Object.freeze(model("extension", "large", 262_144, 32_768)),
-    Object.freeze(model("native", "small", 128_000, 8_192)),
-  ];
-
-  const desired = buildDesiredOverrides(models, 200_000);
-
-  assert.deepEqual(desired.native.large, { contextWindow: 200_000, maxTokens: 32_768 });
-  assert.deepEqual(desired["user-store"].large, { contextWindow: 200_000, maxTokens: 32_768 });
-  assert.deepEqual(desired.extension.large, { contextWindow: 200_000 });
-  assert.equal(desired.native.small, undefined);
-  assert.equal(models[0]?.contextWindow, 1_000_000, "frozen native source is unchanged");
-  assert.equal(models[1]?.contextWindow, 400_000, "frozen user-store source is unchanged");
+test("defaults to 200k or 80% of native context, whichever comes first", () => {
+  assert.equal(DEFAULT_ABSOLUTE_TOKEN_LIMIT, 200_000);
+  assert.equal(DEFAULT_CONTEXT_PERCENT, 80);
+  assert.equal(compactionThresholdTokens(1_000_000, settings()), 200_000);
+  assert.equal(compactionThresholdTokens(200_000, settings()), 160_000);
+  assert.equal(compactionThresholdTokens(128_000, settings()), 102_400);
+  assert.equal(compactionThresholdTokens(0, settings()), 200_000);
 });
 
-test("rebuild composes native, user-store, and extension-registered paths while preserving user config", () => {
+test("the percentage boundary is configurable and clamped to a safe range", () => {
   const agentDir = tempAgentDir();
   try {
-    const paths = getContextLimitPaths(agentDir);
-    writeFileSync(paths.settingsPath, JSON.stringify({ globalContextLimit: 200_000 }));
-    writeFileSync(paths.modelsStorePath, JSON.stringify({
-      providers: {
-        "user-store": { models: [model("user-store", "large", 400_000, 64_000)] },
-      },
+    const path = getSettingsPath(agentDir);
+    writeFileSync(path, JSON.stringify({
+      globalContextLimit: 300_000,
+      globalContextCompactionPercent: 65,
+      globalContextCompactionCooldownMs: 0,
+      globalContextCompactionHysteresisTokens: 0,
     }));
-    writeFileSync(paths.modelsPath, JSON.stringify({
-      providers: {
-        native: {
-          api: "openai-completions",
-          baseUrl: "https://example.invalid",
-          modelOverrides: {
-            large: {
-              contextWindow: 175_000,
-              maxTokens: 24_000,
-              name: "User large",
-              headers: { "x-user": "kept" },
-            },
-          },
-        },
-      },
+    const loaded = readSoftCompactionSettings(path);
+    assert.deepEqual(loaded, settings({
+      absoluteTokenLimit: 300_000,
+      contextPercent: 65,
+      cooldownMs: 0,
+      hysteresisTokens: 0,
     }));
-    const storeBefore = readFileSync(paths.modelsStorePath, "utf8");
-    const registryModels = [
-      model("native", "large", 1_000_000, 128_000),
-      model("user-store", "large", 400_000, 64_000),
-      model("extension-registered", "frozen", 1_048_576, 524_288),
-    ];
-
-    const first = rebuildModelOverrides(200_000, registryModels, paths);
-    assert.equal(first.error, undefined);
-    assert.equal(first.scanned, 3);
-    assert.equal(first.written, 3);
-
-    const composed = readJson(paths.modelsPath);
-    assert.deepEqual(composed.providers.native.modelOverrides.large, {
-      contextWindow: 200_000,
-      maxTokens: 32_768,
-      name: "User large",
-      headers: { "x-user": "kept" },
-    });
-    assert.deepEqual(composed.providers["user-store"].modelOverrides.large, {
-      contextWindow: 200_000,
-      maxTokens: 32_768,
-    });
-    assert.deepEqual(composed.providers["extension-registered"].modelOverrides.frozen, {
-      contextWindow: 200_000,
-      maxTokens: 32_768,
-    });
-    assert.equal(readFileSync(paths.modelsStorePath, "utf8"), storeBefore, "the user model store is read-only");
-    assert.equal("models" in composed.providers["extension-registered"], false, "no model is fabricated");
-
-    const second = rebuildModelOverrides(200_000, registryModels, paths);
-    assert.equal(second.changed, false, "rebuild is idempotent");
-    assert.equal(second.written, 0);
-
-    const cleared = clearManagedModelOverrides(paths);
-    assert.equal(cleared.error, undefined);
-    const restored = readJson(paths.modelsPath);
-    assert.deepEqual(restored.providers.native.modelOverrides.large, {
-      contextWindow: 175_000,
-      maxTokens: 24_000,
-      name: "User large",
-      headers: { "x-user": "kept" },
-    });
-    assert.equal(restored.providers["user-store"], undefined);
-    assert.equal(restored.providers["extension-registered"], undefined);
+    assert.equal(compactionThresholdTokens(1_000_000, loaded), 300_000);
+    assert.equal(compactionThresholdTokens(200_000, loaded), 130_000);
   } finally {
     rmSync(agentDir, { recursive: true, force: true });
   }
 });
 
-test("near-cap provider requests receive a usable 1,024-token floor", () => {
-  const spaceBunny = {
-    api: "openai-completions",
-    contextWindow: 200_000,
-    maxTokens: 32_768,
-  };
-  const nearCap = {
-    model: "stealth/space-bunny-alpha",
-    messages: [{ role: "user", content: "x".repeat(778_000) }],
-    max_completion_tokens: 1,
-  };
+test("the decision waits for an idle task boundary and hysteresis", () => {
+  const usage = { tokens: 208_000, contextWindow: 1_000_000, percent: 20.8 };
+  assert.equal(decideCompaction({ enabled: true, usage, settings: settings(), idle: false, compacting: false, lastCompactionAt: 0, now: 100_000 }).reason, "busy");
+  assert.equal(decideCompaction({ enabled: true, usage, settings: settings(), idle: true, compacting: true, lastCompactionAt: 0, now: 100_000 }).reason, "compacting");
+  assert.equal(decideCompaction({ enabled: true, usage, settings: settings(), idle: true, compacting: false, lastCompactionAt: 0, now: 100_000, requestPending: true }).reason, "pending");
+  assert.equal(decideCompaction({ enabled: true, usage, settings: settings(), idle: true, compacting: false, lastCompactionAt: 99_000, now: 100_000 }).reason, "cooldown");
+  assert.equal(decideCompaction({ enabled: true, usage: { tokens: 200_500, contextWindow: 1_000_000, percent: 20.05 }, settings: settings(), idle: true, compacting: false, lastCompactionAt: 0, now: 100_000 }).reason, "hysteresis");
+  assert.equal(decideCompaction({ enabled: true, usage: { tokens: 100_000, contextWindow: 1_000_000, percent: 10 }, settings: settings(), idle: true, compacting: false, lastCompactionAt: 0, now: 100_000 }).reason, "below-threshold");
 
-  const capped = capProviderPayload(nearCap, spaceBunny, 200_000) as Record<string, unknown>;
-  assert.equal(capped.max_completion_tokens, MIN_EFFECTIVE_OUTPUT_TOKENS);
-  assert.equal(MIN_EFFECTIVE_OUTPUT_TOKENS, 1_024);
+  const ready = decideCompaction({ enabled: true, usage, settings: settings(), idle: true, compacting: false, lastCompactionAt: 0, now: 100_000 });
+  assert.equal(ready.shouldCompact, true);
+  assert.equal(ready.reason, "absolute-cap");
 });
 
-test("an actually over-cap payload is left for Pi overflow recovery, not given a fabricated budget", () => {
-  const payload = {
-    model: "stealth/space-bunny-alpha",
-    messages: [{ role: "user", content: "x".repeat(900_000) }],
-    max_completion_tokens: 1,
-  };
-  const model = { api: "openai-completions", contextWindow: 200_000, maxTokens: 32_768 };
-
-  assert.equal(capProviderPayload(payload, model, 200_000), payload);
+test("percentage-threshold decisions are distinguishable from the absolute cap", () => {
+  const decision = decideCompaction({
+    enabled: true,
+    usage: { tokens: 110_000, contextWindow: 128_000, percent: 85.9 },
+    settings: settings({ cooldownMs: 0, hysteresisTokens: 0 }),
+    idle: true,
+    compacting: false,
+    lastCompactionAt: 0,
+    now: 100_000,
+  });
+  assert.equal(decision.shouldCompact, true);
+  assert.equal(decision.reason, "threshold");
+  assert.equal(decision.thresholdTokens, 102_400);
 });
 
-test("OpenAI completion payload uses the compatibility-selected field and preserves smaller budgets", () => {
-  const model = {
-    api: "openai-completions",
-    compat: { maxTokensField: "max_tokens" },
-    contextWindow: 200_000,
-    maxTokens: 32_768,
-  };
-  const payload = { messages: [{ role: "user", content: "hello" }], max_tokens: 512 };
-
-  assert.equal(capProviderPayload(payload, model, 200_000), payload);
-  assert.equal((capProviderPayload({ ...payload, max_tokens: 32_768 }, model, 200_000) as Record<string, unknown>).max_tokens, 1_024);
-});
-
-test("session_start refreshes a frozen current model and selects the capped replacement", async () => {
+test("the extension requests Pi compaction once and resets on session_compact", async () => {
   const agentDir = tempAgentDir();
-  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  const previous = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = agentDir;
   try {
-    const paths = getContextLimitPaths(agentDir);
-    writeFileSync(paths.settingsPath, JSON.stringify({ globalContextLimit: 200_000 }));
-    const current = Object.freeze(model("extension-registered", "frozen", 1_048_576, 524_288));
-    const replacement = model("extension-registered", "frozen", 200_000, 32_768);
+    writeFileSync(getSettingsPath(agentDir), JSON.stringify({
+      globalContextLimit: 200_000,
+      globalContextCompactionPercent: 80,
+      globalContextCompactionCooldownMs: 0,
+      globalContextCompactionHysteresisTokens: 0,
+    }));
     const handlers = new Map<string, (event: any, ctx: any) => unknown>();
-    const selected: unknown[] = [];
+    const commands = new Map<string, any>();
     const pi = {
       on(event: string, handler: (event: any, ctx: any) => unknown) { handlers.set(event, handler); },
-      registerCommand() {},
-      async setModel(value: unknown) { selected.push(value); return true; },
+      registerCommand(name: string, command: any) { commands.set(name, command); },
     } as any;
     globalContextLimitExtension(pi);
+
+    const notices: string[] = [];
+    let compactions = 0;
     const ctx = {
-      model: current,
-      modelRegistry: {
-        getAll: () => [current],
-        find: () => replacement,
-        refresh: async () => ({}),
-      },
-      ui: { notify() {} },
+      model: Object.freeze({ provider: "openrouter", id: "stealth/space-bunny-alpha", contextWindow: 1_000_000, maxTokens: 128_000 }),
+      getContextUsage: () => ({ tokens: 208_000, contextWindow: 1_000_000, percent: 20.8 }),
+      isIdle: () => true,
+      isCompacting: false,
+      compact: () => { compactions++; },
+      ui: { notify: (message: string) => notices.push(message) },
     };
 
     await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+    await handlers.get("agent_settled")?.({}, ctx);
+    await handlers.get("agent_settled")?.({}, ctx);
+    assert.equal(compactions, 1, "pending state makes the coordinator idempotent");
+    assert.ok(notices.some((message) => message.includes("Model limits are unchanged")));
 
-    assert.deepEqual(selected, [replacement]);
-    assert.equal(current.contextWindow, 1_048_576, "frozen current model was not mutated");
-    assert.equal(readJson(paths.modelsPath).providers["extension-registered"].modelOverrides.frozen.contextWindow, 200_000);
+    await handlers.get("session_compact")?.({}, ctx);
+    await handlers.get("agent_settled")?.({}, ctx);
+    assert.equal(compactions, 2, "a successful Pi compaction rearms the boundary");
   } finally {
-    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
     rmSync(agentDir, { recursive: true, force: true });
   }
 });
 
-test("Pi ModelRuntime composes native, user-store, and extension-registered models through managed overrides", async () => {
+test("the extension never writes models.json, models-store.json, or auth.json", async () => {
   const agentDir = tempAgentDir();
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
   try {
-    const paths = getContextLimitPaths(agentDir);
-    writeFileSync(paths.settingsPath, JSON.stringify({ globalContextLimit: 200_000 }));
-    writeFileSync(paths.modelsStorePath, JSON.stringify({
-      providers: {
-        "user-store": {
-          models: [{
-            id: "large",
-            name: "User-store large",
-            api: "openai-completions",
-            baseUrl: "https://example.invalid",
-            contextWindow: 400_000,
-            maxTokens: 64_000,
-          }],
-        },
-      },
-    }));
-    let runtime = await ModelRuntime.create({
-      agentDir,
-      modelsPath: paths.modelsPath,
-      modelsStorePath: paths.modelsStorePath,
-      refreshOnCreate: false,
-    });
-    runtime.registerProvider("extension-registered", {
-      api: "openai-completions",
-      baseUrl: "https://extension.invalid",
-      models: [{ id: "frozen", name: "Extension large", api: "openai-completions", baseUrl: "https://extension.invalid", contextWindow: 1_048_576, maxTokens: 524_288 }],
-      apiKey: "test-only",
-    });
-    runtime.registerProvider("native-test", {
-      api: "openai-completions",
-      baseUrl: "https://native.invalid",
-      models: [{ id: "large", name: "Native large", api: "openai-completions", baseUrl: "https://native.invalid", contextWindow: 1_000_000, maxTokens: 128_000 }],
-      apiKey: "test-only",
-    });
-    await runtime.refresh({ allowNetwork: false });
-    const before = [
-      runtime.getModel("native-test", "large"),
-      runtime.getModel("user-store", "large"),
-      runtime.getModel("extension-registered", "frozen"),
-    ];
-    assert.ok(before.every(Boolean));
+    const settingsPath = getSettingsPath(agentDir);
+    const modelsPath = join(agentDir, "models.json");
+    const modelsStorePath = join(agentDir, "models-store.json");
+    const authPath = join(agentDir, "auth.json");
+    writeFileSync(settingsPath, JSON.stringify({ globalContextLimit: 200_000, theme: "dark" }));
+    writeFileSync(modelsPath, JSON.stringify({ providers: { native: { modelOverrides: { model: { contextWindow: 1_000_000, maxTokens: 128_000 } } } } }));
+    writeFileSync(modelsStorePath, JSON.stringify({ providers: { store: { models: [{ id: "model", contextWindow: 1_000_000, maxTokens: 128_000 }] } } }));
+    writeFileSync(authPath, JSON.stringify({ provider: { type: "api_key", key: "test-only" } }));
+    const before = [settingsPath, modelsPath, modelsStorePath, authPath].map((path) => readFileSync(path, "utf8"));
 
-    const result = rebuildModelOverrides(200_000, before as ModelLike[], paths);
-    assert.equal(result.error, undefined);
-    await runtime.refresh({ allowNetwork: false });
-    runtime = await ModelRuntime.create({
-      agentDir,
-      modelsPath: paths.modelsPath,
-      modelsStorePath: paths.modelsStorePath,
-      refreshOnCreate: false,
-    });
-    runtime.registerProvider("extension-registered", {
-      api: "openai-completions",
-      baseUrl: "https://extension.invalid",
-      models: [{ id: "frozen", name: "Extension large", api: "openai-completions", baseUrl: "https://extension.invalid", contextWindow: 1_048_576, maxTokens: 524_288 }],
-      apiKey: "test-only",
-    });
-    runtime.registerProvider("native-test", {
-      api: "openai-completions",
-      baseUrl: "https://native.invalid",
-      models: [{ id: "large", name: "Native large", api: "openai-completions", baseUrl: "https://native.invalid", contextWindow: 1_000_000, maxTokens: 128_000 }],
-      apiKey: "test-only",
-    });
-    await runtime.refresh({ allowNetwork: false });
+    const handlers = new Map<string, (event: any, ctx: any) => unknown>();
+    const pi = {
+      on(event: string, handler: (event: any, ctx: any) => unknown) { handlers.set(event, handler); },
+      registerCommand() {},
+    } as any;
+    globalContextLimitExtension(pi);
+    const ctx = {
+      model: Object.freeze({ provider: "native", id: "model", contextWindow: 1_000_000, maxTokens: 128_000 }),
+      getContextUsage: () => ({ tokens: 250_000, contextWindow: 1_000_000, percent: 25 }),
+      isIdle: () => true,
+      isCompacting: false,
+      compact() {},
+      ui: { notify() {} },
+    };
+    await handlers.get("session_start")?.({}, ctx);
+    await handlers.get("agent_settled")?.({}, ctx);
+    await handlers.get("session_compact")?.({}, ctx);
 
-    assert.deepEqual(
-      [runtime.getModel("native-test", "large"), runtime.getModel("user-store", "large"), runtime.getModel("extension-registered", "frozen")]
-        .map((entry) => entry && ({ provider: entry.provider, id: entry.id, contextWindow: entry.contextWindow, maxTokens: entry.maxTokens })),
-      [
-        { provider: "native-test", id: "large", contextWindow: 200_000, maxTokens: 32_768 },
-        { provider: "user-store", id: "large", contextWindow: 200_000, maxTokens: 32_768 },
-        { provider: "extension-registered", id: "frozen", contextWindow: 200_000, maxTokens: 32_768 },
-      ],
-    );
+    assert.deepEqual([settingsPath, modelsPath, modelsStorePath, authPath].map((path) => readFileSync(path, "utf8")), before);
   } finally {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
     rmSync(agentDir, { recursive: true, force: true });
   }
-});
-
-test("modelOverrideFor leaves a model with unknown context metadata untouched", () => {
-  assert.equal(modelOverrideFor({ provider: "x", id: "unknown", maxTokens: 999_999 }, 200_000), undefined);
 });

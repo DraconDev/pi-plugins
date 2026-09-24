@@ -79,7 +79,7 @@ export const ImageGenerationSchema = Type.Object(
 
 export const ReviewOptionSchema = Type.Object({
   id: Type.Optional(Type.String({ maxLength: MAX_STAGE_ID_LENGTH, description: "Stable option identifier." })),
-  label: Type.String({ maxLength: MAX_LABEL_LENGTH, description: "Concise option label (1-5 words is recommended)." })),
+  label: Type.String({ maxLength: MAX_LABEL_LENGTH, description: "Concise option label (1-5 words is recommended)." }),
   description: Type.Optional(Type.String({ maxLength: 4_000, description: "What this option means and its trade-offs." })),
   value: Type.Optional(Type.String({ maxLength: 2_000, description: "Optional machine-readable value to return when this option is selected." })),
   preview: Type.Optional(PreviewSchema),
