@@ -20,7 +20,10 @@
   ],
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "smoke:runtime": "node scripts/smoke-runtime.mjs",
+    "smoke:tui": "node scripts/verify-tui.mjs",
+    "verify:activation": "node scripts/verify-activation.mjs"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

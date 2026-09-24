@@ -228,7 +228,7 @@ export class VisualReviewWizard implements Component {
     if (this.signal?.aborted) this.onAbort();
     else this.signal?.addEventListener("abort", this.onAbort, { once: true });
     void loadOptionImages(review, cwd, signal).then((loaded) => {
-      if (this.disposed) return;
+      if (this.disposed || this.finished) return;
       this.loadedImages.clear();
       for (const [key, value] of loaded) this.loadedImages.set(key, value);
       this.invalidate();
@@ -488,7 +488,6 @@ export class VisualReviewWizard implements Component {
         }
       }
     });
-    if (stage.multiSelect) lines.push(this.theme.fg("success", `  ${DONE_LABEL} — use Space to toggle, Enter to confirm`));
     return lines;
   }
 
