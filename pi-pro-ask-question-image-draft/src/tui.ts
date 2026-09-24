@@ -6,12 +6,13 @@ import {
   Key,
   type Component,
   type EditorTheme,
+  type Focusable,
+  Markdown,
+  type MarkdownTheme,
   matchesKey,
-  Text,
   type TUI,
-  wrapTextWithAnsi,
   truncateToWidth,
-  visibleWidth,
+  wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 
 import { canRenderImages, imageFileLink, loadImage, type LoadedImage } from "./image-loader.ts";
@@ -67,6 +68,26 @@ function editorTheme(theme: Theme): EditorTheme {
       scrollInfo: (text) => theme.fg("dim", text),
       noMatch: (text) => theme.fg("warning", text),
     },
+  };
+}
+
+function markdownTheme(theme: Theme): MarkdownTheme {
+  return {
+    heading: (text) => theme.bold(theme.fg("mdHeading", text)),
+    link: (text) => theme.fg("mdLink", text),
+    linkUrl: (text) => theme.fg("mdLinkUrl", text),
+    code: (text) => theme.fg("mdCode", text),
+    codeBlock: (text) => theme.fg("mdCodeBlock", text),
+    codeBlockBorder: (text) => theme.fg("mdCodeBlockBorder", text),
+    quote: (text) => theme.fg("mdQuote", text),
+    quoteBorder: (text) => theme.fg("mdQuoteBorder", text),
+    hr: (text) => theme.fg("mdHr", text),
+    listBullet: (text) => theme.fg("mdListBullet", text),
+    bold: (text) => theme.bold(text),
+    italic: (text) => theme.italic(text),
+    strikethrough: (text) => theme.strikethrough(text),
+    underline: (text) => theme.underline(text),
+    codeBlockIndent: "  ",
   };
 }
 
@@ -153,7 +174,10 @@ function fallbackPreview(option: NormalizedOption, loaded: LoadedOption | undefi
     lines.push(...wrapTextWithAnsi(theme.fg("muted", label), width));
   }
   if (option.image?.alt) lines.push(...wrapTextWithAnsi(theme.fg("dim", `Alt: ${option.image.alt}`), width));
-  if (option.preview) lines.push(...wrapTextWithAnsi(option.preview, width));
+  if (option.preview) {
+    const markdown = new Markdown(option.preview, 1, 0, markdownTheme(theme), undefined, { renderLatex: false });
+    lines.push(...markdown.render(Math.max(1, width)));
+  }
   if (!source && !option.preview) lines.push(theme.fg("dim", "No inline preview supplied."));
   return lines;
 }
@@ -168,7 +192,14 @@ function resultFor(
   return makeReviewResult(review, decision, answers, revision, [...skippedStageIds]);
 }
 
-export class VisualReviewWizard implements Component {
+class LinesComponent implements Component {
+  private readonly lines: readonly string[];
+  constructor(lines: readonly string[]) { this.lines = lines; }
+  render(): string[] { return [...this.lines]; }
+  invalidate(): void {}
+}
+
+export class VisualReviewWizard implements Component, Focusable {
   private readonly review: NormalizedReview;
   private readonly theme: Theme;
   private readonly requestRender: () => void;
@@ -182,6 +213,7 @@ export class VisualReviewWizard implements Component {
   private readonly loadedImages = new Map<string, LoadedOption>();
   private readonly editor: Editor;
   private readonly imageMode: boolean;
+  private _focused = false;
   private stageIndex = 0;
   private selectedIndex = 0;
   private inputMode: "none" | "other" | "revision" = "none";
@@ -239,6 +271,12 @@ export class VisualReviewWizard implements Component {
       for (const [key, value] of loaded) this.loadedImages.set(key, value);
       this.invalidate();
     });
+  }
+
+  get focused(): boolean { return this._focused; }
+  set focused(value: boolean) {
+    this._focused = value;
+    this.editor.focused = value && this.inputMode !== "none";
   }
 
   dispose(): void {
@@ -337,6 +375,7 @@ export class VisualReviewWizard implements Component {
       this.inputMode = row.kind === "other" ? "other" : "revision";
       this.inputStageIndex = this.stageIndex;
       this.editor.setText("");
+      this.editor.focused = this._focused;
       this.invalidate();
       return;
     }
@@ -407,25 +446,27 @@ export class VisualReviewWizard implements Component {
     lines.push("");
 
     if (this.inputMode !== "none") {
+      this.editor.focused = this._focused;
       lines.push(this.theme.fg("accent", this.inputMode === "revision" ? "Describe the revision you want:" : "Type your answer:"));
       lines.push("");
       for (const line of this.editor.render(Math.max(1, safeWidth - 4))) lines.push(`  ${line}`);
       lines.push("");
       lines.push(this.theme.fg("dim", "Enter to submit • Esc to go back"));
     } else {
+      this.editor.focused = false;
       const rows = rowsForStage(stage);
       const leftWidth = this.imageMode && safeWidth >= 88 ? Math.min(36, Math.max(26, Math.floor(safeWidth * 0.3))) : safeWidth - 2;
       const listLines = this.renderRows(stage, rows, leftWidth);
       if (this.imageMode && safeWidth >= 88) {
-        const rightWidth = safeWidth - leftWidth - 3;
-        const left = new Text(listLines.join("\n"), 0, 0);
+        const rightWidth = Math.max(1, safeWidth - leftWidth - 5);
+        const left = new LinesComponent(listLines);
         const selected = rows[this.selectedIndex];
         const rightLines = selected?.kind === "option" ? this.renderSelectedVisual(selected.option, rightWidth) : [
           this.theme.fg("dim", "Select an option to inspect its image."),
           "",
           ...stage.options.slice(0, 2).flatMap((option) => [`${option.label}: ${option.description ?? ""}`]),
         ];
-        const right = new Text(rightLines.join("\n"), 0, 0);
+        const right = new LinesComponent(rightLines);
         // Image.render() returns protocol lines which must not be wrapped or padded as text.
         // HStack/TUI composition recognizes these lines and preserves their escape sequences.
         const combined = new HStack(
@@ -517,6 +558,7 @@ export class VisualReviewWizard implements Component {
       if (!text) {
         this.inputMode = "none";
         this.editor.setText("");
+        this.editor.focused = false;
         this.invalidate();
         return;
       }
@@ -532,6 +574,7 @@ export class VisualReviewWizard implements Component {
     if (!text) {
       this.inputMode = "none";
       this.editor.setText("");
+      this.editor.focused = false;
       this.invalidate();
       return;
     }
@@ -539,6 +582,7 @@ export class VisualReviewWizard implements Component {
     this.skippedStageIds.delete(stage.id);
     this.inputMode = "none";
     this.editor.setText("");
+    this.editor.focused = false;
     this.advanceAfterAnswer();
   }
 
@@ -568,6 +612,7 @@ export class VisualReviewWizard implements Component {
     this.signal?.removeEventListener("abort", this.onAbort);
     this.editor.setText("");
     this.editor.focused = false;
+    this._focused = false;
     this.done(result);
   }
 }

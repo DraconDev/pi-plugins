@@ -257,6 +257,16 @@ export function isReviewState(value: unknown): value is ReviewState {
     answers,
     skippedStageIds,
   ).length > 0) return false;
+  const generatedImages = value.generatedImages as GeneratedImageReference[] | undefined;
+  if (generatedImages) {
+    const generatedKeys = new Set(generatedImages.map((image) => `${image.stageId}:${image.optionId}`));
+    for (const image of generatedImages) {
+      const stage = stages.find((candidate) => candidate.id === image.stageId);
+      const option = stage?.options.find((candidate) => candidate.id === image.optionId);
+      if (!stage || !option || !generatedKeys.has(`${image.stageId}:${image.optionId}`)) return false;
+      if (image.generated && option.image?.path !== image.path) return false;
+    }
+  }
   return answers.every((answer) => {
     const index = stages.findIndex((stage) => stage.id === answer.stageId);
     return index >= 0 && !skipped.has(answer.stageId) && answerIsValid(answer, stages[index], index, true);

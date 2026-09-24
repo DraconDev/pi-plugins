@@ -57,6 +57,33 @@ function initialSkippedStageIdsFor(review: NormalizedReview, previous: ReviewSta
   return previous.skippedStageIds.filter((stageId) => valid.has(stageId) && !review.resetStageIds.includes(stageId));
 }
 
+/** Carry forward unchanged visual artifacts when a revision only regenerates selected stages. */
+function restoreReviewArtifacts(review: NormalizedReview, previous: ReviewState | undefined): NormalizedReview {
+  if (!previous) return review;
+  const previousStages = new Map(previous.stages.map((stage) => [stage.id, stage]));
+  const stages = review.stages.map((stage) => {
+    const oldStage = previousStages.get(stage.id);
+    if (!oldStage) return stage;
+    const oldOptions = new Map(oldStage.options.map((option) => [option.id, option]));
+    return {
+      ...stage,
+      options: stage.options.map((option) => {
+        if (option.image || option.generate) return option;
+        const oldImage = oldOptions.get(option.id)?.image;
+        return oldImage ? { ...option, image: { ...oldImage } } : option;
+      }),
+    };
+  });
+  return {
+    ...review,
+    provider: review.provider ?? previous.provider,
+    model: review.model ?? previous.model,
+    imagePrompt: review.imagePrompt ?? previous.imagePrompt,
+    generation: review.generation ?? previous.generation,
+    stages,
+  };
+}
+
 function resultDetails(result: ReviewResult, review: NormalizedReview): VisualReviewResultDetails {
   return {
     version: 1,
@@ -128,6 +155,9 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
         return inputErrorResult(error instanceof Error ? error.message : String(error));
       }
 
+      const previous = getPriorState(ctx, review.reviewId);
+      review = restoreReviewArtifacts(review, previous);
+
       // Generation is deliberately explicit in the input contract. Existing image
       // references are left untouched; only options carrying `generate` are sent to
       // the configured provider. This keeps ordinary clarification questions free of
@@ -190,13 +220,13 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
         return errorResponse(message, review);
       }
 
-      const previous = getPriorState(ctx, review.reviewId);
       const initialAnswers = initialAnswersFor(review, previous);
       const initialSkippedStageIds = initialSkippedStageIdsFor(review, previous);
 
-      if (review.round > 1 && previous && previous.round >= review.round && !review.resetStageIds.length) {
+      if (previous && review.round <= previous.round) {
         // A model can accidentally reuse a completed round. It is safer to
-        // require an explicit reset than to silently discard prior answers.
+        // require a later round than to silently discard prior answers, even
+        // when resetStageIds is present.
         return textResult(
           {
             version: 1,

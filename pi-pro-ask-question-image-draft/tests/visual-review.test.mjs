@@ -121,6 +121,24 @@ describe("strict staged state gate", () => {
     assert.equal(findReviewState([{ type: "custom", customType: "pi-visual-review-state", data: state }], review.reviewId)?.answers.find((answer) => answer.stageId === "two")?.stageId, "two");
   });
 
+  it("persists generated image references without making them answers", () => {
+    const review = baseReview();
+    const answer = answerFor(review, "layout", "grid");
+    const state = makeReviewState(review, [answer], "completed", [], [{
+      stageId: "layout",
+      optionId: "grid",
+      path: "/tmp/generated.png",
+      mimeType: "image/png",
+      provider: "agnes",
+      model: "agnes-image-2.5-flash",
+      byteCount: 123,
+      generated: true,
+    }]);
+    assert.equal(isReviewState(state), true);
+    assert.equal(state.generatedImages?.[0]?.generated, true);
+    assert.equal(state.answers[0].stageId, "layout");
+  });
+
   it("requires a later requested round for revisions", () => {
     const review = baseReview();
     const answer = answerFor(review, "layout", "grid");
