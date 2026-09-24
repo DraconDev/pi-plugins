@@ -10,6 +10,8 @@ import {
   Text,
   type TUI,
   wrapTextWithAnsi,
+  truncateToWidth,
+  visibleWidth,
 } from "@earendil-works/pi-tui";
 
 import { canRenderImages, imageFileLink, loadImage, type LoadedImage } from "./image-loader.ts";
@@ -121,6 +123,10 @@ async function loadOptionImages(review: NormalizedReview, cwd: string, signal?: 
 
 function isImageLine(line: string): boolean {
   return line.includes("\u001b_G") || line.includes("\u001b]1337;File=");
+}
+
+function fitLine(line: string, width: number): string {
+  return truncateToWidth(line, Math.max(1, width), "…");
 }
 
 function imageLines(image: LoadedImage, theme: Theme, width: number, maxHeight = 16): string[] {
@@ -459,9 +465,10 @@ export class VisualReviewWizard implements Component {
 
     lines.push("");
     lines.push(border("─".repeat(safeWidth)));
+    const bounded = lines.map((line) => isImageLine(line) ? line : fitLine(line, safeWidth));
     this.cachedWidth = width;
-    this.cachedLines = lines;
-    return lines;
+    this.cachedLines = bounded;
+    return bounded;
   }
 
   private selection(stageId: string): Set<string> {

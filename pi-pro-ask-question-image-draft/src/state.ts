@@ -23,6 +23,16 @@ export interface ReviewRevision {
   requestedRound: number;
 }
 
+export interface GeneratedImageReference {
+  stageId: string;
+  optionId: string;
+  path: string;
+  mimeType: string;
+  provider: string;
+  model: string;
+  byteCount: number;
+}
+
 export interface ReviewResult {
   version: 1;
   reviewId: string;
@@ -33,6 +43,8 @@ export interface ReviewResult {
   answers: ReviewAnswer[];
   /** Optional stages explicitly skipped by the user. */
   skippedStageIds?: string[];
+  /** Images created by explicit option.generate requests during this call. */
+  generatedImages?: GeneratedImageReference[];
   revision?: ReviewRevision;
   fallback?: {
     reason: "no_ui" | "no_custom_ui" | "rpc";
@@ -56,6 +68,7 @@ export interface ReviewState {
   answers: ReviewAnswer[];
   /** Optional stages explicitly skipped by the user. */
   skippedStageIds?: string[];
+  generatedImages?: GeneratedImageReference[];
   status: ReviewStatus;
   updatedAt: string;
 }
@@ -70,6 +83,14 @@ function isStringArray(value: unknown): value is string[] {
 
 function isOptionalString(value: unknown): value is string | undefined {
   return value === undefined || typeof value === "string";
+}
+
+function isGeneratedImageReference(value: unknown): value is GeneratedImageReference {
+  if (!isRecord(value)) return false;
+  return typeof value.stageId === "string" && typeof value.optionId === "string" &&
+    typeof value.path === "string" && typeof value.mimeType === "string" &&
+    typeof value.provider === "string" && typeof value.model === "string" &&
+    Number.isInteger(value.byteCount) && (value.byteCount as number) > 0;
 }
 
 function isAnswerShape(value: unknown): value is ReviewAnswer {
@@ -179,6 +200,8 @@ export function isReviewState(value: unknown): value is ReviewState {
     !value.answers.every(isAnswerShape) ||
     !isStringArray(value.resetStageIds) ||
     (value.skippedStageIds !== undefined && !isStringArray(value.skippedStageIds)) ||
+    (value.generatedImages !== undefined &&
+      (!Array.isArray(value.generatedImages) || !value.generatedImages.every(isGeneratedImageReference))) ||
     (value.status !== "completed" &&
       value.status !== "revision" &&
       value.status !== "rejected" &&
@@ -263,6 +286,7 @@ export function makeReviewState(
   answers: readonly ReviewAnswer[],
   status: ReviewStatus,
   skippedStageIds: readonly string[] = [],
+  generatedImages?: readonly GeneratedImageReference[],
 ): ReviewState {
   assertValidAnswerSet(review, answers);
   const skipped = normalizeSkippedStageIds(review, skippedStageIds, answers);
@@ -286,6 +310,7 @@ export function makeReviewState(
     stages: review.stages,
     answers: orderedAnswers(review, answers),
     ...(skipped.length > 0 ? { skippedStageIds: skipped } : {}),
+    ...(generatedImages && generatedImages.length > 0 ? { generatedImages: generatedImages.map((image) => ({ ...image })) } : {}),
     status,
     updatedAt: new Date().toISOString(),
   };
@@ -490,5 +515,8 @@ export function resultFromState(state: ReviewState, decision: ReviewDecision, re
     resetStageIds: state.resetStageIds,
     stages: state.stages,
   };
-  return makeReviewResult(review, decision, state.answers, revision, state.skippedStageIds);
+  const result = makeReviewResult(review, decision, state.answers, revision, state.skippedStageIds);
+  return state.generatedImages && state.generatedImages.length > 0
+    ? { ...result, generatedImages: state.generatedImages.map((image) => ({ ...image })) }
+    : result;
 }
