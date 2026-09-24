@@ -186,7 +186,8 @@ export function isReviewState(value: unknown): value is ReviewState {
     !isOptionalString(value.provider) ||
     !isOptionalString(value.model) ||
     !isOptionalString(value.imagePrompt) ||
-    !isOptionalString(value.notes)
+    !isOptionalString(value.notes) ||
+    (value.generation !== undefined && !isRecord(value.generation))
   ) {
     return false;
   }
@@ -212,14 +213,14 @@ export function isReviewState(value: unknown): value is ReviewState {
   const answers = value.answers as ReviewAnswer[];
   const skippedStageIds = (value.skippedStageIds as string[] | undefined) ?? [];
   const skipped = new Set(skippedStageIds);
+  if (new Set(skippedStageIds).size !== skippedStageIds.length) return false;
   if (skippedStageIds.some((id) => {
     const stage = stages.find((candidate) => candidate.id === id);
     return !stage || stage.required || answers.some((answer) => answer.stageId === id);
   })) return false;
-  if (value.status === "completed" && unresolvedStages(
+  if (value.status === "completed" && missingRequiredStages(
     { reviewId: value.reviewId, round: value.round as number, resetStageIds: value.resetStageIds as string[], stages },
     answers,
-    skippedStageIds,
   ).length > 0) return false;
   return answers.every((answer) => {
     const index = stages.findIndex((stage) => stage.id === answer.stageId);
@@ -376,13 +377,8 @@ export function makeReviewResult(
 ): ReviewResult {
   const skipped = normalizeSkippedStageIds(review, skippedStageIds, answers);
   const ordered = orderedAnswers(review, answers);
-  if (decision === "approve" && unresolvedStages(review, answers, skipped).length > 0) {
-    const missingRequired = missingRequiredStages(review, answers);
-    throw new Error(
-      missingRequired.length > 0
-        ? "Cannot approve a visual review before every required stage has an answer."
-        : "Cannot approve a visual review before every optional stage is answered or explicitly skipped.",
-    );
+  if (decision === "approve" && !hasRequiredAnswers(review, answers)) {
+    throw new Error("Cannot approve a visual review before every required stage has an answer.");
   }
   if (decision === "revision") {
     if (!revision) throw new Error("A revision result requires revision details.");
