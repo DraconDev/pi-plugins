@@ -2,9 +2,11 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import type { NormalizedOption, NormalizedReview, NormalizedStage } from "./schema.ts";
 import {
+  isStageAnswered,
   makeCustomAnswer,
   makeOptionAnswer,
   makeReviewResult,
+  mergeAnswers,
   unresolvedStages,
   type ReviewAnswer,
   type ReviewResult,
@@ -87,8 +89,8 @@ function orderedSelected(stage: NormalizedStage, ids: ReadonlySet<string>): Norm
   return stage.options.filter((option) => ids.has(option.id));
 }
 
-function cancelledResult(review: NormalizedReview, answers: Map<string, ReviewAnswer>): ReviewResult {
-  return makeReviewResult(review, "cancel", answers);
+function cancelledResult(review: NormalizedReview, answers: Map<string, ReviewAnswer>, skippedStageIds: ReadonlySet<string> = new Set()): ReviewResult {
+  return makeReviewResult(review, "cancel", answers, undefined, [...skippedStageIds]);
 }
 
 function selectTitle(stage: NormalizedStage, selected: readonly string[]): string {
@@ -102,6 +104,7 @@ function resultWithRevision(
   stage: NormalizedStage,
   stageIndex: number,
   feedback: string,
+  skippedStageIds: ReadonlySet<string> = new Set(),
 ): ReviewResult {
   const revision: ReviewRevision = {
     stageId: stage.id,
@@ -109,7 +112,7 @@ function resultWithRevision(
     feedback,
     requestedRound: review.round + 1,
   };
-  return makeReviewResult(review, "revision", answers, revision);
+  return makeReviewResult(review, "revision", answers, revision, [...skippedStageIds]);
 }
 
 /**
@@ -124,16 +127,15 @@ export async function runDialogReview(
   initialAnswers: readonly ReviewAnswer[] = [],
   initialSkippedStageIds: readonly string[] = [],
 ): Promise<ReviewResult> {
-  const answers = new Map<string, ReviewAnswer>();
-  for (const answer of initialAnswers) {
-    if (!answers.has(answer.stageId)) answers.set(answer.stageId, { ...answer, optionIds: answer.optionIds ? [...answer.optionIds] : undefined, optionLabels: answer.optionLabels ? [...answer.optionLabels] : undefined, optionValues: answer.optionValues ? [...answer.optionValues] : undefined });
-  }
+  const answers = mergeAnswers(initialAnswers, review.stages);
+  for (const stageId of initialSkippedStageIds) answers.delete(stageId);
 
   const skippedStageIds = new Set<string>(
     initialSkippedStageIds.filter((stageId) => review.stages.some((stage) => stage.id === stageId && !stage.required)),
   );
   for (const [stageIndex, stage] of review.stages.entries()) {
     const previous = answers.get(stage.id);
+    if (previous && !isStageAnswered(stage, stageIndex, previous)) answers.delete(stage.id);
     const optionIds = new Set(
       previous?.kind === "multi" ? previous.optionIds?.filter((id) => stage.options.some((option) => option.id === id)) ?? [] : [],
     );
@@ -160,7 +162,7 @@ export async function runDialogReview(
       choices.push(APPROVE_LABEL, REJECT_LABEL);
 
       const selected = await ctx.ui.select(selectTitle(stage, selectedLabels), choices, { signal: ctx.signal });
-      if (selected === undefined) return cancelledResult(review, answers);
+      if (selected === undefined) return cancelledResult(review, answers, skippedStageIds);
 
       if (stage.multiSelect && selected === DONE_LABEL) {
         if (optionIds.size === 0) {
@@ -168,7 +170,7 @@ export async function runDialogReview(
             const retry = await ctx.ui.confirm("Selection required", "Choose at least one option before continuing. Try again?", {
               signal: ctx.signal,
             });
-            if (retry === false) return cancelledResult(review, answers);
+            if (retry === false) return cancelledResult(review, answers, skippedStageIds);
             continue;
           }
           continue;
@@ -180,7 +182,7 @@ export async function runDialogReview(
 
       if (selected === OTHER_LABEL) {
         const text = await ctx.ui.input("Your answer", stage.description, { signal: ctx.signal });
-        if (text === undefined) return cancelledResult(review, answers);
+        if (text === undefined) return cancelledResult(review, answers, skippedStageIds);
         const trimmed = text.trim();
         if (!trimmed) continue;
         customText = trimmed;
@@ -192,7 +194,7 @@ export async function runDialogReview(
       }
       if (selected === REVISION_LABEL) {
         const feedback = await ctx.ui.input("What should be revised?", "Describe the changes you want", { signal: ctx.signal });
-        if (feedback === undefined) return cancelledResult(review, answers);
+        if (feedback === undefined) return cancelledResult(review, answers, skippedStageIds);
         const trimmed = feedback.trim();
         if (!trimmed) continue;
         revisionFeedback = trimmed;
@@ -205,12 +207,12 @@ export async function runDialogReview(
           : undefined;
         if (missing) {
           const retry = await ctx.ui.confirm("Review incomplete", missing, { signal: ctx.signal });
-          if (retry === false) return cancelledResult(review, answers);
+          if (retry === false) return cancelledResult(review, answers, skippedStageIds);
           continue;
         }
         return makeReviewResult(review, "approve", answers, undefined, [...skippedStageIds]);
       }
-      if (selected === REJECT_LABEL) return makeReviewResult(review, "reject", answers);
+      if (selected === REJECT_LABEL) return makeReviewResult(review, "reject", answers, undefined, [...skippedStageIds]);
 
       const option = findOption(stage, selected);
       if (!option) continue;
@@ -230,7 +232,7 @@ export async function runDialogReview(
     }
     skippedStageIds.delete(stage.id);
     if (revisionFeedback !== undefined) {
-      return resultWithRevision(review, answers, stage, stageIndex, revisionFeedback);
+      return resultWithRevision(review, answers, stage, stageIndex, revisionFeedback, skippedStageIds);
     }
     if (customText !== undefined) {
       answers.set(stage.id, makeCustomAnswer(stage, stageIndex, customText));
