@@ -22,7 +22,7 @@ export interface VisualReviewToolResult {
 }
 
 function answerText(answer: ReviewAnswer): string {
-  if (answer.kind === "custom") return answer.customText?.trim() || "(no response)";
+  if (answer.kind === "custom") return answer.customText?.trim() || answer.answer?.trim() || "(no response)";
   if (answer.kind === "multi") return answer.optionLabels?.join(", ") || answer.answer || "(no selection)";
   return answer.answer || answer.optionLabels?.[0] || "(no selection)";
 }
@@ -36,6 +36,9 @@ export function formatRevision(revision: ReviewRevision): string {
 }
 
 export function buildResponse(result: ReviewResult, review: NormalizedReview): VisualReviewToolResult {
+  if (result.reviewId !== review.reviewId || result.round !== review.round) {
+    throw new Error("Result identity does not match the normalized review.");
+  }
   const details: VisualReviewResultDetails = {
     version: 1,
     kind: "visual-review",
@@ -48,11 +51,19 @@ export function buildResponse(result: ReviewResult, review: NormalizedReview): V
   };
   let text: string;
   switch (result.status) {
-    case "completed":
-      text = result.answers.length
-        ? `${ENVELOPE_PREFIX} ${result.answers.map((answer) => formatAnswer(answer, review.stages[answer.stageIndex]?.prompt ?? answer.stageId)).join(" ")} ${ENVELOPE_SUFFIX}`
-        : "Visual review completed with no recorded answers.";
+    case "completed": {
+      if (result.answers.length === 0) {
+        text = "Visual review completed with no recorded answers.";
+      } else {
+        const stageById = new Map(review.stages.map((stage) => [stage.id, stage]));
+        const formatted = result.answers.map((answer) => {
+          const stage = stageById.get(answer.stageId);
+          return formatAnswer(answer, stage?.prompt ?? answer.stageId);
+        });
+        text = `${ENVELOPE_PREFIX} ${formatted.join(" ")} ${ENVELOPE_SUFFIX}`;
+      }
       break;
+    }
     case "revision":
       text = `Visual review revision requested (round ${result.round} → ${(result.revision?.requestedRound ?? result.round + 1)}). ${formatRevision(result.revision ?? { stageId: "unknown", stageIndex: 0, feedback: "unspecified", requestedRound: result.round + 1 })}. Regenerate the affected image(s), then call ask_user_question again with the same reviewId and the next round.`;
       break;

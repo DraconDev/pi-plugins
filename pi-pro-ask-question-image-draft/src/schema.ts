@@ -295,12 +295,18 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
 
   const suppliedStages = Array.isArray(params.stages) ? (params.stages as readonly RawStage[]) : undefined;
   const legacyQuestions = Array.isArray(params.questions) ? params.questions : [];
+  if (suppliedStages?.length && legacyQuestions.length) {
+    throw new Error("Provide either stages or legacy questions, not both.");
+  }
   const rawStages: readonly RawStage[] = suppliedStages?.length
     ? suppliedStages
     : legacyQuestions.map(rawStageFromQuestion);
 
   if (!rawStages.length) {
     throw new Error("Provide at least one stage (or a legacy questions array).");
+  }
+  if (rawStages.some((stage) => !Array.isArray(stage.options) || stage.options.length < MIN_OPTIONS)) {
+    throw new Error(`Every stage must contain at least ${MIN_OPTIONS} options.`);
   }
 
   const usedStageIds = new Set<string>();
@@ -351,7 +357,7 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
   const imagePrompt = optionalText(params.imagePrompt) ?? generation?.prompt;
 
   const round = params.round ?? 1;
-  if (typeof round !== "number" || !Number.isFinite(round)) {
+  if (typeof round !== "number" || !Number.isInteger(round) || round < 1) {
     throw new Error("round must be a positive integer.");
   }
 
@@ -359,7 +365,7 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
     title: optionalText(params.title),
     stages,
     reviewId: optionalText(params.reviewId) || `review-${now.toString(36)}-${randomUUID().slice(0, 8)}`,
-    round: Math.floor(round),
+    round,
     resetStageIds: [
       ...new Set(
         (Array.isArray(params.resetStageIds) ? params.resetStageIds : []).map((id) => normalizeText(id).trim()).filter(Boolean),
@@ -426,6 +432,7 @@ export function validateReview(review: NormalizedReview): void {
     if (review.generation.model && review.generation.model.length > 200) throw new Error("generation.model is too long.");
     if (review.generation.size && review.generation.size.length > 100) throw new Error("generation.size is too long.");
   }
+  if (review.resetStageIds.some((id) => !id)) throw new Error("resetStageIds cannot contain empty ids.");
 
   const stageIds = new Set<string>();
   for (const stage of review.stages) {
