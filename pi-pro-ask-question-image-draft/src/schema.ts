@@ -285,10 +285,15 @@ function normalizeGeneration(params: ReviewParams): NormalizedGeneration | undef
 }
 
 export function normalizeReview(params: ReviewParams, now = Date.now()): NormalizedReview {
-  const suppliedStages = params.stages as readonly RawStage[] | undefined;
+  if (!params || typeof params !== "object" || Array.isArray(params)) {
+    throw new Error("Visual review parameters must be an object.");
+  }
+
+  const suppliedStages = Array.isArray(params.stages) ? (params.stages as readonly RawStage[]) : undefined;
+  const legacyQuestions = Array.isArray(params.questions) ? params.questions : [];
   const rawStages: readonly RawStage[] = suppliedStages?.length
     ? suppliedStages
-    : (params.questions ?? []).map(rawStageFromQuestion);
+    : legacyQuestions.map(rawStageFromQuestion);
 
   if (!rawStages.length) {
     throw new Error("Provide at least one stage (or a legacy questions array).");
@@ -341,12 +346,21 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
   const model = optionalText(params.model) ?? generation?.model;
   const imagePrompt = optionalText(params.imagePrompt) ?? generation?.prompt;
 
+  const round = params.round ?? 1;
+  if (typeof round !== "number" || !Number.isFinite(round)) {
+    throw new Error("round must be a positive integer.");
+  }
+
   return {
     title: optionalText(params.title),
     stages,
     reviewId: optionalText(params.reviewId) || `review-${now.toString(36)}-${randomUUID().slice(0, 8)}`,
-    round: Math.max(1, Math.floor(params.round ?? 1)),
-    resetStageIds: [...new Set((params.resetStageIds ?? []).map((id) => id.trim()).filter(Boolean))],
+    round: Math.floor(round),
+    resetStageIds: [
+      ...new Set(
+        (Array.isArray(params.resetStageIds) ? params.resetStageIds : []).map((id) => normalizeText(id).trim()).filter(Boolean),
+      ),
+    ],
     notes: optionalText(params.notes),
     provider,
     model,
@@ -368,6 +382,10 @@ function validateImage(image: ImageReference, optionId: string): void {
   if (image.dataUri) {
     if (!isDataUri(image.dataUri)) throw new Error(`Image data URI on option ${optionId} is malformed.`);
     if (image.dataUri.length > MAX_IMAGE_DATA_LENGTH) throw new Error(`Image data URI on option ${optionId} is too large.`);
+    const encoded = image.dataUri.slice(image.dataUri.indexOf(",") + 1).replace(/\s+/g, "");
+    if (!encoded || encoded.length % 4 === 1 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) {
+      throw new Error(`Image data URI on option ${optionId} contains invalid base64 data.`);
+    }
   }
   if (image.mimeType && !image.mimeType.startsWith("image/")) {
     throw new Error(`Image MIME type on option ${optionId} must start with image/.`);
@@ -394,6 +412,16 @@ export function validateReview(review: NormalizedReview): void {
   if (review.notes && review.notes.length > 20_000) throw new Error("notes is too long.");
   if (review.provider && review.provider.length > 100) throw new Error("provider is too long.");
   if (review.model && review.model.length > 200) throw new Error("model is too long.");
+  if (review.imagePrompt && review.imagePrompt.length > 20_000) throw new Error("imagePrompt is too long.");
+  if (review.generation) {
+    if (review.generation.prompt && review.generation.prompt.length > 20_000) throw new Error("generation.prompt is too long.");
+    if (review.generation.negativePrompt && review.generation.negativePrompt.length > 20_000) {
+      throw new Error("generation.negativePrompt is too long.");
+    }
+    if (review.generation.provider && review.generation.provider.length > 100) throw new Error("generation.provider is too long.");
+    if (review.generation.model && review.generation.model.length > 200) throw new Error("generation.model is too long.");
+    if (review.generation.size && review.generation.size.length > 100) throw new Error("generation.size is too long.");
+  }
 
   const stageIds = new Set<string>();
   for (const stage of review.stages) {
@@ -431,7 +459,10 @@ export function validateReview(review: NormalizedReview): void {
       if (option.image) validateImage(option.image, option.id);
     }
   }
+  const resetIds = new Set<string>();
   for (const id of review.resetStageIds) {
     if (!stageIds.has(id)) throw new Error(`Cannot reset unknown stage id: ${id}`);
+    if (resetIds.has(id)) throw new Error(`Duplicate reset stage id: ${id}`);
+    resetIds.add(id);
   }
 }

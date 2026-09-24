@@ -9,6 +9,8 @@ const OTHER_LABEL = "Type something.";
 const REVISION_LABEL = "Request revision";
 const SKIP_LABEL = "Skip stage";
 const DONE_LABEL = "Done selecting";
+const APPROVE_LABEL = "Approve review";
+const REJECT_LABEL = "Reject review";
 
 export function fallbackText(review: NormalizedReview, reason: FallbackReason): string {
   const lines = [
@@ -137,6 +139,7 @@ export async function runDialogReview(
       if (stage.allowOther) choices.push(OTHER_LABEL);
       if (!stage.required) choices.push(SKIP_LABEL);
       if (stage.allowRevision) choices.push(REVISION_LABEL);
+      choices.push(APPROVE_LABEL, REJECT_LABEL);
 
       const selected = await ctx.ui.select(selectTitle(stage, selectedLabels), choices, { signal: ctx.signal });
       if (selected === undefined) return cancelledResult(review, answers);
@@ -174,6 +177,34 @@ export async function runDialogReview(
         if (!feedback.trim()) continue;
         revisionFeedback = feedback.trim();
         continue;
+      }
+      if (selected === APPROVE_LABEL) {
+        if (review.stages.some((candidate) => candidate.required && !answers.has(candidate.id))) {
+          const missing = review.stages.find((candidate) => candidate.required && !answers.has(candidate.id));
+          if (missing) {
+            const retry = await ctx.ui.confirm(
+              "Review incomplete",
+              `Answer the required stage “${missing.header}” before approving. Continue reviewing?`,
+              { signal: ctx.signal },
+            );
+            if (retry === false) return cancelledResult(review, answers);
+          }
+          continue;
+        }
+        answers.delete(stage.id);
+        confirmed = true;
+        continue;
+      }
+      if (selected === REJECT_LABEL) {
+        return {
+          version: 1,
+          reviewId: review.reviewId,
+          round: review.round,
+          status: "rejected",
+          decision: "reject",
+          cancelled: false,
+          answers: [...answers.values()],
+        };
       }
 
       const option = findOption(stage, selected);
