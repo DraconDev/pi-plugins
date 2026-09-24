@@ -30,14 +30,19 @@ the currently selected model was filtered, Pi switches to that replacement.
 
 ## Version detection
 
-Models are grouped by provider plus the text around the rightmost contiguous
-numeric version token:
+Models are grouped by provider plus a normalized family key. Every recognized
+version expression is removed from that key and compared as an ordered
+semantic/date value. Plain, dotted, embedded (`qwen3.5`), explicitly marked
+(`M2.7`, `K2`, `o3`, `V4.1`), and compact (`M2P7`) forms are supported:
 
 | Model ID | Base | Version |
 |---|---|---|
 | `tool-2.0-flash` | `tool-flash` | `2.0` |
 | `tool-3.0-flash` | `tool-flash` | `3.0` |
 | `gpt-5.5` | `gpt` | `5.5` |
+| `MiniMax-M2.7` | `minimax` | `2.7` |
+| `kimi-k2.7-code` | `kimi-code` | `2.7` |
+| `qwen3.5-plus` | `qwen-plus` | `3.5` |
 | `claude-sonnet-4-5` | `claude-sonnet` | `4.5` |
 | `my-model` | — | never filtered |
 
@@ -49,10 +54,14 @@ would only compete with other `tool-*-pro` models.
 
 Date-bearing versions are handled conservatively. Semantic components are
 compared before checkpoint dates, so `4.5.20250929` correctly supersedes
-`4.20250514`. Semantic-only and date-coded aliases are kept in separate groups
-when their formats cannot be compared confidently.
+`4.20250514`. Yearless month/day aliases, semantic-only aliases, and full
+checkpoint dates remain separate when their formats cannot be compared
+confidently. Different marker families are also independent: DeepSeek R1 does
+not compete with DeepSeek V3.2, while MiniMax M2.7 does compete with M3.
 
-Models without a numeric version token are treated as singletons. The filter is
+Size-like suffixes (`8b`, `70b`, `120b`) remain part of the family and are never
+treated as versions. Models without a recognized version token are treated as
+singletons. The filter is
 additive only in the sense that it removes entries: it never edits model
 metadata, auth, streaming, or persistence behavior.
 
@@ -135,7 +144,8 @@ selection, cycling, configured scopes, and RPC model availability are filtered.
 npm test
 ```
 
-The unit suite covers version parsing, numeric comparison, same-family
-supersession, cross-family preservation (for example flash versus pro),
-ordering, keep rules, disabled pass-through, empty catalogs, and realistic
-provider identifiers.
+The unit suite covers plain/dotted/embedded/marked/compact versions,
+semantic-versus-date ordering, marker-family isolation, model sizes, same-family
+supersession, cross-family preservation, keep rules, disabled pass-through,
+and real catalog identifiers from MiniMax, Kimi, DeepSeek, Qwen, Bedrock,
+OpenRouter, and others.

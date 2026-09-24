@@ -62,6 +62,7 @@ export const DEFAULT_CONFIG: FilterConfig = { version: 1, disabled: false, keep:
 
 const PROVIDER_FILTER_MARKER = Symbol.for("pi-stale-model-filter/provider");
 const SCOPED_MODELS_BACKUP = Symbol.for("pi-stale-model-filter/scoped-backup");
+const SCOPED_MODELS_STATE = Symbol.for("pi-stale-model-filter/scoped-state");
 const RUNTIME_AVAILABILITY_STATE = Symbol.for("pi-stale-model-filter/runtime-state");
 
 function debugLog(message: string): void {
@@ -75,9 +76,10 @@ function debugLog(message: string): void {
 /**
  * Parse a model id into { base, version }.
  *
- * The version is the rightmost contiguous run of numeric or dotted-numeric
- * hyphen-separated segments. Everything else (qualifiers like "flash",
- * "pro", "coder" that come before or after the version) is part of the base.
+ * The parser normalizes every version expression in the id (for example
+ * 2.5, M2.7, K2, o3, V4.1, qwen3.5, or Fireworks' M2P7). Version tokens
+ * are removed from the family key; every remaining qualifier (size, mode,
+ * speed, region, batch/free suffix, and so on) must match exactly.
  *
  *   "tool-2.0-flash"      → base "tool-flash",     version "2.0"
  *   "tool-3.0-flash"      → base "tool-flash",     version "3.0"
@@ -85,69 +87,211 @@ function debugLog(message: string): void {
  *   "claude-sonnet-4-5"  → base "claude-sonnet",   version "4.5"
  *   "my-model"           → null
  *
- * A "numeric segment" is a plain integer ("4", "5") or a dotted number
- * ("2.0", "4.5"). We find the rightmost contiguous run of numeric
- * segments; that run becomes the version (joined with ".").
+ * Plain integers, dotted numbers, single-letter markers, and compact MxPy
+ * forms are recognized. Sizes such as 8b, 70b, and 120b are rejected as
+ * version tokens. Different marker families remain independent (R1 and V3.2,
+ * for example), while matching markers compare normally (M2.7 versus M3).
  */
+type VersionExpression = {
+  kind: "semantic" | "date";
+  values: number[];
+  partTexts: string[];
+  marked: boolean;
+  yearless: boolean;
+};
+
+type ModelVersionInfo = {
+  base: string;
+  version: string;
+  semantic: number[];
+  dateKeys: string[];
+  versionClass:
+    | "semantic"
+    | "semantic-date"
+    | "semantic-yearless-date"
+    | "date-only"
+    | "yearless-date-only";
+  markerKey: string;
+};
+
+function dateKey(values: number[], yearless: boolean): string {
+  if (yearless) {
+    return values.map((value) => String(value).padStart(2, "0")).join("");
+  }
+  return values
+    .map((value, index) =>
+      index === 0 ? String(value).padStart(4, "0") : String(value).padStart(2, "0"),
+    )
+    .join("");
+}
+
+function analyzeModelVersion(id: string): ModelVersionInfo | null {
+  const expressions: VersionExpression[] = [];
+  const baseSegments: string[] = [];
+  const markers: string[] = [];
+
+  for (const segment of id.split("-")) {
+    // Quantization labels such as q4_k_m/q5_k_m are immutable qualifiers,
+    // not model generations, even though q4/q5 look like marked versions.
+    if (/^q\d+(?:_[a-z0-9]+)*$/i.test(segment)) {
+      baseSegments.push(segment);
+      continue;
+    }
+
+    let baseSegment = "";
+    let cursor = 0;
+    const matches = segment.matchAll(
+      /\d+(?:\.\d+)*(?:[pP]\d+(?:\.\d+)*)?/g,
+    );
+
+    for (const match of matches) {
+      const raw = match[0];
+      const matchStart = match.index ?? cursor;
+      const after = segment[matchStart + raw.length] ?? "";
+      const before = segment[matchStart - 1] ?? "";
+      const prefix = segment.slice(0, matchStart);
+      const standaloneMarker =
+        prefix.length === 1 && /^[A-Za-z]$/.test(prefix) ? prefix : "";
+
+      // Sizes such as 8b, 70b, and 120b are qualifiers, not versions.
+      if (/[A-Za-z]/.test(after) && after.toLowerCase() !== "o") continue;
+      // The numeric deployment suffix in v1:0 is not an independent model
+      // version; v1 is already captured above.
+      if (!standaloneMarker && before === ":") continue;
+
+      const compact = /^(\d+(?:\.\d+)*)[pP](\d+(?:\.\d+)*)$/.exec(raw);
+      const numericText = compact ? compact[1] : raw;
+      const numericParts = numericText.split(".");
+      const values = compact
+        ? [
+            ...numericParts.map(Number),
+            ...compact[2].split(".").map(Number),
+          ]
+        : numericParts.map(Number);
+      const marked = Boolean(standaloneMarker || compact);
+      const kind: VersionExpression["kind"] =
+        !marked && numericParts.some((part) => part.length >= 4)
+          ? "date"
+          : "semantic";
+
+      const previous = expressions.at(-1);
+      if (
+        kind === "semantic" &&
+        !marked &&
+        previous?.kind === "date" &&
+        numericParts.every((part) => part.length <= 2)
+      ) {
+        previous.values.push(...values);
+      } else {
+        expressions.push({
+          kind,
+          values,
+          partTexts: numericParts,
+          marked,
+          yearless: false,
+        });
+      }
+      if (standaloneMarker) markers.push(standaloneMarker.toLowerCase());
+
+      baseSegment += segment.slice(cursor, matchStart - standaloneMarker.length);
+      cursor = matchStart + raw.length;
+    }
+    baseSegment += segment.slice(cursor);
+    baseSegments.push(baseSegment);
+  }
+
+  if (expressions.length === 0) return null;
+
+  // A leading-zero month/day pair following a semantic generation is a compact
+  // date suffix (for example qwen3.5-plus-02-15), not extra version numbers.
+  for (let index = 1; index < expressions.length - 1; index++) {
+    const month = expressions[index];
+    const day = expressions[index + 1];
+    if (
+      month.kind === "semantic" &&
+      !month.marked &&
+      day?.kind === "semantic" &&
+      !day.marked &&
+      month.values.length === 1 &&
+      day.values.length === 1 &&
+      month.partTexts[0]?.length === 2 &&
+      month.partTexts[0]?.startsWith("0") &&
+      day.partTexts[0]?.length === 2
+    ) {
+      expressions.splice(index, 2, {
+        kind: "date",
+        values: [...month.values, ...day.values],
+        partTexts: [month.partTexts[0], day.partTexts[0]],
+        marked: false,
+        yearless: true,
+      });
+    }
+  }
+
+  let base = baseSegments
+    .join("-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase();
+  if (!base) base = markers[0] ?? "version";
+
+  const semantic = expressions
+    .filter((expression) => expression.kind === "semantic")
+    .flatMap((expression) => expression.values);
+  const dateExpressions = expressions.filter(
+    (expression) => expression.kind === "date",
+  );
+  const dateKeys = dateExpressions.map((expression) =>
+    dateKey(expression.values, expression.yearless),
+  );
+  const hasDate = dateKeys.length > 0;
+  const hasYearlessDate = dateExpressions.some((expression) => expression.yearless);
+  const versionClass =
+    semantic.length > 0
+      ? hasDate
+        ? hasYearlessDate
+          ? "semantic-yearless-date"
+          : "semantic-date"
+        : "semantic"
+      : hasYearlessDate
+        ? "yearless-date-only"
+        : "date-only";
+  const semanticText = semantic.join(".");
+  const version = [semanticText, ...dateKeys].filter(Boolean).join("+");
+
+  const markerKey = [...new Set(markers)].sort().join("+");
+  return { base, version, semantic, dateKeys, versionClass, markerKey };
+}
+
 export function parseModelVersion(
   id: string,
 ): { base: string; version: string } | null {
-  const parts = id.split("-");
-  if (parts.length < 2) return null;
-
-  const isNumSeg = (s: string) =>
-    /^\d+$/.test(s) || /^\d+(\.\d+)+$/.test(s);
-
-  // Find the rightmost run of numeric segments.
-  let end = parts.length;
-  while (end > 0 && !isNumSeg(parts[end - 1])) end--;
-  if (end === 0) return null;
-
-  let start = end;
-  while (start > 0 && isNumSeg(parts[start - 1])) start--;
-
-  const base = [...parts.slice(0, start), ...parts.slice(end)].join("-");
-  if (!base) return null;
-  const version = parts.slice(start, end).join(".");
-  return { base, version };
+  const info = analyzeModelVersion(id);
+  return info ? { base: info.base, version: info.version } : null;
 }
 
-type ComparableVersion = {
-  semantic: number[];
-  date: string[] | null;
-};
-
-function versionParts(version: string): ComparableVersion {
-  const raw = version.split(".");
-  const parts = raw.map((part) => Number(part) || 0);
-  let dateStart = raw.findIndex(
-    (part, index) => index > 0 && part.length >= 4,
-  );
-  if (dateStart === -1 && raw[0].length >= 4) dateStart = 0;
-  return {
-    semantic: dateStart < 0 ? parts : parts.slice(0, dateStart),
-    date: dateStart < 0 ? null : raw.slice(dateStart),
-  };
-}
-
-function versionClass(version: string): string {
-  return versionParts(version).date ? "dated" : "semantic";
-}
-
-/** Compare semantic components first, then an optional date suffix. */
-export function compareVersions(a: string, b: string): number {
-  const pa = versionParts(a);
-  const pb = versionParts(b);
-  const semanticLength = Math.max(pa.semantic.length, pb.semantic.length);
-  for (let i = 0; i < semanticLength; i++) {
-    const va = pa.semantic[i] ?? 0;
-    const vb = pb.semantic[i] ?? 0;
-    if (va !== vb) return va < vb ? -1 : 1;
+function compareModelVersionInfo(
+  a: ModelVersionInfo,
+  b: ModelVersionInfo,
+): number {
+  const semanticLength = Math.max(a.semantic.length, b.semantic.length);
+  for (let index = 0; index < semanticLength; index++) {
+    const av = a.semantic[index] ?? 0;
+    const bv = b.semantic[index] ?? 0;
+    if (av !== bv) return av < bv ? -1 : 1;
   }
-  const da = pa.date ? Number(pa.date.join("")) : -1;
-  const db = pb.date ? Number(pb.date.join("")) : -1;
-  if (da === db) return 0;
-  return da < db ? -1 : 1;
+
+  const dateLength = Math.max(a.dateKeys.length, b.dateKeys.length);
+  for (let index = 0; index < dateLength; index++) {
+    const av = a.dateKeys[index] ?? "";
+    const bv = b.dateKeys[index] ?? "";
+    if (av === bv) continue;
+    const width = Math.max(av.length, bv.length);
+    const ap = av.padEnd(width, "0");
+    const bp = bv.padEnd(width, "0");
+    return ap < bp ? -1 : 1;
+  }
+  return 0;
 }
 
 /**
@@ -171,32 +315,35 @@ export function filterSuperseded<T extends { id: string }>(
   interface Group {
     key: string;
     winner: T;
-    winnerVersion: string | null;
+    winnerVersion: ModelVersionInfo | null;
     members: T[];
   }
 
   const groups = new Map<string, Group>();
 
   for (const m of models) {
-    const pv = parseModelVersion(m.id);
-    // Use the provider-qualified key so same-named models from different
-    // providers never compete.
+    const pv = analyzeModelVersion(m.id);
+    // Use the provider-qualified normalized family so same-named models from
+    // different providers never compete.
     const groupKey = pv
-      ? `${provider}:${pv.base}:${versionClass(pv.version)}`
+      ? `${provider}:${pv.base}:${pv.versionClass}:${pv.markerKey}`
       : `${provider}:${m.id}::__singleton__`;
 
     let g = groups.get(groupKey);
     if (!g) {
-      g = { key: groupKey, winner: m, winnerVersion: pv?.version ?? null, members: [] };
+      g = { key: groupKey, winner: m, winnerVersion: pv, members: [] };
       groups.set(groupKey, g);
     }
     g.members.push(m);
 
     if (pv) {
-      const cmp = g.winnerVersion === null ? 1 : compareVersions(pv.version, g.winnerVersion);
+      const cmp =
+        g.winnerVersion === null
+          ? 1
+          : compareModelVersionInfo(pv, g.winnerVersion);
       if (cmp > 0) {
         g.winner = m;
-        g.winnerVersion = pv.version;
+        g.winnerVersion = pv;
       }
     }
   }
@@ -325,9 +472,54 @@ type ScopedModelEntry = {
   thinkingLevel?: string;
 };
 
+type ScopedModelState = {
+  authoritative: ScopedModelEntry[];
+  projection: ScopedModelEntry[] | null;
+};
+
 type ScopedModelList = ScopedModelEntry[] & {
   [SCOPED_MODELS_BACKUP]?: ScopedModelEntry[];
+  [SCOPED_MODELS_STATE]?: ScopedModelState;
 };
+
+function cloneScope(entries: readonly ScopedModelEntry[]): ScopedModelEntry[] {
+  return entries.map((entry) => ({ ...entry, model: { ...entry.model } }));
+}
+
+function scopeSignature(entries: readonly ScopedModelEntry[]): string {
+  return entries
+    .map(
+      (entry) =>
+        `${modelKey(entry.model)}\0${entry.thinkingLevel ?? ""}`,
+    )
+    .join("\u0001");
+}
+
+function readScopeState(scoped: ScopedModelList): ScopedModelState {
+  let state = scoped[SCOPED_MODELS_STATE];
+  if (!state) {
+    const legacyBackup = scoped[SCOPED_MODELS_BACKUP];
+    state = {
+      authoritative: cloneScope(legacyBackup ?? scoped),
+      projection: null,
+    };
+    Object.defineProperty(scoped, SCOPED_MODELS_STATE, {
+      value: state,
+      configurable: true,
+    });
+  }
+
+  // A user scope change replaces or mutates the live list. Once it differs
+  // from the last projection, treat the user's current list as authoritative
+  // instead of restoring an obsolete startup snapshot.
+  if (
+    state.projection &&
+    scopeSignature(scoped) !== scopeSignature(state.projection)
+  ) {
+    state.authoritative = cloneScope(scoped);
+  }
+  return state;
+}
 
 function modelKey(model: { provider: string; id: string }): string {
   return `${model.provider}\0${model.id}`;
@@ -337,53 +529,46 @@ function findLatestReplacement(
   current: { provider: string; id: string },
   available: readonly Model<Api>[],
 ): Model<Api> | undefined {
-  const parsed = parseModelVersion(current.id);
+  const parsed = analyzeModelVersion(current.id);
   if (!parsed) return undefined;
 
   let winner: Model<Api> | undefined;
-  let winnerVersion: string | undefined;
+  let winnerVersion: ModelVersionInfo | undefined;
   for (const candidate of available) {
     if (candidate.provider !== current.provider) continue;
-    const candidateVersion = parseModelVersion(candidate.id);
+    const candidateVersion = analyzeModelVersion(candidate.id);
     if (!candidateVersion || candidateVersion.base !== parsed.base) continue;
-    if (versionClass(candidateVersion.version) !== versionClass(parsed.version)) {
+    if (
+      candidateVersion.versionClass !== parsed.versionClass ||
+      candidateVersion.markerKey !== parsed.markerKey
+    ) {
       continue;
     }
-    if (compareVersions(candidateVersion.version, parsed.version) <= 0) continue;
-    if (!winnerVersion || compareVersions(candidateVersion.version, winnerVersion) > 0) {
+    if (compareModelVersionInfo(candidateVersion, parsed) <= 0) continue;
+    if (
+      !winnerVersion ||
+      compareModelVersionInfo(candidateVersion, winnerVersion) > 0
+    ) {
       winner = candidate;
-      winnerVersion = candidateVersion.version;
+      winnerVersion = candidateVersion;
     }
   }
   return winner;
 }
 
 /**
- * Pi resolves --models before session_start, so its scoped list can still
- * contain entries removed from the available snapshot. Keep a private backup
- * and update the live list in place; otherwise the scoped branch of /model
- * would bypass the provider filter.
+ * Project the current user scope through the availability filter. The state
+ * symbol lets us distinguish our own last projection from a later user scope
+ * change, so status/inspect/config commands cannot restore an obsolete scope.
  */
-function syncScopedModels(ctx: any, disabled: boolean): void {
+export function syncScopedModels(ctx: any, disabled: boolean): void {
   const scoped = ctx.scopedModels as ScopedModelList | undefined;
   if (!scoped) return;
 
-  let fullScope = scoped[SCOPED_MODELS_BACKUP];
-  if (!Array.isArray(fullScope)) {
-    fullScope = [...scoped];
-    try {
-      Object.defineProperty(scoped, SCOPED_MODELS_BACKUP, {
-        value: fullScope,
-        enumerable: false,
-      });
-    } catch {
-      // A live scope is normally mutable; if pi ever freezes it, the
-      // available-model snapshot still protects the all-models selector.
-    }
-  }
-
+  const state = readScopeState(scoped);
   if (disabled) {
-    scoped.splice(0, scoped.length, ...fullScope);
+    scoped.splice(0, scoped.length, ...state.authoritative);
+    state.projection = cloneScope(scoped);
     return;
   }
 
@@ -391,7 +576,7 @@ function syncScopedModels(ctx: any, disabled: boolean): void {
   const availableByKey = new Map(available.map((model) => [modelKey(model), model]));
   const next: ScopedModelEntry[] = [];
   const included = new Set<string>();
-  for (const entry of fullScope) {
+  for (const entry of state.authoritative) {
     const originalModel = entry.model;
     const model =
       availableByKey.get(modelKey(originalModel)) ??
@@ -403,6 +588,7 @@ function syncScopedModels(ctx: any, disabled: boolean): void {
     next.push({ ...entry, model });
   }
   scoped.splice(0, scoped.length, ...next);
+  state.projection = cloneScope(scoped);
 }
 
 async function useLatestIfCurrentIsFiltered(
@@ -667,7 +853,7 @@ export default function (pi: ExtensionAPI) {
             ? "Version filtering is disabled."
             : `Hiding ${stats.hidden} catalog ${stats.hidden === 1 ? "entry" : "entries"} across ${stats.providers} providers.`;
           notify([
-            `Stale-model filter v0.2.6: ${cfg.disabled ? "DISABLED" : "active"}`,
+            `Stale-model filter v0.3.0: ${cfg.disabled ? "DISABLED" : "active"}`,
             `Runtime safety net: ${runtimeFilterInstalled ? "active" : "unavailable"}`,
             `Available now: ${available.length} models across ${availableProviders} providers.`,
             `Hidden by provider: ${providerSummary}`,

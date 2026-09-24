@@ -1,6 +1,6 @@
 {
   "name": "pi-stale-model-filter",
-  "version": "0.2.6",
+  "version": "0.3.0",
   "type": "module",
   "description": "Hide superseded model versions across Pi model pickers, cycling, and configured scopes",
   "scripts": {
