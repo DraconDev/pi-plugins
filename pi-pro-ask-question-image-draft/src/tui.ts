@@ -170,6 +170,7 @@ export class VisualReviewWizard implements Component {
   private readonly cwd: string;
   private readonly signal?: AbortSignal;
   private readonly answers = new Map<string, ReviewAnswer>();
+  private readonly skippedStageIds = new Set<string>();
   /** Per-stage selection state is updated by Space/Enter before a multi-select stage is confirmed. */
   private readonly selections = new Map<string, Set<string>>();
   private readonly loadedImages = new Map<string, LoadedOption>();
@@ -192,6 +193,7 @@ export class VisualReviewWizard implements Component {
     done: (result: ReviewResult) => void,
     initialAnswers: readonly ReviewAnswer[] = [],
     signal?: AbortSignal,
+    initialSkippedStageIds: readonly string[] = [],
   ) {
     this.review = review;
     this.theme = theme;
@@ -205,7 +207,7 @@ export class VisualReviewWizard implements Component {
 
     for (const [stageIndex, stage] of review.stages.entries()) {
       const answer = initialAnswers.find((candidate) => candidate.stageId === stage.id);
-      if (answer) {
+      if (answer && isStageAnswered(stage, stageIndex, answer)) {
         const resumedAnswer: ReviewAnswer = { ...answer, stageId: stage.id, stageIndex };
         this.answers.set(stage.id, resumedAnswer);
         this.selections.set(
@@ -217,9 +219,14 @@ export class VisualReviewWizard implements Component {
       } else {
         this.selections.set(stage.id, new Set());
       }
+      if (!stage.required && initialSkippedStageIds.includes(stage.id) && !this.answers.has(stage.id)) {
+        this.skippedStageIds.add(stage.id);
+      }
     }
 
     this.imageMode = canRenderImages() && review.stages.some((stage) => stage.options.some((option) => option.image));
+    if (this.signal?.aborted) this.onAbort();
+    else this.signal?.addEventListener("abort", this.onAbort, { once: true });
     void loadOptionImages(review, cwd, signal).then((loaded) => {
       if (this.disposed) return;
       this.loadedImages.clear();
@@ -230,7 +237,15 @@ export class VisualReviewWizard implements Component {
 
   dispose(): void {
     this.disposed = true;
+    this.signal?.removeEventListener("abort", this.onAbort);
+    this.editor.setText("");
+    this.editor.focused = false;
   }
+
+  private readonly onAbort = (): void => {
+    if (this.finished) return;
+    this.finish(resultFor(this.review, "cancel", this.answers, this.skippedStageIds));
+  };
 
   invalidate(): void {
     this.cachedWidth = -1;
@@ -282,7 +297,7 @@ export class VisualReviewWizard implements Component {
       return;
     }
     if (matchesKey(data, Key.escape)) {
-      this.finish(resultFor(this.review, "cancel", this.answers));
+      this.finish(resultFor(this.review, "cancel", this.answers, this.skippedStageIds));
       return;
     }
 
@@ -290,25 +305,26 @@ export class VisualReviewWizard implements Component {
     if (!row) return;
     if (row.kind === "approve") {
       if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
-        const missing = this.review.stages.find((candidate) => candidate.required && !this.answers.has(candidate.id));
+        const missing = unresolvedStages(this.review, this.answers, [...this.skippedStageIds])[0];
         if (missing) {
           this.stageIndex = this.review.stages.indexOf(missing);
           this.selectedIndex = 0;
           this.invalidate();
           return;
         }
-        this.finish(resultFor(this.review, "approve", this.answers));
+        this.finish(resultFor(this.review, "approve", this.answers, this.skippedStageIds));
       }
       return;
     }
     if (row.kind === "reject") {
-      if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) this.finish(resultFor(this.review, "reject", this.answers));
+      if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) this.finish(resultFor(this.review, "reject", this.answers, this.skippedStageIds));
       return;
     }
       if (row.kind === "other" || row.kind === "revision" || row.kind === "skip") {
       if (!matchesKey(data, Key.enter) && !matchesKey(data, Key.space)) return;
       if (row.kind === "skip") {
         this.answers.delete(stage.id);
+        this.skippedStageIds.add(stage.id);
         this.advanceAfterAnswer();
         return;
       }
@@ -493,7 +509,7 @@ export class VisualReviewWizard implements Component {
         feedback: text,
         requestedRound: this.review.round + 1,
       };
-      this.finish(resultFor(this.review, "revision", this.answers, revision));
+      this.finish(resultFor(this.review, "revision", this.answers, this.skippedStageIds, revision));
       return;
     }
     if (!text) {
