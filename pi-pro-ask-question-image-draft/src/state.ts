@@ -93,8 +93,10 @@ function answerIsValid(answer: ReviewAnswer, stage: NormalizedStage, index: numb
   if (answer.stageIndex < 0) return false;
 
   if (answer.kind === "custom") {
-    const text = answer.customText?.trim() || answer.answer?.trim();
-    return Boolean(text) && stage.allowOther && answer.answer === text && answer.customText === text && answer.optionIds === undefined && answer.optionLabels === undefined && answer.optionValues === undefined;
+    const answerText = typeof answer.answer === "string" ? answer.answer.trim() : undefined;
+    const customText = answer.customText?.trim();
+    const text = customText || answerText;
+    return Boolean(text) && stage.allowOther && answerText === text && customText === text && answer.optionIds === undefined && answer.optionLabels === undefined && answer.optionValues === undefined;
   }
 
   // Option answers are always rendered as a non-empty label. Keeping this
@@ -355,7 +357,10 @@ function assertValidAnswerSet(
   const entries = answers instanceof Map
     ? [...answers.entries()]
     : (answers as readonly ReviewAnswer[]).map((answer) => [answer.stageId, answer] as const);
+  const seen = new Set<string>();
   for (const [stageId, answer] of entries) {
+    if (seen.has(stageId)) throw new Error(`Duplicate answer for stage id: ${stageId}`);
+    seen.add(stageId);
     const index = review.stages.findIndex((stage) => stage.id === stageId);
     if (index < 0) throw new Error(`Answer refers to an unknown stage id: ${stageId}`);
     if (!answer || typeof answer !== "object" || !isAnswerShape(answer) || !answerIsValid(answer, review.stages[index], index, true)) {
@@ -411,6 +416,7 @@ export function makeReviewResult(
   revision?: ReviewRevision,
   skippedStageIds: readonly string[] = [],
 ): ReviewResult {
+  assertValidAnswerSet(review, answers);
   const skipped = normalizeSkippedStageIds(review, skippedStageIds, answers);
   const ordered = orderedAnswers(review, answers);
   if (decision === "approve" && unresolvedStages(review, answers, skipped).length > 0) {

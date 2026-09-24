@@ -5,6 +5,7 @@ import {
   makeCustomAnswer,
   makeOptionAnswer,
   makeReviewResult,
+  missingRequiredStages,
   type ReviewAnswer,
   type ReviewResult,
   type ReviewRevision,
@@ -122,7 +123,10 @@ export async function runDialogReview(
   review: NormalizedReview,
   initialAnswers: readonly ReviewAnswer[] = [],
 ): Promise<ReviewResult> {
-  const answers = new Map(initialAnswers.map((answer) => [answer.stageId, { ...answer }]));
+  const answers = new Map<string, ReviewAnswer>();
+  for (const answer of initialAnswers) {
+    if (!answers.has(answer.stageId)) answers.set(answer.stageId, { ...answer, optionIds: answer.optionIds ? [...answer.optionIds] : undefined, optionLabels: answer.optionLabels ? [...answer.optionLabels] : undefined, optionValues: answer.optionValues ? [...answer.optionValues] : undefined });
+  }
 
   for (const [stageIndex, stage] of review.stages.entries()) {
     const previous = answers.get(stage.id);
@@ -191,14 +195,14 @@ export async function runDialogReview(
         continue;
       }
       if (selected === APPROVE_LABEL) {
-        const missing = review.stages.find((candidate, index) => {
-          const answer = answers.get(candidate.id);
-          return candidate.required && !answer;
-        });
+        const missingStage = missingRequiredStages(review, answers)[0];
+        const missing = missingStage
+          ? `Answer the required stage “${missingStage.header}” before approving. Continue reviewing?`
+          : "Optional stages are still unresolved. Answer or explicitly skip each optional stage before approving. Continue reviewing?";
         if (missing) {
           const retry = await ctx.ui.confirm(
             "Review incomplete",
-            `Answer the required stage “${missing.header}” before approving. Continue reviewing?`,
+            missing,
             { signal: ctx.signal },
           );
           if (retry === false) return cancelledResult(review, answers);
@@ -235,5 +239,6 @@ export async function runDialogReview(
   // Every required stage has been answered at this point. Keep the final
   // confirmation explicit so the portable path has the same approval boundary.
   const approved = await ctx.ui.confirm("Visual review", "Approve these answers and continue?", { signal: ctx.signal });
-  return makeReviewResult(review, approved ? "approve" : "reject", answers);
+  if (!approved) return makeReviewResult(review, "reject", answers);
+  return makeReviewResult(review, "approve", answers);
 }
