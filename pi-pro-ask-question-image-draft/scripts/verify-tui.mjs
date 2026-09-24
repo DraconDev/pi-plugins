@@ -51,6 +51,7 @@ try {
   assert.equal(result?.status, "completed");
   assert.deepEqual(result?.answers.map((answer) => answer.stageId), ["single", "multi"]);
   assert.deepEqual(result?.skippedStageIds, ["optional"]);
+  assert.match(buildResponse(result, review).content[0].text, /User has answered/);
   wizard.dispose();
   assert.equal(renders > 0, true);
 
@@ -133,6 +134,7 @@ try {
   controller.abort();
   assert.equal(abortResult?.status, "cancelled");
   assert.equal(abortResult?.cancelled, true);
+  assert.match(buildResponse(abortResult, abortReview).content[0].text, /User declined to answer questions/);
   abortWizard.dispose();
 
   console.log(JSON.stringify({
