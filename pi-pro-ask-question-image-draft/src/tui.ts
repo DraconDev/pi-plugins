@@ -6,11 +6,8 @@ import {
   Key,
   type Component,
   type EditorTheme,
-  type MarkdownTheme,
   Markdown,
   matchesKey,
-  SelectList,
-  type SelectListTheme,
   Text,
   type TUI,
   wrapTextWithAnsi,
@@ -24,6 +21,7 @@ import {
   type ReviewAnswer,
   type ReviewResult,
   type ReviewRevision,
+  selectedOptions,
 } from "./state.ts";
 
 interface LoadedOption {
@@ -34,34 +32,29 @@ interface LoadedOption {
 type Row =
   | { kind: "option"; option: NormalizedOption }
   | { kind: "other" }
-  | { kind: "revision" }
-  | { kind: "submit" };
+  | { kind: "revision" };
 
 export interface VisualReviewWizardOptions {
   review: NormalizedReview;
   cwd: string;
-  initialAnswers?: ReviewAnswer[];
+  initialAnswers?: readonly ReviewAnswer[];
   signal?: AbortSignal;
 }
 
 const OTHER_LABEL = "Type something.";
 const REVISION_LABEL = "Request revision";
-const SUBMIT_LABEL = "Review & approve";
-
-function selectTheme(theme: Theme): SelectListTheme {
-  return {
-    selectedPrefix: (text) => theme.fg("accent", text),
-    selectedText: (text) => theme.fg("accent", text),
-    description: (text) => theme.fg("muted", text),
-    scrollInfo: (text) => theme.fg("dim", text),
-    noMatch: (text) => theme.fg("warning", text),
-  };
-}
+const DONE_LABEL = "Done selecting";
 
 function editorTheme(theme: Theme): EditorTheme {
   return {
     borderColor: (text) => theme.fg("accent", text),
-    selectList: selectTheme(theme),
+    selectList: {
+      selectedPrefix: (text) => theme.fg("accent", text),
+      selectedText: (text) => theme.fg("accent", text),
+      description: (text) => theme.fg("muted", text),
+      scrollInfo: (text) => theme.fg("dim", text),
+      noMatch: (text) => theme.fg("warning", text),
+    },
   };
 }
 
@@ -73,24 +66,14 @@ function rowsForStage(stage: NormalizedStage): Row[] {
 }
 
 function rowLabel(row: Row): string {
-  switch (row.kind) {
-    case "option":
-      return row.option.label;
-    case "other":
-      return OTHER_LABEL;
-    case "revision":
-      return REVISION_LABEL;
-    case "submit":
-      return SUBMIT_LABEL;
-  }
+  if (row.kind === "option") return row.option.label;
+  return row.kind === "other" ? OTHER_LABEL : REVISION_LABEL;
 }
 
 function rowDescription(row: Row): string | undefined {
-  return row.kind === "option" ? row.option.description : row.kind === "revision" ? "Describe changes, then return to the model for regeneration" : undefined;
-}
-
-function answerForStage(answers: Map<string, ReviewAnswer>, stage: NormalizedStage): ReviewAnswer | undefined {
-  return answers.get(stage.id);
+  if (row.kind === "option") return row.option.description;
+  if (row.kind === "revision") return "Describe changes, then return to the model for regeneration";
+  return "Enter a custom response";
 }
 
 function errorMessage(error: unknown): string {
@@ -107,7 +90,7 @@ async function loadOptionImages(review: NormalizedReview, cwd: string, signal?: 
         try {
           loaded.set(key, { image: await loadImage(option.image, cwd, signal) });
         } catch (error) {
-          loaded.set(key, { error: errorMessage(error) });
+          if (!signal?.aborted) loaded.set(key, { error: errorMessage(error) });
         }
       }),
     ),
@@ -115,39 +98,61 @@ async function loadOptionImages(review: NormalizedReview, cwd: string, signal?: 
   return loaded;
 }
 
-function imageLines(image: LoadedImage, theme: Theme, width: number, maxHeight = 18): string[] {
-  const component = new Image(image.base64, image.mimeType, { fallbackColor: (text) => theme.fg("muted", text) }, {
-    maxWidthCells: Math.max(1, width - 2),
-    maxHeightCells: maxHeight,
-    filename: image.filename,
-  }, image.dimensions);
+function imageLines(image: LoadedImage, theme: Theme, width: number, maxHeight = 16): string[] {
+  const component = new Image(
+    image.base64,
+    image.mimeType,
+    { fallbackColor: (text) => theme.fg("muted", text) },
+    {
+      maxWidthCells: Math.max(1, width - 2),
+      maxHeightCells: maxHeight,
+      filename: image.filename,
+    },
+    image.dimensions,
+  );
   return component.render(Math.max(1, width));
 }
 
-/** Small text-only preview used when inline images are unavailable or loading failed. */
-function fallbackPreview(option: NormalizedOption, loaded: LoadedOption | undefined, theme: Theme): string[] {
+/** Readable text fallback used when inline images are unavailable, loading, or failed. */
+function fallbackPreview(option: NormalizedOption, loaded: LoadedOption | undefined, theme: Theme, width: number): string[] {
   const lines: string[] = [];
   const source = option.image?.path ?? option.image?.url;
   if (source) {
-    lines.push(theme.fg("muted", loaded?.error ? `Image unavailable: ${loaded.error}` : `Image: ${imageFileLink(source)}`));
+    const label = loaded?.error ? `Image unavailable: ${loaded.error}` : `Image: ${imageFileLink(source)}`;
+    lines.push(...wrapTextWithAnsi(theme.fg("muted", label), width));
   }
-  if (option.preview) lines.push(...wrapTextWithAnsi(option.preview, 72));
+  if (option.image?.alt) lines.push(...wrapTextWithAnsi(theme.fg("dim", `Alt: ${option.image.alt}`), width));
+  if (option.preview) lines.push(...wrapTextWithAnsi(option.preview, width));
   if (!source && !option.preview) lines.push(theme.fg("dim", "No inline preview supplied."));
   return lines;
+}
+
+function resultFor(review: NormalizedReview, decision: "approve" | "reject" | "cancel" | "revision", answers: Map<string, ReviewAnswer>, revision?: ReviewRevision): ReviewResult {
+  const status = decision === "approve" ? "completed" : decision === "reject" ? "rejected" : decision === "cancel" ? "cancelled" : "revision";
+  return {
+    version: 1,
+    reviewId: review.reviewId,
+    round: review.round,
+    status,
+    decision,
+    cancelled: decision === "cancel",
+    answers: [...answers.values()],
+    ...(revision ? { revision } : {}),
+  };
 }
 
 export class VisualReviewWizard implements Component {
   private readonly review: NormalizedReview;
   private readonly theme: Theme;
-  private readonly tui: TUI;
   private readonly requestRender: () => void;
   private readonly done: (result: ReviewResult) => void;
   private readonly cwd: string;
   private readonly signal?: AbortSignal;
-  private readonly answers: Map<string, ReviewAnswer>;
+  private readonly answers = new Map<string, ReviewAnswer>();
+  /** Per-stage selection state is updated by Space/Enter before a multi-select stage is confirmed. */
+  private readonly selections = new Map<string, Set<string>>();
   private readonly loadedImages = new Map<string, LoadedOption>();
   private readonly editor: Editor;
-  private readonly editorTheme: EditorTheme;
   private readonly imageMode: boolean;
   private stageIndex = 0;
   private selectedIndex = 0;
@@ -156,6 +161,7 @@ export class VisualReviewWizard implements Component {
   private cachedWidth = -1;
   private cachedLines: string[] | undefined;
   private disposed = false;
+  private finished = false;
 
   constructor(
     tui: TUI,
@@ -163,22 +169,35 @@ export class VisualReviewWizard implements Component {
     review: NormalizedReview,
     cwd: string,
     done: (result: ReviewResult) => void,
-    initialAnswers: ReviewAnswer[] = [],
+    initialAnswers: readonly ReviewAnswer[] = [],
     signal?: AbortSignal,
   ) {
-    this.tui = tui;
-    this.theme = theme;
     this.review = review;
+    this.theme = theme;
     this.cwd = cwd;
     this.done = done;
     this.signal = signal;
     this.requestRender = () => tui.requestRender();
-    this.answers = new Map(initialAnswers.map((answer) => [answer.stageId, answer]));
-    this.editorTheme = editorTheme(theme);
-    this.editor = new Editor(tui, this.editorTheme);
+    this.editor = new Editor(tui, editorTheme(theme));
     this.editor.focused = true;
-    this.imageMode = canRenderImages() && review.stages.some((stage) => stage.options.some((option) => option.image));
     this.editor.onSubmit = (value) => this.submitEditor(value);
+
+    for (const [stageIndex, stage] of review.stages.entries()) {
+      const answer = initialAnswers.find((candidate) => candidate.stageId === stage.id);
+      if (answer) this.answers.set(stage.id, { ...answer });
+      if (stage.multiSelect && answer?.kind === "multi" && answer.optionIds) {
+        this.selections.set(stage.id, new Set(answer.optionIds));
+      } else {
+        this.selections.set(stage.id, new Set());
+      }
+      if (answer?.stageIndex !== stageIndex) {
+        // A resumed state may have been normalized against a reordered schema. The
+        // persisted stage id remains authoritative; repair only the display index.
+        this.answers.set(stage.id, { ...answer, stageIndex } as ReviewAnswer);
+      }
+    }
+
+    this.imageMode = canRenderImages() && review.stages.some((stage) => stage.options.some((option) => option.image));
     void loadOptionImages(review, cwd, signal).then((loaded) => {
       if (this.disposed) return;
       this.loadedImages.clear();
@@ -199,7 +218,8 @@ export class VisualReviewWizard implements Component {
   }
 
   handleInput(data: string): void {
-    if (this.disposed) return;
+    if (this.disposed || this.finished || this.signal?.aborted) return;
+
     if (this.inputMode !== "none") {
       if (matchesKey(data, Key.escape)) {
         this.inputMode = "none";
@@ -211,16 +231,19 @@ export class VisualReviewWizard implements Component {
       this.invalidate();
       return;
     }
+
     const stage = this.review.stages[this.stageIndex];
     if (!stage) return;
     const rows = rowsForStage(stage);
+    if (!rows.length) return;
+
     if (matchesKey(data, Key.up)) {
-      this.selectedIndex = (this.selectedIndex - 1 + rows.length) % rows.length;
+      this.selectedIndex = Math.max(0, this.selectedIndex - 1);
       this.invalidate();
       return;
     }
     if (matchesKey(data, Key.down)) {
-      this.selectedIndex = (this.selectedIndex + 1) % rows.length;
+      this.selectedIndex = Math.min(rows.length - 1, this.selectedIndex + 1);
       this.invalidate();
       return;
     }
@@ -237,10 +260,10 @@ export class VisualReviewWizard implements Component {
       return;
     }
     if (matchesKey(data, Key.escape)) {
-      this.done({ version: 1, reviewId: this.review.reviewId, round: this.review.round, status: "cancelled", decision: "cancel", cancelled: true, answers: [...this.answers.values()] });
+      this.finish(resultFor(this.review, "cancel", this.answers));
       return;
     }
-    if (!matchesKey(data, Key.enter)) return;
+
     const row = rows[this.selectedIndex];
     if (!row) return;
     if (row.kind === "other") {
@@ -258,9 +281,26 @@ export class VisualReviewWizard implements Component {
       return;
     }
     if (row.kind !== "option") return;
-    const answer = makeOptionAnswer(stage, this.stageIndex, [row.option]);
-    this.answers.set(stage.id, answer);
-    this.advanceAfterAnswer();
+
+    if (stage.multiSelect) {
+      const selected = this.selection(stage.id);
+      if (selected.has(row.option.id)) selected.delete(row.option.id);
+      else selected.add(row.option.id);
+      this.invalidate();
+      if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
+        if (selected.size > 0) {
+          const options = stage.options.filter((option) => selected.has(option.id));
+          this.answers.set(stage.id, makeOptionAnswer(stage, this.stageIndex, options));
+          this.advanceAfterAnswer();
+        }
+      }
+      return;
+    }
+
+    if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
+      this.answers.set(stage.id, makeOptionAnswer(stage, this.stageIndex, [row.option]));
+      this.advanceAfterAnswer();
+    }
   }
 
   render(width: number): string[] {
@@ -269,59 +309,59 @@ export class VisualReviewWizard implements Component {
     const stage = this.review.stages[this.stageIndex];
     if (!stage) return [];
     const lines: string[] = [];
-    const add = (text = "") => lines.push(text);
-    const addWrapped = (text: string, indent = 0) => {
-      const prefix = " ".repeat(indent);
-      const wrapped = wrapTextWithAnsi(text, Math.max(1, safeWidth - indent));
-      for (const [index, line] of wrapped.entries()) lines.push(`${index === 0 ? prefix : prefix}${line}`);
-    };
     const border = (text: string) => this.theme.fg("borderAccent", text);
-    add(border("─".repeat(safeWidth)));
+    const addWrapped = (text: string, indent = 1) => {
+      const wrapped = wrapTextWithAnsi(text, Math.max(1, safeWidth - indent));
+      for (const line of wrapped) lines.push(`${" ".repeat(indent)}${line}`);
+    };
+
+    lines.push(border("─".repeat(safeWidth)));
     const title = this.review.title ?? "Visual review";
-    add(this.theme.fg("accent", this.theme.bold(`${title}  (round ${this.review.round})`)));
-    add("");
+    lines.push(this.theme.fg("accent", this.theme.bold(`${title}  (round ${this.review.round})`)));
+    lines.push("");
     const tabs = this.review.stages.map((item, index) => {
       const active = index === this.stageIndex;
       const answered = this.answers.has(item.id);
-      const marker = answered ? "✓" : "□";
-      const raw = ` ${marker} ${item.header} `;
+      const raw = ` ${answered ? "✓" : "□"} ${item.header} `;
       return active ? this.theme.bg("selectedBg", this.theme.fg("text", raw)) : this.theme.fg(answered ? "success" : "muted", raw);
     });
-    add(` ${tabs.join(" ")} `);
-    add("");
-    addWrapped(this.theme.fg("text", stage.prompt), 1);
+    lines.push(` ${tabs.join(" ")} `);
+    lines.push("");
+    addWrapped(stage.prompt);
     if (stage.description) {
-      add("");
-      addWrapped(this.theme.fg("muted", stage.description), 1);
+      lines.push("");
+      addWrapped(this.theme.fg("muted", stage.description));
     }
-    add("");
+    lines.push("");
 
     if (this.inputMode !== "none") {
-      const prompt = this.inputMode === "revision" ? "Describe the revision you want:" : "Type your answer:";
-      add(this.theme.fg("accent", prompt));
-      add("");
+      lines.push(this.theme.fg("accent", this.inputMode === "revision" ? "Describe the revision you want:" : "Type your answer:"));
+      lines.push("");
       for (const line of this.editor.render(Math.max(1, safeWidth - 4))) lines.push(`  ${line}`);
-      add("");
-      add(this.theme.fg("dim", "Enter to submit • Esc to cancel"));
+      lines.push("");
+      lines.push(this.theme.fg("dim", "Enter to submit • Esc to go back"));
     } else {
       const rows = rowsForStage(stage);
-      const leftWidth = this.imageMode && safeWidth >= 80 ? Math.min(34, Math.max(24, Math.floor(safeWidth * 0.3))) : safeWidth - 2;
-      const list = new SelectList(
-        rows.map((row) => ({ value: row.kind === "option" ? row.option.id : row.kind, label: rowLabel(row), description: rowDescription(row) })),
-        Math.min(8, Math.max(3, rows.length)),
-        selectTheme(this.theme),
-        { minPrimaryColumnWidth: Math.min(30, leftWidth - 2), maxPrimaryColumnWidth: Math.min(38, leftWidth - 2) },
-      );
-      list.setSelectedIndex(this.selectedIndex);
-      const listLines = list.render(leftWidth);
-      if (this.imageMode && safeWidth >= 80) {
+      const leftWidth = this.imageMode && safeWidth >= 88 ? Math.min(36, Math.max(26, Math.floor(safeWidth * 0.3))) : safeWidth - 2;
+      const listLines = this.renderRows(stage, rows, leftWidth);
+      if (this.imageMode && safeWidth >= 88) {
         const rightWidth = safeWidth - leftWidth - 3;
-        const imageStage = this.selectedImageOption(stage);
-        const left = new HStack([{ component: new Text(listLines.join("\n"), 0, 0), basis: leftWidth, shrink: 0 }], { gap: 0 });
-        const rightLines = imageStage ? this.renderSelectedVisual(imageStage, rightWidth) : this.renderFallbackPanel(stage, rightWidth);
+        const left = new Text(listLines.join("\n"), 0, 0);
+        const selected = rows[this.selectedIndex];
+        const rightLines = selected?.kind === "option" ? this.renderSelectedVisual(selected.option, rightWidth) : [
+          this.theme.fg("dim", "Select an option to inspect its image."),
+          "",
+          ...stage.options.slice(0, 2).flatMap((option) => [`${option.label}: ${option.description ?? ""}`]),
+        ];
         const right = new Text(rightLines.join("\n"), 0, 0);
-        const combined = new HStack([{ component: left, basis: leftWidth, shrink: 0 }, { component: right, basis: rightWidth, shrink: 0 }], { gap: 3 });
-        lines.push(...combined.render(Math.max(1, safeWidth - 2)).map((line) => ` ${line}`));
+        const combined = new HStack(
+          [
+            { component: left, basis: leftWidth, shrink: 0 },
+            { component: right, basis: rightWidth, shrink: 0 },
+          ],
+          { gap: 3 },
+        );
+        for (const line of combined.render(Math.max(1, safeWidth - 2))) lines.push(` ${line}`);
       } else {
         for (const line of listLines) lines.push(` ${line}`);
         const selected = rows[this.selectedIndex];
@@ -330,50 +370,66 @@ export class VisualReviewWizard implements Component {
           for (const line of this.renderSelectedVisual(selected.option, safeWidth - 4)) lines.push(`  ${line}`);
         }
       }
-      add("");
-      const current = answerForStage(this.answers, stage);
-      if (current) {
-        add(this.theme.fg("success", `Current answer: ${current.answer ?? current.optionLabels?.join(", ") ?? "(empty)"}`));
+      lines.push("");
+      const current = this.answers.get(stage.id);
+      if (current) lines.push(this.theme.fg("success", `Current answer: ${current.answer ?? current.optionLabels?.join(", ") ?? "(empty)"}`));
+      const selection = this.selection(stage.id);
+      const help = stage.multiSelect
+        ? `↑↓ move • Space/Enter toggle • ${DONE_LABEL} when ready • Tab stages • Esc cancel`
+        : "↑↓ move • Enter select • Tab/←→ stages • Esc cancel";
+      lines.push(this.theme.fg("dim", help));
+      if (stage.multiSelect && selection.size > 0) {
+        lines.push(this.theme.fg("accent", `Selected: ${stage.options.filter((option) => selection.has(option.id)).map((option) => option.label).join(", ")}`));
       }
-      add(this.theme.fg("dim", "↑↓ move • Enter choose • Tab/←→ stages • Esc cancel"));
     }
-    add("");
-    add(border("─".repeat(safeWidth)));
+
+    lines.push("");
+    lines.push(border("─".repeat(safeWidth)));
     this.cachedWidth = width;
     this.cachedLines = lines;
     return lines;
   }
 
-  private selectedImageOption(stage: NormalizedStage): NormalizedOption | undefined {
-    const rows = rowsForStage(stage);
-    const row = rows[this.selectedIndex];
-    return row?.kind === "option" ? row.option : undefined;
+  private selection(stageId: string): Set<string> {
+    let selected = this.selections.get(stageId);
+    if (!selected) {
+      selected = new Set();
+      this.selections.set(stageId, selected);
+    }
+    return selected;
+  }
+
+  private renderRows(stage: NormalizedStage, rows: readonly Row[], width: number): string[] {
+    const lines: string[] = [];
+    const selected = this.selection(stage.id);
+    rows.forEach((row, index) => {
+      const active = index === this.selectedIndex;
+      const marker = row.kind === "option" && stage.multiSelect ? (selected.has(row.option.id) ? "✓ " : "  ") : "";
+      const prefix = active ? this.theme.fg("accent", "> ") : "  ";
+      const label = `${marker}${rowLabel(row)}`;
+      lines.push(...wrapTextWithAnsi(`${prefix}${label}`, Math.max(1, width)));
+      if (rowDescription(row)) {
+        for (const line of wrapTextWithAnsi(this.theme.fg("muted", `     ${rowDescription(row)}`), Math.max(1, width))) {
+          lines.push(line);
+        }
+      }
+    });
+    if (stage.multiSelect) lines.push(this.theme.fg("success", `  ${DONE_LABEL} — press Space/Enter on an option to commit`));
+    return lines;
   }
 
   private renderSelectedVisual(option: NormalizedOption, width: number): string[] {
-    const key = `${this.review.stages[this.stageIndex].id}:${option.id}`;
+    const stage = this.review.stages[this.stageIndex];
+    const key = `${stage.id}:${option.id}`;
     const loaded = this.loadedImages.get(key);
     if (this.imageMode && loaded?.image) {
       return [this.theme.fg("accent", `Preview: ${option.label}`), "", ...imageLines(loaded.image, this.theme, width)];
     }
-    return [this.theme.fg("accent", `Preview: ${option.label}`), "", ...fallbackPreview(option, loaded, this.theme)];
-  }
-
-  private renderFallbackPanel(stage: NormalizedStage, width: number): string[] {
-    const selected = rowsForStage(stage)[this.selectedIndex];
-    if (selected?.kind === "option") return this.renderSelectedVisual(selected.option, width);
-    return [
-      this.theme.fg("dim", "Select an option to inspect its preview."),
-      "",
-      ...stage.options.slice(0, 2).flatMap((option) => [
-        `${option.label}: ${option.description ?? ""}`,
-        ...(option.preview ? [option.preview] : []),
-      ]),
-    ];
+    return [this.theme.fg("accent", `Preview: ${option.label}`), "", ...fallbackPreview(option, loaded, this.theme, Math.max(1, width))];
   }
 
   private submitEditor(value: string): void {
-    if (this.inputMode === "none") return;
+    if (this.inputMode === "none" || this.finished) return;
     const stage = this.review.stages[this.inputStageIndex];
     if (!stage) return;
     const text = value.trim();
@@ -383,19 +439,22 @@ export class VisualReviewWizard implements Component {
         this.invalidate();
         return;
       }
-      const revision: ReviewRevision = { stageId: stage.id, stageIndex: this.inputStageIndex, feedback: text, requestedRound: this.review.round + 1 };
-      this.done({ version: 1, reviewId: this.review.reviewId, round: this.review.round, status: "revision", decision: "revision", cancelled: false, answers: [...this.answers.values()], revision });
+      const revision: ReviewRevision = {
+        stageId: stage.id,
+        stageIndex: this.inputStageIndex,
+        feedback: text,
+        requestedRound: this.review.round + 1,
+      };
+      this.finish(resultFor(this.review, "revision", this.answers, revision));
       return;
     }
-    const answer = makeCustomAnswer(stage, this.inputStageIndex, text);
-    this.answers.set(stage.id, answer);
+    this.answers.set(stage.id, makeCustomAnswer(stage, this.inputStageIndex, text));
     this.inputMode = "none";
     this.editor.setText("");
     this.advanceAfterAnswer();
   }
 
   private advanceAfterAnswer(): void {
-    const current = this.review.stages[this.stageIndex];
     const next = this.review.stages[this.stageIndex + 1];
     if (next) {
       this.stageIndex += 1;
@@ -403,33 +462,33 @@ export class VisualReviewWizard implements Component {
       this.invalidate();
       return;
     }
-    if (current && this.review.stages.every((stage) => this.answers.has(stage.id))) {
-      this.finishApproved();
+    if (this.review.stages.every((stage) => !stage.required || this.answers.has(stage.id))) {
+      this.finish(resultFor(this.review, "approve", this.answers));
     } else {
-      this.stageIndex = 0;
+      this.stageIndex = this.review.stages.findIndex((stage) => stage.required && !this.answers.has(stage.id));
       this.selectedIndex = 0;
       this.invalidate();
     }
   }
 
-  private finishApproved(): void {
-    this.done({ version: 1, reviewId: this.review.reviewId, round: this.review.round, status: "completed", decision: "approve", cancelled: false, answers: [...this.answers.values()] });
+  private finish(result: ReviewResult): void {
+    if (this.finished) return;
+    this.finished = true;
+    this.done(result);
   }
 }
 
 export async function runVisualReviewWizard(
   ctx: ExtensionContext,
   review: NormalizedReview,
-  initialAnswers: ReviewAnswer[] = [],
+  initialAnswers: readonly ReviewAnswer[] = [],
 ): Promise<ReviewResult> {
   if (ctx.mode !== "tui" || !ctx.hasUI) {
     const { makeFallbackResult } = await import("./fallback.ts");
     return makeFallbackResult(review, ctx.hasUI ? "no_custom_ui" : "no_ui");
   }
   return ctx.ui.custom<ReviewResult>((tui, theme, _keybindings, done) => {
-    const wizard = new VisualReviewWizard(tui, theme, review, ctx.cwd, done, initialAnswers, ctx.signal);
-    // The factory callback is intentionally kept free of closure allocation in render.
-    return wizard;
+    return new VisualReviewWizard(tui, theme, review, ctx.cwd, done, initialAnswers, ctx.signal);
   }, {
     overlay: true,
     overlayOptions: {
@@ -440,3 +499,5 @@ export async function runVisualReviewWizard(
     },
   });
 }
+
+export { selectedOptions };
