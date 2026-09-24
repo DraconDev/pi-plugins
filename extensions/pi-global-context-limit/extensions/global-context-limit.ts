@@ -1,192 +1,62 @@
 /**
- * Global Context Limit Extension for pi
+ * Durable global context cap for Pi.
  *
- * Adds a `globalContextLimit` setting that caps every model's effective
- * contextWindow, regardless of its native size. Affects footer display,
- * compaction triggers, and (via before_provider_request) API request output
- * budgets.
- *
- * Why this is needed:
- *   pi v0.80.8+ deep-freezes models.json / models-store.json entries, so an
- *   in-place mutation (model.contextWindow = limit) throws TypeError on those
- *   models. To work around that, on startup this extension writes
- *   `~/.pi/agent/models.json` with `modelOverrides` for every provider/model
- *   whose native contextWindow exceeds the limit. Pi's ModelConfig respects
- *   those overrides and emits an unfrozen spread object, so the cap sticks
- *   even on otherwise-frozen providers.
- *
- *   For extension-registered providers (e.g. `pi-minimax-m3-caching-fix`)
- *   that bypass models.json entirely, the in-place mutation path still runs
- *   (and now has a try/catch so it won't crash on frozen objects).
- *
- * Usage: Add `"globalContextLimit": 200000` to ~/.pi/agent/settings.json.
- *        Then `/reload` to pick up the generated overrides.
- *
- * Run `/context-limit` to view or change the active limit at runtime. Run
- * `/context-limit rebuild` to re-scan models-store.json and refresh the
- * generated overrides without restarting.
+ * Pi composes models.json modelOverrides after built-in, models-store, user
+ * models, extension registrations, and extension refreshes. We use that
+ * public composition layer to cap every model visible in ExtensionContext's
+ * ModelRegistry, then refresh Pi's public registry facade. Frozen catalog
+ * entries are never mutated.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { existsSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-const MIN_COMPLETION_TOKENS = 1_024;
-const PAYLOAD_TOKEN_ESTIMATE_PADDING = 4_096;
+const MIN_EFFECTIVE_OUTPUT_TOKENS = 256;
+const TARGET_OUTPUT_TOKENS = 1_024;
+const PAYLOAD_CONTEXT_RESERVE_TOKENS = 4_096;
+const STATE_VERSION = 1;
 
-const CONTEXT_SAFE_MAX_TOKENS: Array<{ maxContext: number; maxTokens: number }> = [
-  { maxContext: 32_768, maxTokens: 4_096 },
-  { maxContext: 131_072, maxTokens: 8_192 },
-  { maxContext: 262_144, maxTokens: 32_768 },
-  { maxContext: 524_288, maxTokens: 65_536 },
+const CONTEXT_OUTPUT_CAPS: ReadonlyArray<{ context: number; output: number }> = [
+  { context: 32_768, output: 4_096 },
+  { context: 131_072, output: 8_192 },
+  { context: 262_144, output: 32_768 },
+  { context: 524_288, output: 65_536 },
 ];
 
-function getAgentDir(): string {
-  const env = process.env.PI_CODING_AGENT_DIR;
-  if (env) return env;
-  const os = require("node:os");
-  return join(os.homedir(), ".pi", "agent");
+export interface ContextLimitPaths {
+  agentDir: string;
+  modelsPath: string;
+  modelsStorePath: string;
+  settingsPath: string;
+  statePath: string;
 }
 
-function getModelsPath(): string {
-  return join(getAgentDir(), "models.json");
-}
-
-function getModelsStorePath(): string {
-  return join(getAgentDir(), "models-store.json");
-}
-
-function getSettingsPath(): string {
-  return join(getAgentDir(), "settings.json");
-}
-
-function readGlobalContextLimit(): number | null {
-  const settingsPath = getSettingsPath();
-  if (!existsSync(settingsPath)) return null;
-  try {
-    const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
-    const value = settings.globalContextLimit;
-    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-      return Math.floor(value);
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function toPositiveInteger(value: unknown, fallback: number): number {
-  const numberValue = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
-  if (!Number.isFinite(numberValue) || numberValue <= 0) return fallback;
-  return Math.floor(numberValue);
-}
-
-function getSafeMaxTokens(contextWindow: number, modelMaxTokens?: number): number {
-  const contextCap = CONTEXT_SAFE_MAX_TOKENS.find(({ maxContext }) => contextWindow <= maxContext)?.maxTokens ?? 65_536;
-  const modelCap = modelMaxTokens && modelMaxTokens > 0 ? modelMaxTokens : contextCap;
-  return Math.max(MIN_COMPLETION_TOKENS, Math.min(modelCap, contextCap));
-}
-
-function estimatePayloadTokens(payload: unknown): number {
-  try {
-    return Math.max(0, Math.ceil((JSON.stringify(payload)?.length ?? 0) / 4));
-  } catch {
-    return 0;
-  }
-}
-
-function capPayloadMaxTokens(payload: unknown, model: any): unknown {
-  if (!payload || typeof payload !== "object" || !model || model.api !== "openai-completions") return payload;
-
-  const contextWindow = toPositiveInteger(model.contextWindow, 0);
-  const declaredMaxTokens = toPositiveInteger(model.maxTokens, 0);
-  const maxTokensField = model.compat?.maxTokensField === "max_tokens" ? "max_tokens" : "max_completion_tokens";
-  const payloadMaxTokens = Number((payload as Record<string, unknown>)[maxTokensField]);
-  let safeMaxTokens = getSafeMaxTokens(contextWindow, declaredMaxTokens);
-
-  if (contextWindow > 0) {
-    const availableForCompletion = contextWindow - estimatePayloadTokens(payload) - PAYLOAD_TOKEN_ESTIMATE_PADDING;
-    if (availableForCompletion > 0) {
-      safeMaxTokens = Math.min(safeMaxTokens, Math.floor(availableForCompletion));
-    }
-  }
-
-  safeMaxTokens = Math.max(MIN_COMPLETION_TOKENS, Math.floor(safeMaxTokens));
-  if (!Number.isFinite(payloadMaxTokens) || payloadMaxTokens <= 0 || payloadMaxTokens > safeMaxTokens) {
-    return { ...(payload as Record<string, unknown>), [maxTokensField]: safeMaxTokens };
-  }
-
-  return payload;
-}
-
-/** In-place cap. Frozen objects throw TypeError — caller must wrap in try/catch. */
-function applyContextLimitInPlace(model: any, limit: number): boolean {
-  if (!model) return false;
-  let changed = false;
-
-  if (typeof model.contextWindow === "number" && model.contextWindow > limit) {
-    model.contextWindow = limit;
-    changed = true;
-  }
-
-  const safeMaxTokens = getSafeMaxTokens(model.contextWindow, model.maxTokens);
-  if (typeof model.maxTokens === "number" && model.maxTokens > safeMaxTokens) {
-    model.maxTokens = safeMaxTokens;
-    changed = true;
-  }
-
-  return changed;
-}
-
-/** Safe in-place cap. Returns true if anything actually changed. */
-function applyContextLimit(model: any, limit: number): boolean {
-  if (!model || Object.isFrozen(model)) return false;
-  try {
-    return applyContextLimitInPlace(model, limit);
-  } catch {
-    return false;
-  }
-}
-
-/** Debug log to ~/.pi/agent/global-context-limit-debug.log for diagnosis. */
-function debugLog(entry: Record<string, unknown>) {
-  try {
-    const path = join(getAgentDir(), "global-context-limit-debug.log");
-    const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + "\n";
-    require("node:fs").appendFileSync(path, line);
-  } catch {
-    // ignore
-  }
-}
-
-interface ModelsStoreShape {
-  [providerId: string]: {
-    models?: Array<{ id: string; contextWindow?: number; maxTokens?: number }>;
-  };
-}
-
-interface ModelOverride {
+export interface ModelLike {
+  id: string;
+  provider: string;
   contextWindow?: number;
   maxTokens?: number;
 }
 
-interface ModelDefinition {
-  id: string;
-  name?: string;
-  api?: string;
-  baseUrl?: string;
-  reasoning?: boolean;
-  thinkingLevelMap?: Record<string, string | null>;
-  input?: string[];
-  cost?: Record<string, number>;
+export interface ModelOverride {
   contextWindow?: number;
   maxTokens?: number;
   [key: string]: unknown;
 }
 
 interface ProviderConfigShape {
+  models?: Array<Record<string, unknown> & { id: string }>;
   modelOverrides?: Record<string, ModelOverride>;
-  models?: ModelDefinition[];
   [key: string]: unknown;
 }
 
@@ -194,18 +64,41 @@ interface ModelsJsonShape {
   providers: Record<string, ProviderConfigShape>;
 }
 
-// This model is served by OpenCode's live gateway but is not yet present in
-// Pi's generated model catalog. Keep the definition in models.json so catalog
-// refreshes and the context-limit rewriter cannot silently remove it.
-const PINNED_SPACE_BUNNY_MODEL: ModelDefinition = {
+interface ManagedField {
+  hadPrevious: boolean;
+  previous?: number;
+  applied: number;
+}
+
+interface ManagedEntry {
+  contextWindow?: ManagedField;
+  maxTokens?: ManagedField;
+}
+
+interface ManageStateShape {
+  version: number;
+  entries: Record<string, ManagedEntry>;
+}
+
+export interface RebuildResult {
+  scanned: number;
+  written: number;
+  skipped: number;
+  changed: boolean;
+  error?: string;
+}
+
+type JsonRecord = Record<string, unknown>;
+
+const PINNED_SPACE_BUNNY_MODEL = {
   id: "space-bunny-free",
   name: "Space Bunny Free",
   api: "openai-completions",
   reasoning: true,
   input: ["text", "image"],
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-  contextWindow: 1048576,
-  maxTokens: 524288,
+  contextWindow: 1_048_576,
+  maxTokens: 524_288,
   thinkingLevelMap: {
     off: null,
     minimal: null,
@@ -215,503 +108,544 @@ const PINNED_SPACE_BUNNY_MODEL: ModelDefinition = {
     xhigh: "xhigh",
     max: "max",
   },
-};
+} as const;
 
-function ensurePinnedModels(existing: ModelsJsonShape): void {
-  for (const providerId of ["opencode", "opencode-go"]) {
-    const provider = (existing.providers[providerId] ??= {});
-    const models = Array.isArray(provider.models) ? provider.models : (provider.models = []);
-    const index = models.findIndex((model) => model.id === PINNED_SPACE_BUNNY_MODEL.id);
-    const pinned = structuredClone(PINNED_SPACE_BUNNY_MODEL);
-    if (index < 0) models.push(pinned);
-    else models[index] = { ...models[index], ...pinned, thinkingLevelMap: { ...pinned.thinkingLevelMap } };
+export function getAgentDir(): string {
+  return process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
+}
+
+export function getContextLimitPaths(agentDir = getAgentDir()): ContextLimitPaths {
+  return {
+    agentDir,
+    modelsPath: join(agentDir, "models.json"),
+    modelsStorePath: join(agentDir, "models-store.json"),
+    settingsPath: join(agentDir, "settings.json"),
+    statePath: join(agentDir, "global-context-limit-state.json"),
+  };
+}
+
+function isRecord(value: unknown): value is JsonRecord {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return undefined;
+  return Math.floor(value);
+}
+
+export function readGlobalContextLimit(paths = getContextLimitPaths()): number | undefined {
+  if (!existsSync(paths.settingsPath)) return undefined;
+  try {
+    const settings: unknown = JSON.parse(readFileSync(paths.settingsPath, "utf8"));
+    return isRecord(settings) ? positiveInteger(settings.globalContextLimit) : undefined;
+  } catch {
+    return undefined;
   }
 }
 
-/**
- * Scan extension files for `pi.registerProvider("name", { models: [{ contextWindow: N, ... }] })`
- * calls. The provider config is queued at extension-load time and consumed by
- * bindCore() — the queued config is what gets composed into state.model, so
- * our `pi.registerProvider` monkey-patch on this extension's own `pi` is a
- * no-op for OTHER extensions. The only reliable way to cap an extension-
- * registered model is via a `modelOverrides` entry in models.json applied at
- * compose time.
- *
- * Returns a map of providerId -> modelId -> { contextWindow, maxTokens? }.
- */
-function scanExtensionProviders(limit: number): Record<string, Record<string, ModelOverride>> {
-  const out: Record<string, Record<string, ModelOverride>> = {};
-  const agentDir = getAgentDir();
-  const candidates: string[] = [];
+export function contextOutputCap(contextWindow: number): number {
+  return CONTEXT_OUTPUT_CAPS.find(({ context }) => contextWindow <= context)?.output ?? 65_536;
+}
 
-  // Built-in extensions dir
-  const extDir = join(agentDir, "extensions");
-  if (existsSync(extDir)) {
-    for (const entry of readdirSync(extDir)) {
-      const full = join(extDir, entry);
-      try {
-        const stat = require("node:fs").statSync(full);
-        if (stat.isDirectory()) {
-          const idx = join(full, "index.ts");
-          if (existsSync(idx)) candidates.push(idx);
-        } else if (entry.endsWith(".ts") || entry.endsWith(".js")) {
-          candidates.push(full);
-        }
-      } catch {}
-    }
+function safeModelOutputCap(contextWindow: number, declaredMaxTokens?: number): number {
+  const contextCap = contextOutputCap(contextWindow);
+  if (declaredMaxTokens === undefined) return contextCap;
+  return Math.max(1, Math.min(declaredMaxTokens, contextCap));
+}
+
+export function modelOverrideFor(model: ModelLike, limit: number): ModelOverride | undefined {
+  const contextWindow = positiveInteger(model.contextWindow);
+  const maxTokens = positiveInteger(model.maxTokens);
+  const override: ModelOverride = {};
+
+  if (contextWindow !== undefined && contextWindow > limit) override.contextWindow = limit;
+  if (maxTokens !== undefined) {
+    const outputCap = safeModelOutputCap(contextWindow === undefined ? limit : Math.min(contextWindow, limit), maxTokens);
+    if (maxTokens > outputCap) override.maxTokens = outputCap;
   }
 
-  // npm-installed extensions under ~/.pi/agent/npm/node_modules
-  const npmDir = join(agentDir, "npm", "node_modules");
-  if (existsSync(npmDir)) {
-    for (const entry of readdirSync(npmDir)) {
-      if (!entry.startsWith("pi-") && !entry.startsWith("@")) continue;
-      const full = join(npmDir, entry);
-      try {
-        const stat = require("node:fs").statSync(full);
-        if (stat.isDirectory()) {
-          // Look for the canonical pi extension entry point
-          for (const name of ["index.ts", "extensions/index.ts"]) {
-            const idx = join(full, name);
-            if (existsSync(idx)) {
-              candidates.push(idx);
-              break;
-            }
-          }
-        }
-      } catch {}
+  return Object.keys(override).length > 0 ? override : undefined;
+}
+
+export function buildDesiredOverrides(
+  models: readonly ModelLike[],
+  limit: number,
+): Record<string, Record<string, ModelOverride>> {
+  const desired: Record<string, Record<string, ModelOverride>> = {};
+  for (const model of models) {
+    if (typeof model.provider !== "string" || typeof model.id !== "string") continue;
+    const override = modelOverrideFor(model, limit);
+    if (!override) continue;
+    desired[model.provider] ??= {};
+    desired[model.provider][model.id] = override;
+  }
+  return desired;
+}
+
+function readModelsJson(paths: ContextLimitPaths): { value: ModelsJsonShape; raw?: string } {
+  if (!existsSync(paths.modelsPath)) return { value: { providers: {} } };
+  const raw = readFileSync(paths.modelsPath, "utf8");
+  const parsed: unknown = JSON.parse(raw);
+  if (!isRecord(parsed) || !isRecord(parsed.providers)) {
+    throw new Error("models.json must contain a providers object");
+  }
+  for (const provider of Object.values(parsed.providers)) {
+    if (!isRecord(provider)) throw new Error("models.json contains an invalid provider entry");
+    if (provider.models !== undefined && !Array.isArray(provider.models)) {
+      throw new Error("models.json contains an invalid models list");
+    }
+    if (provider.modelOverrides !== undefined && !isRecord(provider.modelOverrides)) {
+      throw new Error("models.json contains invalid modelOverrides");
     }
   }
+  return { value: parsed as unknown as ModelsJsonShape, raw };
+}
 
-  // Match three patterns:
-  //   1. `pi.registerProvider("name", { ... })` — literal provider id
-  //   2. `pi.registerProvider(name, { ... })` — variable, try to resolve by
-  //      looking at the enclosing function (e.g. `function makeProvider(pi, name, ...)`)
-  //   3. Any object literal with `models: [{ id: "X", contextWindow: N }]` —
-  //      captures ALL extension-registered model definitions, even if the
-  //      provider id can't be statically resolved. We then look up the
-  //      provider id from a make* factory call adjacent to the register call.
-  const literalCallRe = /pi\.registerProvider\s*\(\s*(['"])([a-zA-Z0-9_-]+)\1\s*,\s*\{/g;
-  const varCallRe = /pi\.registerProvider\s*\(\s*([a-zA-Z_$][\w$]*)\s*,\s*\{/g;
-  const modelEntryRe = /id\s*:\s*(['"])([a-zA-Z0-9._-]+)\1\s*,[\s\S]{0,200}?contextWindow\s*:\s*([0-9_]+)/g;
-  const factoryCallRe = /make(?:Provider|Extension)\s*\(\s*[^,]+,\s*(['"])([a-zA-Z0-9_-]+)\1/g;
+function readState(paths: ContextLimitPaths): ManageStateShape {
+  if (!existsSync(paths.statePath)) return { version: STATE_VERSION, entries: {} };
+  const parsed: unknown = JSON.parse(readFileSync(paths.statePath, "utf8"));
+  if (!isRecord(parsed) || parsed.version !== STATE_VERSION || !isRecord(parsed.entries)) {
+    throw new Error("global-context-limit-state.json is invalid");
+  }
+  return parsed as unknown as ManageStateShape;
+}
 
-  for (const path of candidates) {
-    let text: string;
+function modelKey(provider: string, model: string): string {
+  return JSON.stringify([provider, model]);
+}
+
+function providerEntry(models: ModelsJsonShape, provider: string): ProviderConfigShape | undefined {
+  return models.providers[provider];
+}
+
+function removeEmptyOverrides(models: ModelsJsonShape, provider: string): void {
+  const config = providerEntry(models, provider);
+  if (!config) return;
+  if (config.modelOverrides && Object.keys(config.modelOverrides).length === 0) delete config.modelOverrides;
+  if (Object.keys(config).length === 0) delete models.providers[provider];
+}
+
+function restoreManagedFields(
+  models: ModelsJsonShape,
+  state: ManageStateShape,
+  onRestored?: (provider: string, model: string, field: "contextWindow" | "maxTokens", value: unknown) => void,
+): void {
+  for (const [key, entry] of Object.entries(state.entries)) {
+    let parsedKey: [string, string];
     try {
-      text = readFileSync(path, "utf-8");
+      const value: unknown = JSON.parse(key);
+      if (!Array.isArray(value) || value.length !== 2 || typeof value[0] !== "string" || typeof value[1] !== "string") {
+        throw new Error();
+      }
+      parsedKey = [value[0], value[1]];
     } catch {
       continue;
     }
-    // Skip our own extension
-    if (text.includes("global-context-limit")) continue;
+    const [provider, model] = parsedKey;
+    const override = models.providers[provider]?.modelOverrides?.[model];
+    if (!override) continue;
 
-    // First: build provider-id map from factory calls and literal register calls
-    const providerIds = new Map<string, string>(); // variable name OR call-position -> provider id
-    let m: RegExpExecArray | null;
-    literalCallRe.lastIndex = 0;
-    while ((m = literalCallRe.exec(text)) !== null) {
-      providerIds.set(`call:${m.index}`, m[2]);
+    for (const field of ["contextWindow", "maxTokens"] as const) {
+      const managed = entry[field];
+      if (!managed || override[field] !== managed.applied) continue;
+      if (managed.hadPrevious) override[field] = managed.previous;
+      else delete override[field];
+      onRestored?.(provider, model, field, managed.hadPrevious ? managed.previous : undefined);
     }
-    factoryCallRe.lastIndex = 0;
-    while ((m = factoryCallRe.exec(text)) !== null) {
-      providerIds.set(`factory:${m.index}`, m[2]);
-    }
-
-    // Then find all model entries in the file
-    modelEntryRe.lastIndex = 0;
-    while ((m = modelEntryRe.exec(text)) !== null) {
-      const modelId = m[2];
-      const contextWindow = parseInt(m[3].replace(/_/g, ""), 10);
-      if (typeof contextWindow !== "number" || contextWindow <= limit) continue;
-
-      // Find the enclosing registerProvider call (search backward for the nearest one)
-      const before = text.slice(0, m.index);
-      const regIdx = before.lastIndexOf("pi.registerProvider");
-      if (regIdx === -1) continue;
-      const callSig = text.slice(regIdx, m.index);
-      // Decide providerId from the call signature
-      let providerId: string | undefined;
-      const literalInCall = callSig.match(/pi\.registerProvider\s*\(\s*(['"])([a-zA-Z0-9_-]+)\1/);
-      if (literalInCall) {
-        providerId = literalInCall[2];
-      } else {
-        // Variable — try to resolve by walking back to the enclosing function param
-        // Find the enclosing function: search backward for `function NAME(pi, NAME_VAR, ...)`
-        const funcStart = before.lastIndexOf("function");
-        if (funcStart !== -1) {
-          const funcSig = text.slice(funcStart, regIdx);
-          const paramsMatch = funcSig.match(/function\s+\w+\s*\(([^)]*)\)/);
-          if (paramsMatch) {
-            const params = paramsMatch[1].split(",").map((p) => p.trim().split(/\s*:\s*/)[0]);
-            // params[0] is usually `pi`; params[1] is the provider name
-            // Extract the argument name used in the call
-            const varMatch = callSig.match(/pi\.registerProvider\s*\(\s*([a-zA-Z_$][\w$]*)/);
-            if (varMatch) {
-              const argName = varMatch[1];
-              const idx = params.indexOf(argName);
-              if (idx >= 0) {
-                // Find factory call: `makeX(pi, "provider", ...)` and use the same index
-                const factoryMatch = text.slice(0, funcStart + 200).match(new RegExp(`\\b\\w*Provider\\s*\\(\\s*[^,]+,\\s*(['"])([a-zA-Z0-9_-]+)\\1`));
-                if (factoryMatch) providerId = factoryMatch[2];
-              }
-            }
-          }
-        }
-        if (!providerId) {
-          // Last resort: look for any factory call anywhere in the file that takes a string literal as the second arg
-          const allFactories = [...text.matchAll(/\w*Provider\s*\(\s*[^,]+,\s*(['"])([a-zA-Z0-9_-]+)\1/g)];
-          if (allFactories.length > 0) providerId = allFactories[0][2];
-        }
-      }
-
-      if (!providerId) continue;
-      if (!out[providerId]) out[providerId] = {};
-      out[providerId][modelId] = { contextWindow: limit };
-    }
+    removeEmptyOverrides(models, provider);
   }
-
-  return out;
 }
 
-/**
- * Scan models-store.json for any model whose native contextWindow exceeds the
- * limit, and write corresponding `modelOverrides` entries into models.json so
- * pi loads them at startup (before the deepFreeze).
- *
- * Idempotent: re-running with the same limit produces the same file.
- *
- * Returns { scanned, written, skipped } so callers can report.
- */
-function rebuildModelOverrides(limit: number): { scanned: number; written: number; skipped: number; error?: string } {
-  const storePath = getModelsStorePath();
-  if (!existsSync(storePath)) {
-    return { scanned: 0, written: 0, skipped: 0, error: `models-store.json not found at ${storePath}` };
-  }
-
-  let store: ModelsStoreShape;
-  try {
-    store = JSON.parse(readFileSync(storePath, "utf-8"));
-  } catch (e) {
-    return { scanned: 0, written: 0, skipped: 0, error: `Failed to parse models-store.json: ${(e as Error).message}` };
-  }
-
-  // Build desired overrides from store
-  const desired: Record<string, Record<string, ModelOverride>> = {};
-  let scanned = 0;
-  for (const [providerId, cfg] of Object.entries(store)) {
-    if (!cfg?.models) continue;
-    for (const model of cfg.models) {
-      scanned++;
-      const cw = model.contextWindow;
-      if (typeof cw !== "number" || cw <= limit) continue;
-      if (!desired[providerId]) desired[providerId] = {};
-      const override: ModelOverride = { contextWindow: limit };
-      if (typeof model.maxTokens === "number" && model.maxTokens > limit) {
-        // Keep maxTokens proportional but not larger than the new contextWindow
-        override.maxTokens = Math.min(model.maxTokens, getSafeMaxTokens(limit));
-      }
-      desired[providerId][model.id] = override;
+function ensurePinnedModels(models: ModelsJsonShape): ModelLike[] {
+  const pinned: ModelLike[] = [];
+  for (const provider of ["opencode", "opencode-go"]) {
+    const config = (models.providers[provider] ??= {});
+    const definitions = Array.isArray(config.models) ? config.models : (config.models = []);
+    let definition = definitions.find((candidate) => isRecord(candidate) && candidate.id === PINNED_SPACE_BUNNY_MODEL.id);
+    if (!definition) {
+      definition = structuredClone(PINNED_SPACE_BUNNY_MODEL) as unknown as Record<string, unknown> & { id: string };
+      definitions.push(definition);
     }
+    pinned.push({
+      id: PINNED_SPACE_BUNNY_MODEL.id,
+      provider,
+      contextWindow: positiveInteger(definition.contextWindow),
+      maxTokens: positiveInteger(definition.maxTokens),
+    });
   }
+  return pinned;
+}
 
-  // Also scan extension-registered providers. These bypass the models-store
-  // freeze because pi composes them from the extension's queued config, but
-  // a modelOverrides entry in models.json still applies at compose time.
+function serializeJson(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+function writeFileAtomic(path: string, content: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  let mode: number | undefined;
   try {
-    const fromExtensions = scanExtensionProviders(limit);
-    for (const [providerId, modelOverrides] of Object.entries(fromExtensions)) {
-      if (!desired[providerId]) desired[providerId] = {};
-      for (const [modelId, override] of Object.entries(modelOverrides)) {
-        desired[providerId][modelId] = override;
-        scanned++;
-      }
-    }
-  } catch (e) {
-    // Best-effort — if extension scan fails, native overrides still work.
+    mode = statSync(path).mode;
+  } catch {
+    // New files use the process umask and default permissions.
   }
-
-  // Read existing models.json
-  const modelsPath = getModelsPath();
-  let existing: ModelsJsonShape = { providers: {} };
-  if (existsSync(modelsPath)) {
+  const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    writeFileSync(temporary, content, mode === undefined ? "utf8" : { encoding: "utf8", mode });
+    renameSync(temporary, path);
+  } finally {
     try {
-      const parsed = JSON.parse(readFileSync(modelsPath, "utf-8"));
-      if (parsed && typeof parsed === "object" && parsed.providers && typeof parsed.providers === "object") {
-        existing = parsed;
-      }
+      unlinkSync(temporary);
     } catch {
-      // Corrupt file — back it up and start fresh.
-      try {
-        writeFileSync(modelsPath + ".corrupt-" + Date.now(), readFileSync(modelsPath));
-      } catch {}
-      existing = { providers: {} };
+      // The rename already removed it.
     }
   }
+}
 
-  // Re-assert user-defined models after every catalog/context-limit rebuild.
-  // The live gateway catalog may not include newly added models yet, and this
-  // file is the durable source for custom model definitions.
-  ensurePinnedModels(existing);
+function removeFileIfPresent(path: string): void {
+  try {
+    unlinkSync(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
 
-  // Reconcile: keep non-`globalContextLimit` overrides as-is, replace ours.
+export function rebuildModelOverrides(
+  limit: number,
+  registryModels: readonly ModelLike[],
+  paths = getContextLimitPaths(),
+): RebuildResult {
+  let models: ModelsJsonShape;
+  let rawModels: string | undefined;
+  let state: ManageStateShape;
+  try {
+    const loaded = readModelsJson(paths);
+    models = loaded.value;
+    rawModels = loaded.raw;
+    state = readState(paths);
+  } catch (error) {
+    return { scanned: registryModels.length, written: 0, skipped: 0, changed: false, error: (error as Error).message };
+  }
+
+  restoreManagedFields(models, state);
+  const visibleModels = [
+    ...registryModels,
+    ...ensurePinnedModels(models).filter(
+      (pinned) => !registryModels.some((model) => model.provider === pinned.provider && model.id === pinned.id),
+    ),
+  ];
+  const desired = buildDesiredOverrides(visibleModels, limit);
+  const nextState: ManageStateShape = { version: STATE_VERSION, entries: {} };
   let written = 0;
   let skipped = 0;
-  for (const [providerId, modelOverrides] of Object.entries(desired)) {
-    if (!existing.providers[providerId]) existing.providers[providerId] = {};
-    const prov = existing.providers[providerId];
-    if (!prov.modelOverrides) prov.modelOverrides = {};
 
-    for (const [modelId, newOverride] of Object.entries(modelOverrides)) {
-      const prev = prov.modelOverrides[modelId];
-      if (
-        prev &&
-        prev.contextWindow === newOverride.contextWindow &&
-        prev.maxTokens === newOverride.maxTokens
-      ) {
-        skipped++;
-        continue;
+  for (const [provider, modelOverrides] of Object.entries(desired)) {
+    const providerConfig = (models.providers[provider] ??= {});
+    const existing = providerConfig.modelOverrides ?? {};
+    providerConfig.modelOverrides = existing;
+    for (const [model, fields] of Object.entries(modelOverrides)) {
+      const before = { ...(existing[model] ?? {}) };
+      const merged = { ...(existing[model] ?? {}), ...fields };
+      const entry: ManagedEntry = {};
+      for (const field of ["contextWindow", "maxTokens"] as const) {
+        const applied = fields[field];
+        if (applied === undefined) continue;
+        const hadPrevious = Object.prototype.hasOwnProperty.call(before, field);
+        entry[field] = { hadPrevious, previous: hadPrevious ? before[field] as number : undefined, applied };
+        merged[field] = applied;
       }
-      prov.modelOverrides[modelId] = newOverride;
-      written++;
-    }
-
-    // Drop override entries for models that no longer need one (e.g. user raised the limit)
-    // so users can disable the cap by clearing globalContextLimit and running rebuild.
-    for (const modelId of Object.keys(prov.modelOverrides)) {
-      if (modelOverrides[modelId]) continue;
-      if (prov.modelOverrides[modelId]?.contextWindow === limit) {
-        delete prov.modelOverrides[modelId];
-      }
-    }
-    if (Object.keys(prov.modelOverrides).length === 0) {
-      delete prov.modelOverrides;
-    }
-    if (Object.keys(prov).length === 0) {
-      delete existing.providers[providerId];
+      existing[model] = merged;
+      nextState.entries[modelKey(provider, model)] = entry;
+      if (before.contextWindow === merged.contextWindow && before.maxTokens === merged.maxTokens) skipped++;
+      else written++;
     }
   }
 
-  // Drop provider entries that have nothing left.
-  for (const providerId of Object.keys(existing.providers)) {
-    const prov = existing.providers[providerId];
-    if (Object.keys(prov).length === 0) delete existing.providers[providerId];
+  const nextModelsText = serializeJson(models);
+  const nextStateText = serializeJson(nextState);
+  const rawState = existsSync(paths.statePath) ? readFileSync(paths.statePath, "utf8") : undefined;
+  const changed = nextModelsText !== rawModels || nextStateText !== rawState;
+  if (!changed) return { scanned: visibleModels.length, written: 0, skipped, changed: false };
+
+  try {
+    writeFileAtomic(paths.modelsPath, nextModelsText);
+    writeFileAtomic(paths.statePath, nextStateText);
+  } catch (error) {
+    return { scanned: visibleModels.length, written, skipped, changed: false, error: (error as Error).message };
+  }
+  return { scanned: visibleModels.length, written, skipped, changed: true };
+}
+
+export function clearManagedModelOverrides(paths = getContextLimitPaths()): RebuildResult {
+  let models: ModelsJsonShape;
+  let rawModels: string | undefined;
+  let state: ManageStateShape;
+  try {
+    const loaded = readModelsJson(paths);
+    models = loaded.value;
+    rawModels = loaded.raw;
+    state = readState(paths);
+  } catch (error) {
+    return { scanned: 0, written: 0, skipped: 0, changed: false, error: (error as Error).message };
+  }
+
+  let restored = 0;
+  restoreManagedFields(models, state, (_provider, _model, field, value) => {
+    restored += value === undefined || field === "contextWindow" || field === "maxTokens" ? 1 : 0;
+  });
+  const nextModelsText = serializeJson(models);
+  const changed = nextModelsText !== rawModels;
+  if (!changed) {
+    removeFileIfPresent(paths.statePath);
+    return { scanned: Object.keys(state.entries).length, written: 0, skipped: restored, changed: false };
   }
 
   try {
-    if (Object.keys(existing.providers).length === 0) {
-      // Nothing left to write — remove the file so we don't leave stale overrides behind.
-      try {
-        const fs = require("node:fs");
-        fs.unlinkSync(modelsPath);
-      } catch {}
-      return { scanned, written, skipped };
-    }
-    writeFileSync(modelsPath, JSON.stringify(existing, null, 2) + "\n");
-  } catch (e) {
-    return { scanned, written, skipped, error: `Failed to write models.json: ${(e as Error).message}` };
+    if (Object.keys(models.providers).length === 0) removeFileIfPresent(paths.modelsPath);
+    else writeFileAtomic(paths.modelsPath, nextModelsText);
+    removeFileIfPresent(paths.statePath);
+  } catch (error) {
+    return { scanned: Object.keys(state.entries).length, written: restored, skipped: 0, changed: false, error: (error as Error).message };
   }
-
-  return { scanned, written, skipped };
+  return { scanned: Object.keys(state.entries).length, written: restored, skipped: 0, changed: true };
 }
 
-export default function (pi: ExtensionAPI) {
-  let globalLimit: number | null = readGlobalContextLimit();
-  let lastRebuild: { scanned: number; written: number; skipped: number; error?: string } | null = null;
-
-  // ------------------------------------------------------------------
-  // Pre-load: write models.json with modelOverrides so frozen providers
-  // (everything loaded from models-store.json) get the cap at load time.
-  // ------------------------------------------------------------------
-  if (globalLimit !== null) {
+function updateSettingsLimit(limit: number | undefined, paths: ContextLimitPaths): string | undefined {
+  let settings: JsonRecord = {};
+  if (existsSync(paths.settingsPath)) {
     try {
-      lastRebuild = rebuildModelOverrides(globalLimit);
-    } catch (e) {
-      lastRebuild = { scanned: 0, written: 0, skipped: 0, error: (e as Error).message };
+      const parsed: unknown = JSON.parse(readFileSync(paths.settingsPath, "utf8"));
+      if (!isRecord(parsed)) return "settings.json must contain a JSON object";
+      settings = parsed;
+    } catch (error) {
+      return (error as Error).message;
     }
   }
-
-  if (globalLimit !== null) {
-    // Mutation fallback for extension-registered providers (e.g.
-    // pi-minimax-m3-caching-fix). pi.registerProvider is a stub during
-    // extension loading — it pushes to a pending queue that's flushed at
-    // bindCore(). Mutating the config.models entries BEFORE queuing means
-    // the composed provider picks up the capped values.
-    const originalRegisterProvider = pi.registerProvider.bind(pi);
-
-    pi.registerProvider = function (name: string, config: any) {
-      if (config?.models && Array.isArray(config.models)) {
-        config.models = config.models.map((model: any) => {
-          const before = model.contextWindow;
-          const changed = applyContextLimit(model, globalLimit!);
-          debugLog({ where: "registerProvider", provider: name, id: model.id, before, after: model.contextWindow, changed, frozen: Object.isFrozen(model) });
-          return model;
-        });
-      }
-      return originalRegisterProvider(name, config);
-    } as any;
-
-    // Cap the serialized provider payload. pi's openai-completions stack does
-    // not automatically pass model.maxTokens, so some providers use a large
-    // default output budget and can overshoot long contexts.
-    pi.on("before_provider_request", (event, ctx) => {
-      if (!ctx.model) return;
-      debugLog({ where: "before_provider_request", provider: ctx.model.provider, id: ctx.model.id, contextWindow: ctx.model.contextWindow, frozen: Object.isFrozen(ctx.model) });
-      return capPayloadMaxTokens(event.payload, ctx.model);
-    });
-
-    // Snapshot state.model.contextWindow just before the agent starts
-    // running, so we can see if something between session_start and the
-    // first agent run resets state.model.
-    pi.on("agent_start", async (_event, ctx) => {
-      if (ctx.model) {
-        debugLog({ where: "agent_start", provider: ctx.model.provider, id: ctx.model.id, contextWindow: ctx.model.contextWindow, frozen: Object.isFrozen(ctx.model) });
-      }
-    });
+  if (limit === undefined) delete settings.globalContextLimit;
+  else settings.globalContextLimit = limit;
+  try {
+    writeFileAtomic(paths.settingsPath, serializeJson(settings));
+    return undefined;
+  } catch (error) {
+    return (error as Error).message;
   }
+}
 
-  // Re-apply on model selection to catch any models that slip through
-  pi.on("model_select", async (event, ctx) => {
-    if (globalLimit === null) globalLimit = readGlobalContextLimit();
-    if (globalLimit !== null && event.model) {
-      const before = event.model.contextWindow;
-      applyContextLimit(event.model, globalLimit);
-      const after = event.model.contextWindow;
-      debugLog({ where: "model_select", provider: event.model.provider, id: event.model.id, before, after, frozen: Object.isFrozen(event.model) });
+function estimatePayloadTokens(payload: unknown): number {
+  try {
+    return Math.ceil((JSON.stringify(payload)?.length ?? 0) / 4);
+  } catch {
+    return 0;
+  }
+}
+
+function isObjectPayload(payload: unknown): payload is JsonRecord {
+  return isRecord(payload);
+}
+
+function readPath(payload: JsonRecord, path: readonly string[]): unknown {
+  let value: unknown = payload;
+  for (const segment of path) {
+    if (!isRecord(value)) return undefined;
+    value = value[segment];
+  }
+  return value;
+}
+
+function writePath(payload: JsonRecord, path: readonly string[], value: number): JsonRecord {
+  if (path.length === 1) return { ...payload, [path[0]]: value };
+  const [head, ...tail] = path;
+  const child = isRecord(payload[head]) ? payload[head] : {};
+  return { ...payload, [head]: writePath(child, tail, value) };
+}
+
+function outputPathsForModel(model: JsonRecord): string[][] {
+  switch (model.api) {
+    case "openai-completions":
+      return [["max_tokens"], ["max_completion_tokens"]];
+    case "openai-responses":
+    case "azure-openai-responses":
+    case "openai-codex-responses":
+      return [["max_output_tokens"]];
+    case "anthropic-messages":
+      return [["max_tokens"]];
+    case "bedrock-converse-stream":
+      return [["inferenceConfig", "maxTokens"]];
+    case "google-generative-ai":
+    case "google-vertex":
+      return [["generationConfig", "maxOutputTokens"]];
+    case "mistral-conversations":
+      return [["maxTokens"]];
+    case "pi-messages":
+      return [["options", "maxTokens"]];
+    default:
+      return [];
+  }
+}
+
+/** Cap output fields in all built-in JSON provider payload shapes. */
+export function capProviderPayload(payload: unknown, modelValue: unknown, limit: number): unknown {
+  if (!isObjectPayload(payload) || !isRecord(modelValue)) return payload;
+  const paths = outputPathsForModel(modelValue);
+  if (paths.length === 0) return payload;
+
+  const nativeContext = positiveInteger(modelValue.contextWindow);
+  const effectiveContext = nativeContext === undefined ? limit : Math.min(nativeContext, limit);
+  const declaredMax = positiveInteger(modelValue.maxTokens);
+  const outputCap = safeModelOutputCap(effectiveContext, declaredMax);
+  const available = effectiveContext - estimatePayloadTokens(payload) - PAYLOAD_CONTEXT_RESERVE_TOKENS;
+  if (!Number.isFinite(available) || available < MIN_EFFECTIVE_OUTPUT_TOKENS) return payload;
+
+  const budget = Math.max(
+    MIN_EFFECTIVE_OUTPUT_TOKENS,
+    Math.min(outputCap, TARGET_OUTPUT_TOKENS, Math.floor(available)),
+  );
+  let capped = payload;
+  let changed = false;
+  for (const path of paths) {
+    const current = readPath(capped, path);
+    if (typeof current !== "number" || !Number.isFinite(current) || current <= 0 || current > budget) {
+      capped = writePath(capped, path, budget);
+      changed = true;
     }
+  }
+  return changed ? capped : payload;
+}
+
+interface HostContext {
+  model?: JsonRecord;
+  modelRegistry: {
+    getAll(): ModelLike[];
+    refresh(options?: { allowNetwork?: boolean }): Promise<unknown>;
+  };
+  ui: { notify(message: string, level?: string): void };
+}
+
+interface HostPi extends ExtensionAPI {
+  setModel(model: ModelLike): Promise<boolean>;
+}
+
+function sameModel(left: ModelLike | undefined, right: ModelLike | undefined): boolean {
+  return left?.provider === right?.provider && left?.id === right?.id;
+}
+
+export default function globalContextLimitExtension(pi: ExtensionAPI): void {
+  const paths = getContextLimitPaths();
+  let activeLimit = readGlobalContextLimit(paths);
+  let lastRebuild: RebuildResult | undefined;
+
+  const ensureRegistryAndModel = async (ctx: HostContext, persist: boolean): Promise<void> => {
+    activeLimit = readGlobalContextLimit(paths) ?? activeLimit;
+    if (activeLimit === undefined) return;
+    const current = ctx.model as ModelLike | undefined;
+
+    if (persist) lastRebuild = rebuildModelOverrides(activeLimit, ctx.modelRegistry.getAll(), paths);
+    if (lastRebuild?.error) {
+      ctx.ui.notify(`Global context limit could not be applied: ${lastRebuild.error}`, "error");
+      return;
+    }
+
+    const currentNeedsCap = current !== undefined && modelOverrideFor(current, activeLimit) !== undefined;
+    if (!currentNeedsCap) return;
+    try {
+      await ctx.modelRegistry.refresh({ allowNetwork: false });
+      const replacement = ctx.modelRegistry.find?.(current.provider, current.id) as ModelLike | undefined;
+      if (replacement && !sameModel(current, replacement) === false) await pi.setModel(replacement);
+      else if (replacement) await pi.setModel(replacement);
+    } catch {
+      // The request hook remains the final supported boundary for this turn.
+    }
+  };
+
+  // Always installed: /context-limit can enable the cap after extension load.
+  pi.on("before_provider_request", async (event, ctx) => {
+    activeLimit = readGlobalContextLimit(paths) ?? activeLimit;
+    if (activeLimit === undefined) return;
+    return capProviderPayload(event.payload, ctx.model, activeLimit);
   });
 
-  // Apply on session start
   pi.on("session_start", async (_event, ctx) => {
-    globalLimit = readGlobalContextLimit();
-
-    if (globalLimit !== null && ctx.model) {
-      const before = ctx.model.contextWindow;
-      const changed = applyContextLimit(ctx.model, globalLimit);
-      const after = ctx.model.contextWindow;
-      debugLog({ where: "session_start", provider: ctx.model.provider, id: ctx.model.id, before, after, frozen: Object.isFrozen(ctx.model), changed });
-    }
-
-    // Skip the registry refresh for now — it might be the culprit that resets
-    // state.model. Re-enable after we figure out the right place.
-  });
-
-  // Log the limit on startup
-  pi.on("session_start", async (_event, ctx) => {
-    if (globalLimit !== null) {
-      const detail = lastRebuild
-        ? lastRebuild.error
-          ? ` (rebuild error: ${lastRebuild.error})`
-          : ` — models.json: ${lastRebuild.written} override${lastRebuild.written === 1 ? "" : "s"} written, ${lastRebuild.scanned} models scanned`
-        : "";
-      ctx.ui.notify(`Global context limit: ${globalLimit.toLocaleString()} tokens${detail}. Re-select your model (or /reload) to apply.`, "info");
-    }
-  });
-
-  // /context-limit command
-  pi.registerCommand("context-limit", {
-    description: "Show or set global context limit. Subcommands: rebuild, clear, <N>",
-    handler: async (args, ctx) => {
-      const trimmed = args?.trim() ?? "";
-
-      if (trimmed === "rebuild") {
-        const limit = globalLimit ?? readGlobalContextLimit();
-        if (limit === null) {
-          ctx.ui.notify("No globalContextLimit set in settings.json — nothing to rebuild", "error");
-          return;
-        }
-        const result = rebuildModelOverrides(limit);
-        if (result.error) {
-          ctx.ui.notify(`Rebuild failed: ${result.error}`, "error");
-          return;
-        }
-        ctx.ui.notify(
-          `models.json: ${result.written} override${result.written === 1 ? "" : "s"} written, ${result.skipped} unchanged, ${result.scanned} models scanned. Run /reload to apply.`,
-          "info",
-        );
-        return;
-      }
-
-      if (trimmed === "clear") {
-        const settingsPath = getSettingsPath();
-        if (existsSync(settingsPath)) {
-          try {
-            const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
-            delete settings.globalContextLimit;
-            writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-          } catch {}
-        }
-        globalLimit = null;
-        // Drop all generated overrides from models.json
-        const modelsPath = getModelsPath();
-        if (existsSync(modelsPath)) {
-          try {
-            const mj: ModelsJsonShape = JSON.parse(readFileSync(modelsPath, "utf-8"));
-            if (mj && typeof mj === "object" && mj.providers && typeof mj.providers === "object") {
-              for (const [provKey, prov] of Object.entries(mj.providers)) {
-                if (prov.modelOverrides) {
-                  for (const k of Object.keys(prov.modelOverrides)) {
-                    delete prov.modelOverrides[k];
-                  }
-                  if (Object.keys(prov.modelOverrides).length === 0) delete prov.modelOverrides;
-                }
-                if (Object.keys(prov).length === 0) delete mj.providers[provKey];
-              }
-              if (Object.keys(mj.providers).length === 0) {
-                try { require("node:fs").unlinkSync(modelsPath); } catch {}
-              } else {
-                writeFileSync(modelsPath, JSON.stringify(mj, null, 2) + "\n");
-              }
-            }
-          } catch {}
-        }
-        ctx.ui.notify("Global context limit cleared. Run /reload to apply.", "info");
-        return;
-      }
-
-      if (!trimmed) {
-        const current = readGlobalContextLimit();
-        ctx.ui.notify(
-          current
-            ? `Global context limit: ${current.toLocaleString()} tokens`
-            : "No global context limit set",
-          "info",
-        );
-        return;
-      }
-
-      const value = parseInt(trimmed, 10);
-      if (isNaN(value) || value < 1000) {
-        ctx.ui.notify("Invalid limit. Must be a number >= 1000", "error");
-        return;
-      }
-
-      // Update settings.json
-      const settingsPath = getSettingsPath();
-      let settings: any = {};
-      if (existsSync(settingsPath)) {
-        try {
-          settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
-        } catch {
-          settings = {};
-        }
-      }
-
-      settings.globalContextLimit = value;
-      writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-
-      globalLimit = value;
-      const result = rebuildModelOverrides(value);
-
-      // Apply to current model
-      if (ctx.model) {
-        applyContextLimit(ctx.model, value);
-      }
-
+    activeLimit = readGlobalContextLimit(paths);
+    await ensureRegistryAndModel(ctx as unknown as HostContext, activeLimit !== undefined);
+    if (activeLimit !== undefined) {
+      const detail = lastRebuild?.error ? ` (${lastRebuild.error})` : "";
       ctx.ui.notify(
-        `Global context limit set to ${value.toLocaleString()} tokens — ${result.written} model${result.written === 1 ? "" : "s"} override${result.written === 1 ? "" : "s"} written. Run /reload to apply.`,
-        "info",
+        `Global context limit: ${activeLimit.toLocaleString()} tokens${detail}. Pi's normal compactor remains active.`,
+        lastRebuild?.error ? "error" : "info",
       );
+    }
+  });
+
+  pi.on("model_select", async (_event, ctx) => {
+    await ensureRegistryAndModel(ctx as unknown as HostContext, true);
+  });
+
+  // These precede compaction/request preparation and recover from a dynamic
+  // provider refresh that replaced the current frozen catalog object.
+  pi.on("input", async () => undefined);
+  pi.on("turn_start", async (_event, ctx) => {
+    await ensureRegistryAndModel(ctx as unknown as HostContext, true);
+  });
+
+  pi.registerCommand("context-limit", {
+    description: "Show, set, rebuild, or clear the global model context limit",
+    handler: async (args, commandCtx) => {
+      const ctx = commandCtx as unknown as HostContext;
+      const value = args.trim();
+      if (!value) {
+        const current = readGlobalContextLimit(paths);
+        commandCtx.ui.notify(current ? `Global context limit: ${current.toLocaleString()} tokens` : "No global context limit set", "info");
+        return;
+      }
+
+      if (value === "rebuild" || value === "clear") {
+        activeLimit = readGlobalContextLimit(paths);
+        if (value === "clear") {
+          const settingsError = updateSettingsLimit(undefined, paths);
+          if (settingsError) {
+            commandCtx.ui.notify(`Could not clear limit: ${settingsError}`, "error");
+            return;
+          }
+          activeLimit = undefined;
+        }
+        if (activeLimit === undefined) {
+          const result = clearManagedModelOverrides(paths);
+          if (result.error) commandCtx.ui.notify(`Could not clear managed overrides: ${result.error}`, "error");
+          else commandCtx.ui.notify("Global context limit cleared. User-authored model overrides were preserved.", "info");
+        } else {
+          lastRebuild = rebuildModelOverrides(activeLimit, ctx.modelRegistry.getAll(), paths);
+          if (lastRebuild.error) commandCtx.ui.notify(`Rebuild failed: ${lastRebuild.error}`, "error");
+          else commandCtx.ui.notify(`Global context limit: ${activeLimit.toLocaleString()}; ${lastRebuild.written} model override(s) updated.`, "info");
+        }
+        try {
+          await ctx.modelRegistry.refresh({ allowNetwork: false });
+        } catch (error) {
+          commandCtx.ui.notify(`Pi model registry refresh failed: ${(error as Error).message}`, "error");
+        }
+        return;
+      }
+
+      if (!/^\d+$/.test(value)) {
+        commandCtx.ui.notify("Invalid limit. Use a whole number of at least 1000.", "error");
+        return;
+      }
+      const limit = Number(value);
+      if (!Number.isSafeInteger(limit) || limit < 1_000) {
+        commandCtx.ui.notify("Invalid limit. Use a whole number of at least 1000.", "error");
+        return;
+      }
+      const settingsError = updateSettingsLimit(limit, paths);
+      if (settingsError) {
+        commandCtx.ui.notify(`Could not save limit: ${settingsError}`, "error");
+        return;
+      }
+      activeLimit = limit;
+      lastRebuild = rebuildModelOverrides(limit, ctx.modelRegistry.getAll(), paths);
+      if (lastRebuild.error) {
+        commandCtx.ui.notify(`Limit saved, but overrides failed: ${lastRebuild.error}`, "error");
+        return;
+      }
+      await ensureRegistryAndModel(ctx, false);
+      commandCtx.ui.notify(`Global context limit set to ${limit.toLocaleString()} tokens; ${lastRebuild.written} model override(s) updated.`, "info");
     },
   });
 }
