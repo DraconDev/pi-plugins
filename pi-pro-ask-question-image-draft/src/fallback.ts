@@ -136,6 +136,10 @@ export async function runDialogReview(
   for (const [stageIndex, stage] of review.stages.entries()) {
     const previous = answers.get(stage.id);
     if (previous && !isStageAnswered(stage, stageIndex, previous)) answers.delete(stage.id);
+    if (skippedStageIds.has(stage.id)) {
+      answers.delete(stage.id);
+      continue;
+    }
     const optionIds = new Set(
       previous?.kind === "multi" ? previous.optionIds?.filter((id) => stage.options.some((option) => option.id === id)) ?? [] : [],
     );

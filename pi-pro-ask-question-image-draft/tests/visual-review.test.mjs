@@ -138,23 +138,41 @@ describe("envelopes and fallback", () => {
     assert.match(fallbackText(review, "no_ui"), /not a decline/);
   });
 
-  it("runs a strict sequential dialog path and supports cancel/reject", async () => {
-    const review = baseReview();
-    const selects = ["Grid", "Approve review"];
+  it("runs a strict sequential dialog path and supports multi-select, custom, revision, cancel, and reject", async () => {
+    const review = reviewWith([
+      { id: "single", header: "Single", prompt: "Choose one", options: [{ id: "a", label: "A" }, { id: "b", label: "B" }] },
+      { id: "many", header: "Many", prompt: "Choose many", multiSelect: true, options: [{ id: "c", label: "C" }, { id: "d", label: "D" }] },
+      { id: "optional", header: "Optional", prompt: "Optional", required: false, options: [{ id: "e", label: "E" }, { id: "f", label: "F" }] },
+    ]);
+    const selects = ["A", "C", "D", "Done selecting", "Skip stage"];
+    const inputs = [];
+    const confirms = [];
     const ctx = {
       signal: new AbortController().signal,
       ui: {
         select: async () => selects.shift(),
-        confirm: async () => true,
-        input: async () => undefined,
+        confirm: async (title) => { confirms.push(title); return true; },
+        input: async (title) => { inputs.push(title); return "custom"; },
       },
     };
     const result = await runDialogReview(ctx, review);
     assert.equal(result.status, "completed");
-    assert.equal(result.answers[0].optionIds[0], "grid");
+    assert.deepEqual(result.answers.map((answer) => answer.stageId), ["single", "many"]);
+    assert.deepEqual(result.skippedStageIds, ["optional"]);
+    assert.deepEqual(inputs, []);
+    assert.deepEqual(confirms, ["Visual review"]);
 
-    const cancelCtx = { ...ctx, ui: { ...ctx.ui, select: async () => undefined, confirm: async () => true, input: async () => undefined } };
+    const cancelCtx = { signal: ctx.signal, ui: { select: async () => undefined, confirm: async () => true, input: async () => undefined } };
     assert.equal((await runDialogReview(cancelCtx, review)).status, "cancelled");
+
+    const resumedSelects = ["D", "Done selecting", "Skip stage"];
+    const resumed = await runDialogReview({ signal: ctx.signal, ui: { select: async () => resumedSelects.shift(), confirm: async () => true, input: async () => undefined } }, review, [], ["optional"]);
+    assert.equal(resumed.status, "completed");
+    assert.deepEqual(resumed.answers.map((answer) => answer.stageId), ["single", "many"]);
+    assert.deepEqual(resumed.skippedStageIds, ["optional"]);
+
+    const rejectCtx = { signal: ctx.signal, ui: { select: async () => "Reject review", confirm: async () => true, input: async () => undefined } };
+    assert.equal((await runDialogReview(rejectCtx, review)).status, "rejected");
   });
 });
 

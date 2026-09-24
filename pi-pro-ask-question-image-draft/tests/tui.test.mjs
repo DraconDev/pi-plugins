@@ -24,7 +24,7 @@ function review() {
 function wizard(signal) {
   let result;
   let renders = 0;
-  const component = new VisualReviewWizard({ requestRender: () => { renders += 1; } }, theme(), review(), process.cwd(), (value) => { result = value; }, [], signal);
+  const component = new VisualReviewWizard({ requestRender: () => { renders += 1; }, terminal: { rows: 40 } }, theme(), review(), process.cwd(), (value) => { result = value; }, [], signal);
   return { component, get result() { return result; }, get renders() { return renders; } };
 }
 
@@ -64,6 +64,16 @@ describe("VisualReviewWizard", () => {
     down(state.component);
     enter(state.component);
     state.component.handleInput("hello");
+    enter(state.component);
+    state.component.handleInput(" ");
+    down(state.component);
+    state.component.handleInput(" ");
+    down(state.component);
+    enter(state.component);
+    down(state.component);
+    down(state.component);
+    down(state.component);
+    enter(state.component);
     enter(state.component);
     assert.equal(state.result?.status, "completed");
     assert.equal(state.result?.answers[0].kind, "custom");
