@@ -31,6 +31,7 @@ interface LoadedOption {
 type Row =
   | { kind: "option"; option: NormalizedOption }
   | { kind: "other" }
+  | { kind: "skip" }
   | { kind: "revision" }
   | { kind: "approve" }
   | { kind: "reject" };
@@ -45,6 +46,7 @@ export interface VisualReviewWizardOptions {
 const OTHER_LABEL = "Type something.";
 const REVISION_LABEL = "Request revision";
 const DONE_LABEL = "Done selecting";
+const SKIP_LABEL = "Skip stage";
 const APPROVE_LABEL = "Approve review";
 const REJECT_LABEL = "Reject review";
 
@@ -294,15 +296,14 @@ export class VisualReviewWizard implements Component {
       if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) this.finish(resultFor(this.review, "reject", this.answers));
       return;
     }
-    if (row.kind === "other") {
-      this.inputMode = "other";
-      this.inputStageIndex = this.stageIndex;
-      this.editor.setText("");
-      this.invalidate();
-      return;
-    }
-    if (row.kind === "revision") {
-      this.inputMode = "revision";
+    if (row.kind === "other" || row.kind === "revision" || row.kind === "skip") {
+      if (!matchesKey(data, Key.enter) && !matchesKey(data, Key.space)) return;
+      if (row.kind === "skip") {
+        this.answers.delete(stage.id);
+        this.advanceAfterAnswer();
+        return;
+      }
+      this.inputMode = row.kind === "other" ? "other" : "revision";
       this.inputStageIndex = this.stageIndex;
       this.editor.setText("");
       this.invalidate();
@@ -483,6 +484,12 @@ export class VisualReviewWizard implements Component {
         requestedRound: this.review.round + 1,
       };
       this.finish(resultFor(this.review, "revision", this.answers, revision));
+      return;
+    }
+    if (!text) {
+      this.inputMode = "none";
+      this.editor.setText("");
+      this.invalidate();
       return;
     }
     this.answers.set(stage.id, makeCustomAnswer(stage, this.inputStageIndex, text));
