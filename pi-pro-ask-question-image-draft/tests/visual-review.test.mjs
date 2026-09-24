@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import {
@@ -19,6 +21,7 @@ import {
 import { buildResponse, errorResponse } from "../src/envelope.ts";
 import { fallbackText, makeFallbackResult, runDialogReview } from "../src/fallback.ts";
 import { loadImage } from "../src/image-loader.ts";
+import { generateReviewImages, ImageGenerationError } from "../src/image-generator.ts";
 
 const baseReview = () => normalizeReview({
   reviewId: "review-test",
@@ -181,7 +184,90 @@ describe("envelopes and fallback", () => {
   });
 });
 
-describe("image references", () => {
+describe("image references and explicit generation", () => {
+  it("generates only explicitly requested options and returns a durable local path", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-visual-review-"));
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+    const calls = [];
+    const fakeFetch = async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ data: [{ b64_json: png, mime_type: "image/png" }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    try {
+      const review = normalizeReview({
+        reviewId: "generation-test",
+        stages: [{
+          id: "visual",
+          header: "Visual",
+          prompt: "Compare these",
+          options: [
+            { id: "generated", label: "Generated", generate: { prompt: "A bright blue card" } },
+            { id: "existing", label: "Existing" },
+          ],
+        }],
+      });
+      const result = await generateReviewImages(review, {
+        cwd,
+        fetchImpl: fakeFetch,
+        resolveCredential: () => "test-key",
+        now: () => 1234,
+        randomId: () => "fixed-id",
+      });
+      assert.equal(result.images.length, 1);
+      assert.equal(result.review.stages[0].options[0].generate, undefined);
+      assert.match(result.review.stages[0].options[0].image.path, /generated-images/);
+      assert.deepEqual(await readFile(result.review.stages[0].options[0].image.path), Buffer.from(png, "base64"));
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].url, "https://apihub.agnes-ai.com/v1/images/generations");
+      assert.equal(calls[0].init.headers.Authorization, "Bearer test-key");
+      assert.deepEqual(JSON.parse(calls[0].init.body), {
+        model: "agnes-image-2.5-flash",
+        prompt: "A bright blue card",
+        response_format: "b64_json",
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("does not call a provider when no option requests generation", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-visual-review-"));
+    let calls = 0;
+    try {
+      const review = normalizeReview({
+        reviewId: "no-generation",
+        stages: [{ header: "Choice", prompt: "Choose", options: [{ label: "A" }, { label: "B" }] }],
+      });
+      const result = await generateReviewImages(review, {
+        cwd,
+        fetchImpl: async () => { calls += 1; throw new Error("must not be called"); },
+        resolveCredential: () => "test-key",
+      });
+      assert.equal(calls, 0);
+      assert.equal(result.images.length, 0);
+      assert.equal(result.review, review);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects unsupported providers with a typed error", async () => {
+    const review = normalizeReview({
+      reviewId: "bad-provider",
+      stages: [{ header: "Choice", prompt: "Choose", options: [
+        { label: "A", generate: { prompt: "A", provider: "unknown" } },
+        { label: "B" },
+      ] }],
+    });
+    await assert.rejects(
+      generateReviewImages(review, { cwd: process.cwd(), resolveCredential: () => "test-key" }),
+      (error) => error instanceof ImageGenerationError && error.code === "unsupported_provider",
+    );
+  });
+
   it("loads a supplied data URI and never generates an image", async () => {
     const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
     const loaded = await loadImage({ dataUri: `data:image/png;base64,${png}` }, process.cwd());
