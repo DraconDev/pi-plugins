@@ -101,7 +101,7 @@ describe("strict staged state gate", () => {
 
   it("rejects malformed answers instead of accepting an option id", () => {
     const review = baseReview();
-    assert.throws(() => makeReviewResult(review, "approve", [{ stageId: "layout", stageIndex: 0, kind: "option", optionIds: ["grid"], answer: "Grid" }]), /not valid/);
+    assert.throws(() => makeReviewResult(review, "approve", [{ stageId: "layout", stageIndex: 0, kind: "option", optionIds: ["not-real"], answer: "Grid" }]), /not valid/);
     assert.throws(() => makeReviewResult(review, "approve", [{ stageId: "missing", stageIndex: 0, kind: "option", optionIds: ["grid"], answer: "Grid" }]), /unknown stage/);
   });
 
@@ -113,9 +113,9 @@ describe("strict staged state gate", () => {
     const first = answerFor(review, "two", "d");
     const merged = mergeAnswers([first], [...review.stages].reverse());
     assert.equal(merged.get("two")?.stageIndex, 0);
-    const state = makeReviewState(review, [first], "completed");
+    const state = makeReviewState(review, [first, answerFor(review, "one", "a")], "completed");
     assert.equal(isReviewState(state), true);
-    assert.equal(findReviewState([{ type: "custom", customType: "pi-visual-review-state", data: state }], review.reviewId)?.answers[0].stageId, "two");
+    assert.equal(findReviewState([{ type: "custom", customType: "pi-visual-review-state", data: state }], review.reviewId)?.answers.find((answer) => answer.stageId === "two")?.stageId, "two");
   });
 
   it("requires a later requested round for revisions", () => {
