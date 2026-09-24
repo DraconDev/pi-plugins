@@ -10,12 +10,9 @@ import {
   Markdown,
   matchesKey,
   SelectList,
-  type SelectItem,
   type SelectListTheme,
-  Spacer,
   Text,
   type TUI,
-  visibleWidth,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 
@@ -50,27 +47,6 @@ export interface VisualReviewWizardOptions {
 const OTHER_LABEL = "Type something.";
 const REVISION_LABEL = "Request revision";
 const SUBMIT_LABEL = "Review & approve";
-
-function markdownTheme(theme: Theme): MarkdownTheme {
-  const fg = (color: Parameters<Theme["fg"]>[0]) => (text: string) => theme.fg(color, text);
-  return {
-    heading: (text) => theme.bold(fg("mdHeading")(text)),
-    link: fg("mdLink"),
-    linkUrl: fg("mdLinkUrl"),
-    code: fg("mdCode"),
-    codeBlock: fg("mdCodeBlock"),
-    codeBlockBorder: fg("mdCodeBlockBorder"),
-    quote: fg("mdQuote"),
-    quoteBorder: fg("mdQuoteBorder"),
-    hr: fg("mdHr"),
-    listBullet: fg("mdListBullet"),
-    bold: (text) => theme.bold(text),
-    italic: (text) => text,
-    strikethrough: (text) => text,
-    underline: (text) => text,
-    codeBlockIndent: "  ",
-  };
-}
 
 function selectTheme(theme: Theme): SelectListTheme {
   return {
@@ -115,17 +91,6 @@ function rowDescription(row: Row): string | undefined {
 
 function answerForStage(answers: Map<string, ReviewAnswer>, stage: NormalizedStage): ReviewAnswer | undefined {
   return answers.get(stage.id);
-}
-
-function selectedIds(answer: ReviewAnswer | undefined): Set<string> {
-  return new Set(answer?.optionIds ?? []);
-}
-
-function sameAnswer(a: ReviewAnswer | undefined, b: ReviewAnswer): boolean {
-  if (!a) return false;
-  if (a.kind !== b.kind) return false;
-  if (a.kind === "custom") return a.customText === b.customText;
-  return JSON.stringify(a.optionIds) === JSON.stringify(b.optionIds);
 }
 
 function errorMessage(error: unknown): string {
@@ -207,9 +172,11 @@ export class VisualReviewWizard implements Component {
     this.cwd = cwd;
     this.done = done;
     this.signal = signal;
+    this.requestRender = () => tui.requestRender();
     this.answers = new Map(initialAnswers.map((answer) => [answer.stageId, answer]));
     this.editorTheme = editorTheme(theme);
     this.editor = new Editor(tui, this.editorTheme);
+    this.editor.focused = true;
     this.imageMode = canRenderImages() && review.stages.some((stage) => stage.options.some((option) => option.image));
     this.editor.onSubmit = (value) => this.submitEditor(value);
     void loadOptionImages(review, cwd, signal).then((loaded) => {
@@ -229,10 +196,6 @@ export class VisualReviewWizard implements Component {
     this.cachedLines = undefined;
     this.editor.invalidate();
     this.requestRender();
-  }
-
-  setRenderRequest(request: () => void): void {
-    (this as { requestRender: () => void }).requestRender = request;
   }
 
   handleInput(data: string): void {
@@ -358,7 +321,7 @@ export class VisualReviewWizard implements Component {
         const rightLines = imageStage ? this.renderSelectedVisual(imageStage, rightWidth) : this.renderFallbackPanel(stage, rightWidth);
         const right = new Text(rightLines.join("\n"), 0, 0);
         const combined = new HStack([{ component: left, basis: leftWidth, shrink: 0 }, { component: right, basis: rightWidth, shrink: 0 }], { gap: 3 });
-        lines.push(...combined.render(safeWidth - 2).map((line) => ` ${line}`));
+        lines.push(...combined.render(Math.max(1, safeWidth - 2)).map((line) => ` ${line}`));
       } else {
         for (const line of listLines) lines.push(` ${line}`);
         const selected = rows[this.selectedIndex];
@@ -399,7 +362,14 @@ export class VisualReviewWizard implements Component {
   private renderFallbackPanel(stage: NormalizedStage, width: number): string[] {
     const selected = rowsForStage(stage)[this.selectedIndex];
     if (selected?.kind === "option") return this.renderSelectedVisual(selected.option, width);
-    return [this.theme.fg("dim", "Select an option to inspect its preview."), "", ...(stage.options.slice(0, 2).flatMap((option) => [`${option.label}: ${option.description ?? ""}`, ...(option.preview ? [option.preview] : [])]))),];
+    return [
+      this.theme.fg("dim", "Select an option to inspect its preview."),
+      "",
+      ...stage.options.slice(0, 2).flatMap((option) => [
+        `${option.label}: ${option.description ?? ""}`,
+        ...(option.preview ? [option.preview] : []),
+      ]),
+    ];
   }
 
   private submitEditor(value: string): void {
