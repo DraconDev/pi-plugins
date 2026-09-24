@@ -1,7 +1,14 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import type { NormalizedOption, NormalizedReview, NormalizedStage } from "./schema.ts";
-import { makeCustomAnswer, makeOptionAnswer, type ReviewAnswer, type ReviewResult, type ReviewRevision } from "./state.ts";
+import {
+  makeCustomAnswer,
+  makeOptionAnswer,
+  makeReviewResult,
+  type ReviewAnswer,
+  type ReviewResult,
+  type ReviewRevision,
+} from "./state.ts";
 
 export type FallbackReason = "no_ui" | "no_custom_ui" | "rpc";
 
@@ -28,11 +35,10 @@ export function fallbackText(review: NormalizedReview, reason: FallbackReason): 
     if (stage.imagePrompt) lines.push(`Next image prompt: ${stage.imagePrompt}`);
 
     for (const [optionIndex, option] of stage.options.entries()) {
-      const marker = stage.multiSelect ? "[ ]" : "[ ]";
       const image = option.image?.path ?? option.image?.url ?? (option.image?.dataUri ? "inline data URI" : undefined);
       const suffix = image ? ` — image: ${image}` : "";
       const alt = option.image?.alt ? ` — ${option.image.alt}` : "";
-      lines.push(`  ${marker} ${optionIndex + 1}. ${option.label}${suffix}${alt}`);
+      lines.push(`  [ ] ${optionIndex + 1}. ${option.label}${suffix}${alt}`);
       if (option.description) lines.push(`     ${option.description}`);
       if (option.preview) {
         const preview = option.preview.replace(/\r\n/g, "\n").replace(/\r/g, "");
@@ -72,7 +78,8 @@ function displayOption(stage: NormalizedStage, option: NormalizedOption): string
 }
 
 function findOption(stage: NormalizedStage, selected: string): NormalizedOption | undefined {
-  return stage.options.find((option) => displayOption(stage, option) === selected || option.label === selected);
+  const unselected = selected.startsWith("✓ ") ? selected.slice(2) : selected;
+  return stage.options.find((option) => displayOption(stage, option) === unselected || option.label === unselected);
 }
 
 function orderedSelected(stage: NormalizedStage, ids: ReadonlySet<string>): NormalizedOption[] {
@@ -80,20 +87,28 @@ function orderedSelected(stage: NormalizedStage, ids: ReadonlySet<string>): Norm
 }
 
 function cancelledResult(review: NormalizedReview, answers: Map<string, ReviewAnswer>): ReviewResult {
-  return {
-    version: 1,
-    reviewId: review.reviewId,
-    round: review.round,
-    status: "cancelled",
-    decision: "cancel",
-    cancelled: true,
-    answers: [...answers.values()],
-  };
+  return makeReviewResult(review, "cancel", answers);
 }
 
 function selectTitle(stage: NormalizedStage, selected: readonly string[]): string {
   if (!stage.multiSelect || selected.length === 0) return stage.prompt;
   return `${stage.prompt}\nSelected: ${selected.join(", ")}`;
+}
+
+function resultWithRevision(
+  review: NormalizedReview,
+  answers: Map<string, ReviewAnswer>,
+  stage: NormalizedStage,
+  stageIndex: number,
+  feedback: string,
+): ReviewResult {
+  const revision: ReviewRevision = {
+    stageId: stage.id,
+    stageIndex,
+    feedback,
+    requestedRound: review.round + 1,
+  };
+  return makeReviewResult(review, "revision", answers, revision);
 }
 
 /**
@@ -110,19 +125,14 @@ export async function runDialogReview(
   const answers = new Map(initialAnswers.map((answer) => [answer.stageId, { ...answer }]));
 
   for (const [stageIndex, stage] of review.stages.entries()) {
-    let previous = answers.get(stage.id);
-    if (stage.multiSelect && previous?.kind === "multi") {
-      previous = { ...previous };
-      answers.set(stage.id, previous);
-    }
-
-    let skipStage = false;
-    let customText: string | undefined;
-    let revisionFeedback: string | undefined;
-    let optionIds = new Set(
+    const previous = answers.get(stage.id);
+    const optionIds = new Set(
       previous?.kind === "multi" ? previous.optionIds?.filter((id) => stage.options.some((option) => option.id === id)) ?? [] : [],
     );
     let confirmed = !stage.multiSelect && previous !== undefined;
+    let skipStage = false;
+    let customText: string | undefined;
+    let revisionFeedback: string | undefined;
 
     while (!confirmed && !skipStage && revisionFeedback === undefined && customText === undefined) {
       const selectedLabels = orderedSelected(stage, optionIds).map((option) => option.label);
@@ -153,7 +163,6 @@ export async function runDialogReview(
             if (retry === false) return cancelledResult(review, answers);
             continue;
           }
-          skipStage = true;
           continue;
         }
         answers.set(stage.id, makeOptionAnswer(stage, stageIndex, orderedSelected(stage, optionIds)));
@@ -164,7 +173,9 @@ export async function runDialogReview(
       if (selected === OTHER_LABEL) {
         const text = await ctx.ui.input("Your answer", stage.description, { signal: ctx.signal });
         if (text === undefined) return cancelledResult(review, answers);
-        customText = text;
+        const trimmed = text.trim();
+        if (!trimmed) continue;
+        customText = trimmed;
         continue;
       }
       if (selected === SKIP_LABEL) {
@@ -174,38 +185,29 @@ export async function runDialogReview(
       if (selected === REVISION_LABEL) {
         const feedback = await ctx.ui.input("What should be revised?", "Describe the changes you want", { signal: ctx.signal });
         if (feedback === undefined) return cancelledResult(review, answers);
-        if (!feedback.trim()) continue;
-        revisionFeedback = feedback.trim();
+        const trimmed = feedback.trim();
+        if (!trimmed) continue;
+        revisionFeedback = trimmed;
         continue;
       }
       if (selected === APPROVE_LABEL) {
-        if (review.stages.some((candidate) => candidate.required && !answers.has(candidate.id))) {
-          const missing = review.stages.find((candidate) => candidate.required && !answers.has(candidate.id));
-          if (missing) {
-            const retry = await ctx.ui.confirm(
-              "Review incomplete",
-              `Answer the required stage “${missing.header}” before approving. Continue reviewing?`,
-              { signal: ctx.signal },
-            );
-            if (retry === false) return cancelledResult(review, answers);
-          }
+        const missing = review.stages.find((candidate, index) => {
+          const answer = answers.get(candidate.id);
+          return candidate.required && !answer;
+        });
+        if (missing) {
+          const retry = await ctx.ui.confirm(
+            "Review incomplete",
+            `Answer the required stage “${missing.header}” before approving. Continue reviewing?`,
+            { signal: ctx.signal },
+          );
+          if (retry === false) return cancelledResult(review, answers);
           continue;
         }
-        answers.delete(stage.id);
-        confirmed = true;
-        continue;
+        // Approval is a terminal action. It must not delete the current answer.
+        return makeReviewResult(review, "approve", answers);
       }
-      if (selected === REJECT_LABEL) {
-        return {
-          version: 1,
-          reviewId: review.reviewId,
-          round: review.round,
-          status: "rejected",
-          decision: "reject",
-          cancelled: false,
-          answers: [...answers.values()],
-        };
-      }
+      if (selected === REJECT_LABEL) return makeReviewResult(review, "reject", answers);
 
       const option = findOption(stage, selected);
       if (!option) continue;
@@ -223,37 +225,15 @@ export async function runDialogReview(
       continue;
     }
     if (revisionFeedback !== undefined) {
-      const revision: ReviewRevision = {
-        stageId: stage.id,
-        stageIndex,
-        feedback: revisionFeedback,
-        requestedRound: review.round + 1,
-      };
-      return {
-        version: 1,
-        reviewId: review.reviewId,
-        round: review.round,
-        status: "revision",
-        decision: "revision",
-        cancelled: false,
-        answers: [...answers.values()],
-        revision,
-      };
+      return resultWithRevision(review, answers, stage, stageIndex, revisionFeedback);
     }
     if (customText !== undefined) {
       answers.set(stage.id, makeCustomAnswer(stage, stageIndex, customText));
-      continue;
     }
   }
 
+  // Every required stage has been answered at this point. Keep the final
+  // confirmation explicit so the portable path has the same approval boundary.
   const approved = await ctx.ui.confirm("Visual review", "Approve these answers and continue?", { signal: ctx.signal });
-  return {
-    version: 1,
-    reviewId: review.reviewId,
-    round: review.round,
-    status: approved ? "completed" : "rejected",
-    decision: approved ? "approve" : "reject",
-    cancelled: false,
-    answers: [...answers.values()],
-  };
+  return makeReviewResult(review, approved ? "approve" : "reject", answers);
 }
