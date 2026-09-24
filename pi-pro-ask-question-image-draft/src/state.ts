@@ -261,7 +261,10 @@ export function makeCustomAnswer(stage: NormalizedStage, stageIndex: number, tex
 }
 
 function answerMap(answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewAnswer[]): ReadonlyMap<string, ReviewAnswer> {
-  return Array.isArray(answers) ? new Map(answers.map((answer) => [answer.stageId, answer])) : answers;
+  if (Array.isArray(answers)) {
+    return new Map((answers as readonly ReviewAnswer[]).map((answer) => [answer.stageId, answer]));
+  }
+  return answers as ReadonlyMap<string, ReviewAnswer>;
 }
 
 export function missingRequiredStages(review: NormalizedReview, answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewAnswer[]): NormalizedStage[] {
