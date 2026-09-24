@@ -10,6 +10,7 @@ export const MAX_HEADER_LENGTH = 32;
 export const MAX_LABEL_LENGTH = 80;
 export const MAX_STAGE_ID_LENGTH = 64;
 export const MAX_IMAGE_DATA_LENGTH = 30 * 1024 * 1024;
+export const MAX_GENERATION_PROMPT_LENGTH = 20_000;
 
 /** Labels owned by the wizard. Authors must use a different label for real options. */
 export const REVIEW_CONTROL_LABELS = {
@@ -60,13 +61,30 @@ const PreviewSchema = Type.String({
     "Markdown or plain-text fallback shown when the image cannot be displayed. Keep it concise; do not use ASCII art when an image reference is available.",
 });
 
+/** Explicit, opt-in image generation request for one visual option. */
+export const ImageGenerationSchema = Type.Object(
+  {
+    prompt: Type.String({
+      minLength: 1,
+      maxLength: MAX_GENERATION_PROMPT_LENGTH,
+      description: "Prompt sent to the configured image provider. Generation is never implicit.",
+    }),
+    provider: Type.Optional(Type.String({ maxLength: 100, description: "Image provider id, for example agnes or agnes-cn." })),
+    model: Type.Optional(Type.String({ maxLength: 200, description: "Provider-specific image model id." })),
+    negativePrompt: Type.Optional(Type.String({ maxLength: MAX_GENERATION_PROMPT_LENGTH })),
+    size: Type.Optional(Type.String({ maxLength: 100 })),
+  },
+  { description: "Generate this option's image before opening the review. The tool returns a local path." },
+);
+
 export const ReviewOptionSchema = Type.Object({
   id: Type.Optional(Type.String({ maxLength: MAX_STAGE_ID_LENGTH, description: "Stable option identifier." })),
-  label: Type.String({ maxLength: MAX_LABEL_LENGTH, description: "Concise option label (1-5 words is recommended)." }),
+  label: Type.String({ maxLength: MAX_LABEL_LENGTH, description: "Concise option label (1-5 words is recommended)." })),
   description: Type.Optional(Type.String({ maxLength: 4_000, description: "What this option means and its trade-offs." })),
   value: Type.Optional(Type.String({ maxLength: 2_000, description: "Optional machine-readable value to return when this option is selected." })),
   preview: Type.Optional(PreviewSchema),
   image: Type.Optional(ImageInputSchema),
+  generate: Type.Optional(ImageGenerationSchema),
 });
 
 export const ReviewStageSchema = Type.Object({
@@ -88,7 +106,7 @@ export const ReviewStageSchema = Type.Object({
   allowRevision: Type.Optional(Type.Boolean({ description: "Append a revision request row (default: true for stages)." })),
   multiSelect: Type.Optional(Type.Boolean({ description: "Allow selecting more than one option (default: false)." })),
   required: Type.Optional(Type.Boolean({ description: "Require an answer before the review can be approved (default: true)." })),
-  imagePrompt: Type.Optional(Type.String({ maxLength: 20_000, description: "Prompt or notes for generating this stage's images on a later round." })),
+  imagePrompt: Type.Optional(Type.String({ maxLength: MAX_GENERATION_PROMPT_LENGTH, description: "Prompt or notes for generating this stage's images on a later round." })),
 });
 
 const QuestionsSchema = Type.Array(
@@ -100,7 +118,7 @@ const QuestionsSchema = Type.Array(
     multiSelect: Type.Optional(Type.Boolean()),
     allowOther: Type.Optional(Type.Boolean()),
     required: Type.Optional(Type.Boolean()),
-    imagePrompt: Type.Optional(Type.String({ maxLength: 20_000 })),
+    imagePrompt: Type.Optional(Type.String({ maxLength: MAX_GENERATION_PROMPT_LENGTH })),
   }),
   { minItems: 1, maxItems: 4, description: "Legacy-compatible simple question stages." },
 );
@@ -141,10 +159,19 @@ export const ReviewParamsSchema = Type.Object({
 
 export type ImageReference = Static<typeof ImageReferenceSchema>;
 export type ImageInput = Static<typeof ImageInputSchema>;
+export type ImageGeneration = Static<typeof ImageGenerationSchema>;
 export type ReviewOption = Static<typeof ReviewOptionSchema>;
 export type ReviewStage = Static<typeof ReviewStageSchema>;
 export type ReviewParams = Static<typeof ReviewParamsSchema>;
 export type GenerationSpec = Static<typeof GenerationSpecSchema>;
+
+export interface NormalizedImageGeneration {
+  prompt: string;
+  provider?: string;
+  model?: string;
+  negativePrompt?: string;
+  size?: string;
+}
 
 export interface NormalizedOption {
   id: string;
@@ -153,6 +180,7 @@ export interface NormalizedOption {
   value?: string;
   preview?: string;
   image?: ImageReference;
+  generate?: NormalizedImageGeneration;
 }
 
 export interface NormalizedStage {
@@ -298,6 +326,25 @@ function assertRawOption(value: unknown, stageIndex: number, optionIndex: number
     }
   }
   if (value.image !== undefined) normalizeImage(value.image as ImageInput);
+  if (value.generate !== undefined) normalizeImageGeneration(value.generate, `Stage ${stageIndex + 1} option ${optionIndex + 1}`);
+}
+
+function normalizeImageGeneration(value: unknown, field: string): NormalizedImageGeneration {
+  if (!isRecord(value)) throw new Error(`${field}.generate must be an object.`);
+  const prompt = optionalText(value.prompt, `${field}.generate.prompt`);
+  if (!prompt) throw new Error(`${field}.generate.prompt must be a non-empty string.`);
+  for (const key of ["provider", "model", "negativePrompt", "size"] as const) {
+    if (value[key] !== undefined && typeof value[key] !== "string") {
+      throw new Error(`${field}.generate.${key} must be a string.`);
+    }
+  }
+  return {
+    prompt,
+    provider: optionalText(value.provider, `${field}.generate.provider`),
+    model: optionalText(value.model, `${field}.generate.model`),
+    negativePrompt: optionalText(value.negativePrompt, `${field}.generate.negativePrompt`),
+    size: optionalText(value.size, `${field}.generate.size`),
+  };
 }
 
 function assertRawStage(value: unknown, stageIndex: number): asserts value is RawStage {
@@ -398,6 +445,9 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
         value: optionalText(option.value),
         preview: option.preview === undefined ? undefined : normalizeText(option.preview),
         image: normalizeImage(option.image),
+        generate: option.generate === undefined
+          ? undefined
+          : normalizeImageGeneration(option.generate, `Stage ${id} option ${optionId}`),
       } satisfies NormalizedOption;
     });
 
@@ -547,6 +597,24 @@ export function validateReview(review: NormalizedReview): void {
       if (option.preview && option.preview.length > 20_000) throw new Error(`Preview for option ${option.id} is too long.`);
       if (option.value && option.value.length > 2_000) throw new Error(`Value for option ${option.id} is too long.`);
       if (option.image) validateImage(option.image, option.id);
+      if (option.generate) {
+        if (option.image) throw new Error(`Option ${option.id} cannot provide both image and generate; choose one source.`);
+        if (option.generate.prompt.length > MAX_GENERATION_PROMPT_LENGTH) {
+          throw new Error(`Generation prompt for option ${option.id} is too long.`);
+        }
+        if (option.generate.provider && option.generate.provider.length > 100) {
+          throw new Error(`Generation provider for option ${option.id} is too long.`);
+        }
+        if (option.generate.model && option.generate.model.length > 200) {
+          throw new Error(`Generation model for option ${option.id} is too long.`);
+        }
+        if (option.generate.negativePrompt && option.generate.negativePrompt.length > MAX_GENERATION_PROMPT_LENGTH) {
+          throw new Error(`Negative prompt for option ${option.id} is too long.`);
+        }
+        if (option.generate.size && option.generate.size.length > 100) {
+          throw new Error(`Generation size for option ${option.id} is too long.`);
+        }
+      }
     }
   }
   const resetIds = new Set<string>();
