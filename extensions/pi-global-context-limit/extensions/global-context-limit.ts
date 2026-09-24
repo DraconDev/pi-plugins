@@ -225,8 +225,10 @@ export default function globalContextLimitExtension(pi: ExtensionAPI): void {
     lastCompactionAt = Date.now();
   });
 
-  (pi as CompactFailureAwarePi).on("session_compact_failed", async (_event, _ctx) => {
-    requestPending = false;
+  (pi as CompactFailureAwarePi).on("session_compact_failed", async (event, _ctx) => {
+    // Pi owns compaction retries. Keep the coordinator latch closed while it
+    // says it will retry; a settled terminal attempt may rearm normally.
+    if (event.willRetry !== true) requestPending = false;
   });
 
   pi.registerCommand("context-limit", {

@@ -136,6 +136,52 @@ test("the extension requests Pi compaction once and resets on session_compact", 
   }
 });
 
+test("the coordinator latch stays closed while Pi owns a compaction retry", async () => {
+  const agentDir = tempAgentDir();
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  try {
+    writeFileSync(getSettingsPath(agentDir), JSON.stringify({
+      globalContextLimit: 200_000,
+      globalContextCompactionPercent: 80,
+      globalContextCompactionCooldownMs: 0,
+      globalContextCompactionHysteresisTokens: 0,
+    }));
+    const handlers = new Map<string, (event: any, ctx: any) => unknown>();
+    const pi = {
+      on(event: string, handler: (event: any, ctx: any) => unknown) { handlers.set(event, handler); },
+      registerCommand() {},
+    } as any;
+    globalContextLimitExtension(pi);
+
+    let compactions = 0;
+    const ctx = {
+      model: Object.freeze({ provider: "openrouter", id: "stealth/space-bunny-alpha", contextWindow: 1_000_000, maxTokens: 128_000 }),
+      getContextUsage: () => ({ tokens: 208_000, contextWindow: 1_000_000, percent: 20.8 }),
+      isIdle: () => true,
+      isCompacting: false,
+      compact: () => { compactions++; },
+      ui: { notify() {} },
+    };
+
+    await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+    await handlers.get("agent_settled")?.({}, ctx);
+    assert.equal(compactions, 1);
+
+    await handlers.get("session_compact_failed")?.({ aborted: false, willRetry: true }, ctx);
+    await handlers.get("agent_settled")?.({}, ctx);
+    assert.equal(compactions, 1, "a host-owned retry cannot enqueue a duplicate request");
+
+    await handlers.get("session_compact_failed")?.({ aborted: false, willRetry: false }, ctx);
+    await handlers.get("agent_settled")?.({}, ctx);
+    assert.equal(compactions, 2, "a terminal failure releases the latch for a later boundary");
+  } finally {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+    rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
 test("the extension never writes models.json, models-store.json, or auth.json", async () => {
   const agentDir = tempAgentDir();
   const previous = process.env.PI_CODING_AGENT_DIR;
