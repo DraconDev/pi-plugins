@@ -6,7 +6,6 @@ import {
   Key,
   type Component,
   type EditorTheme,
-  Markdown,
   matchesKey,
   Text,
   type TUI,
@@ -190,10 +189,10 @@ export class VisualReviewWizard implements Component {
       } else {
         this.selections.set(stage.id, new Set());
       }
-      if (answer?.stageIndex !== stageIndex) {
+          if (answer?.stageIndex !== stageIndex) {
         // A resumed state may have been normalized against a reordered schema. The
         // persisted stage id remains authoritative; repair only the display index.
-        this.answers.set(stage.id, { ...answer, stageIndex } as ReviewAnswer);
+        this.answers.set(stage.id, { ...answer, stageIndex });
       }
     }
 
@@ -287,12 +286,10 @@ export class VisualReviewWizard implements Component {
       if (selected.has(row.option.id)) selected.delete(row.option.id);
       else selected.add(row.option.id);
       this.invalidate();
-      if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
-        if (selected.size > 0) {
-          const options = stage.options.filter((option) => selected.has(option.id));
-          this.answers.set(stage.id, makeOptionAnswer(stage, this.stageIndex, options));
-          this.advanceAfterAnswer();
-        }
+      if (matchesKey(data, Key.enter) && selected.size > 0) {
+        const options = stage.options.filter((option) => selected.has(option.id));
+        this.answers.set(stage.id, makeOptionAnswer(stage, this.stageIndex, options));
+        this.advanceAfterAnswer();
       }
       return;
     }
@@ -375,7 +372,7 @@ export class VisualReviewWizard implements Component {
       if (current) lines.push(this.theme.fg("success", `Current answer: ${current.answer ?? current.optionLabels?.join(", ") ?? "(empty)"}`));
       const selection = this.selection(stage.id);
       const help = stage.multiSelect
-        ? `↑↓ move • Space/Enter toggle • ${DONE_LABEL} when ready • Tab stages • Esc cancel`
+        ? `↑↓ move • Space toggle • Enter confirm • Tab stages • Esc cancel`
         : "↑↓ move • Enter select • Tab/←→ stages • Esc cancel";
       lines.push(this.theme.fg("dim", help));
       if (stage.multiSelect && selection.size > 0) {
@@ -414,7 +411,7 @@ export class VisualReviewWizard implements Component {
         }
       }
     });
-    if (stage.multiSelect) lines.push(this.theme.fg("success", `  ${DONE_LABEL} — press Space/Enter on an option to commit`));
+    if (stage.multiSelect) lines.push(this.theme.fg("success", `  ${DONE_LABEL} — use Space to toggle, Enter to confirm`));
     return lines;
   }
 
