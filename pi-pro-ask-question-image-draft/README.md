@@ -2,9 +2,29 @@
 
 `pi-visual-review` is a drop-in Pi package for staged, image-aware user review. It registers the existing `ask_user_question` tool name, so existing model workflows do not need a tool-name migration.
 
-## Scope
+## Scope and image generation
 
-The package **consumes image references only**. Generate images first with a separate configured provider, then pass a local path, `file:`/`https:` URL, or base64 `data:image/...` URI in `options[].image`. It never calls an image-generation service and never handles provider credentials or quotas.
+The package supports both existing image references and explicit, opt-in image generation. To generate an option's visual as part of the review, set `options[].generate.prompt`; the built-in adapter supports Agnes (`agnes` and `agnes-cn`) and saves a local copy under `.pi/generated-images/`. Generation is never implicit, so ordinary questions do not spend provider quota. Existing `options[].image` references remain supported for images produced by any other tool (for example `codex_generate_image` or `agnes_image`).
+
+The provider and model can be set per option, or once at review level through `provider`, `model`, and `generation`:
+
+```json
+{
+  "provider": "agnes",
+  "model": "agnes-image-2.5-flash",
+  "stages": [{
+    "id": "direction",
+    "header": "Direction",
+    "prompt": "Compare the two visual directions.",
+    "options": [
+      { "id": "warm", "label": "Warm", "generate": { "prompt": "A warm editorial dashboard mockup" } },
+      { "id": "cool", "label": "Cool", "generate": { "prompt": "A cool technical dashboard mockup" } }
+    ]
+  }]
+}
+```
+
+The generator uses `AGNES_API_KEY`/`AGNES_CN_API_KEY` or Pi's stored credential, validates the returned image signature and size, and never retries failed quota/connection requests automatically. Generated image paths are included in the tool result details and persisted review state.
 
 ## Review input
 
@@ -40,7 +60,7 @@ The preferred shape is ordered `stages`:
 }
 ```
 
-Stages default to `required: true`, `multiSelect: false`, `allowOther: true`, and (for the staged shape) `allowRevision: true`. Optional stages expose an explicit **Skip stage** action. A required stage cannot be skipped. Approval is gated on every stage having either a valid answer or an explicit optional skip; selecting an approval control while a stage is unresolved navigates to that stage in the TUI and cannot bypass it in the portable dialog path.
+Stages default to `required: true`, `multiSelect: false`, `allowOther: true`, and (for the staged shape) `allowRevision: true`. Optional stages expose an explicit **Skip stage** action. A required stage cannot be skipped. Approval is gated on every stage having either a valid answer or an explicit optional skip; selecting an approval control while a stage is unresolved navigates to that stage in the TUI and cannot bypass it in the portable dialog path. Image generation is opt-in per option through `generate.prompt`; review-level `provider`, `model`, and `generation` values provide defaults.
 
 `multiSelect: true` stages use Space to toggle options and a `Done selecting` action to commit them. The TUI and fallback paths use the same normalized answer and gate rules. Custom answers, explicit rejection, cancellation, revision requests, and host-unavailable fallback are distinct outcomes; fallback is not treated as a decline.
 
@@ -60,7 +80,7 @@ Cancellation and rejection return their own result envelopes. If TUI/RPC interac
 - `Tab`, `→`/`←`: move between stages; approval still checks the complete review.
 - `Esc`: cancel the current input, or cancel the review when no input editor is active.
 
-Image previews are inline when the terminal supports them and otherwise use a safe path/URL/alt/preview text fallback. A failed or loading image never prevents answering the review.
+Image previews are inline when the terminal supports them and otherwise use a safe path/URL/alt/preview text fallback. A failed or loading image never prevents answering the review. Explicit generation happens before the review opens, so the user sees the generated artifact in the same decision flow.
 
 ## Development and verification
 
