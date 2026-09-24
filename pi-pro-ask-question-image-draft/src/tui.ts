@@ -6,7 +6,6 @@ import {
   Key,
   type Component,
   type EditorTheme,
-  isImageLine,
   matchesKey,
   Text,
   type TUI,
@@ -65,6 +64,7 @@ function editorTheme(theme: Theme): EditorTheme {
 function rowsForStage(stage: NormalizedStage): Row[] {
   const rows: Row[] = stage.options.map((option) => ({ kind: "option", option }));
   if (stage.allowOther) rows.push({ kind: "other" });
+  if (!stage.required) rows.push({ kind: "skip" });
   if (stage.allowRevision) rows.push({ kind: "revision" });
   rows.push({ kind: "approve" }, { kind: "reject" });
   return rows;
@@ -73,6 +73,7 @@ function rowsForStage(stage: NormalizedStage): Row[] {
 function rowLabel(row: Row): string {
   if (row.kind === "option") return row.option.label;
   if (row.kind === "other") return OTHER_LABEL;
+  if (row.kind === "skip") return SKIP_LABEL;
   if (row.kind === "revision") return REVISION_LABEL;
   return row.kind === "approve" ? APPROVE_LABEL : REJECT_LABEL;
 }
@@ -82,6 +83,7 @@ function rowDescription(row: Row): string | undefined {
   if (row.kind === "revision") return "Describe changes, then return to the model for regeneration";
   if (row.kind === "approve") return "Approve the review and continue";
   if (row.kind === "reject") return "Reject this proposal without changing it";
+  if (row.kind === "skip") return "Continue without answering this optional stage";
   return "Enter a custom response";
 }
 

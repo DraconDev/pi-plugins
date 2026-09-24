@@ -12,17 +12,21 @@ export const MAX_STAGE_ID_LENGTH = 64;
 export const MAX_IMAGE_DATA_LENGTH = 30 * 1024 * 1024;
 
 /** Labels owned by the wizard. Authors must use a different label for real options. */
+export const REVIEW_CONTROL_LABELS = {
+  other: "Type something.",
+  done: "Done selecting",
+  skip: "Skip stage",
+  revision: "Request revision",
+  approve: "Approve review",
+  reject: "Reject review",
+} as const;
+
 export const RESERVED_LABELS = [
   "Other",
-  "Type something.",
   "Next",
-  "Done selecting",
-  "Skip stage",
-  "Request revision",
-  "Approve",
-  "Reject",
   "Edit answers",
   "Review & approve",
+  ...Object.values(REVIEW_CONTROL_LABELS),
 ] as const;
 
 /**
