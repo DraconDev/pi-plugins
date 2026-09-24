@@ -6,6 +6,7 @@ import {
   Key,
   type Component,
   type EditorTheme,
+  isImageLine,
   matchesKey,
   Text,
   type TUI,
@@ -31,7 +32,9 @@ interface LoadedOption {
 type Row =
   | { kind: "option"; option: NormalizedOption }
   | { kind: "other" }
-  | { kind: "revision" };
+  | { kind: "revision" }
+  | { kind: "approve" }
+  | { kind: "reject" };
 
 export interface VisualReviewWizardOptions {
   review: NormalizedReview;
@@ -43,6 +46,8 @@ export interface VisualReviewWizardOptions {
 const OTHER_LABEL = "Type something.";
 const REVISION_LABEL = "Request revision";
 const DONE_LABEL = "Done selecting";
+const APPROVE_LABEL = "Approve review";
+const REJECT_LABEL = "Reject review";
 
 function editorTheme(theme: Theme): EditorTheme {
   return {
@@ -61,17 +66,22 @@ function rowsForStage(stage: NormalizedStage): Row[] {
   const rows: Row[] = stage.options.map((option) => ({ kind: "option", option }));
   if (stage.allowOther) rows.push({ kind: "other" });
   if (stage.allowRevision) rows.push({ kind: "revision" });
+  rows.push({ kind: "approve" }, { kind: "reject" });
   return rows;
 }
 
 function rowLabel(row: Row): string {
   if (row.kind === "option") return row.option.label;
-  return row.kind === "other" ? OTHER_LABEL : REVISION_LABEL;
+  if (row.kind === "other") return OTHER_LABEL;
+  if (row.kind === "revision") return REVISION_LABEL;
+  return row.kind === "approve" ? APPROVE_LABEL : REJECT_LABEL;
 }
 
 function rowDescription(row: Row): string | undefined {
   if (row.kind === "option") return row.option.description;
   if (row.kind === "revision") return "Describe changes, then return to the model for regeneration";
+  if (row.kind === "approve") return "Approve the review and continue";
+  if (row.kind === "reject") return "Reject this proposal without changing it";
   return "Enter a custom response";
 }
 
@@ -265,6 +275,23 @@ export class VisualReviewWizard implements Component {
 
     const row = rows[this.selectedIndex];
     if (!row) return;
+    if (row.kind === "approve") {
+      if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
+        const missing = this.review.stages.find((candidate) => candidate.required && !this.answers.has(candidate.id));
+        if (missing) {
+          this.stageIndex = this.review.stages.indexOf(missing);
+          this.selectedIndex = 0;
+          this.invalidate();
+          return;
+        }
+        this.finish(resultFor(this.review, "approve", this.answers));
+      }
+      return;
+    }
+    if (row.kind === "reject") {
+      if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) this.finish(resultFor(this.review, "reject", this.answers));
+      return;
+    }
     if (row.kind === "other") {
       this.inputMode = "other";
       this.inputStageIndex = this.stageIndex;
@@ -282,15 +309,18 @@ export class VisualReviewWizard implements Component {
     if (row.kind !== "option") return;
 
     if (stage.multiSelect) {
+      if (!matchesKey(data, Key.space) && !matchesKey(data, Key.enter)) return;
       const selected = this.selection(stage.id);
-      if (selected.has(row.option.id)) selected.delete(row.option.id);
-      else selected.add(row.option.id);
-      this.invalidate();
-      if (matchesKey(data, Key.enter) && selected.size > 0) {
-        const options = stage.options.filter((option) => selected.has(option.id));
-        this.answers.set(stage.id, makeOptionAnswer(stage, this.stageIndex, options));
-        this.advanceAfterAnswer();
+      if (matchesKey(data, Key.space)) {
+        if (selected.has(row.option.id)) selected.delete(row.option.id);
+        else selected.add(row.option.id);
+        this.invalidate();
+        return;
       }
+      if (selected.size === 0) return;
+      const options = stage.options.filter((option) => selected.has(option.id));
+      this.answers.set(stage.id, makeOptionAnswer(stage, this.stageIndex, options));
+      this.advanceAfterAnswer();
       return;
     }
 
@@ -358,13 +388,19 @@ export class VisualReviewWizard implements Component {
           ],
           { gap: 3 },
         );
-        for (const line of combined.render(Math.max(1, safeWidth - 2))) lines.push(` ${line}`);
+        for (const line of combined.render(Math.max(1, safeWidth - 2))) {
+          if (isImageLine(line)) lines.push(line);
+          else lines.push(` ${line}`);
+        }
       } else {
         for (const line of listLines) lines.push(` ${line}`);
         const selected = rows[this.selectedIndex];
         if (selected?.kind === "option") {
           lines.push("");
-          for (const line of this.renderSelectedVisual(selected.option, safeWidth - 4)) lines.push(`  ${line}`);
+          for (const line of this.renderSelectedVisual(selected.option, safeWidth - 4)) {
+            if (isImageLine(line)) lines.push(line);
+            else lines.push(`  ${line}`);
+          }
         }
       }
       lines.push("");
@@ -459,13 +495,16 @@ export class VisualReviewWizard implements Component {
       this.invalidate();
       return;
     }
-    if (this.review.stages.every((stage) => !stage.required || this.answers.has(stage.id))) {
-      this.finish(resultFor(this.review, "approve", this.answers));
-    } else {
-      this.stageIndex = this.review.stages.findIndex((stage) => stage.required && !this.answers.has(stage.id));
+    const missingIndex = this.review.stages.findIndex((stage) => stage.required && !this.answers.has(stage.id));
+    if (missingIndex >= 0) {
+      this.stageIndex = missingIndex;
       this.selectedIndex = 0;
       this.invalidate();
+      return;
     }
+    const approveRow = rowsForStage(this.review.stages[this.stageIndex]).findIndex((row) => row.kind === "approve");
+    this.selectedIndex = Math.max(0, approveRow);
+    this.invalidate();
   }
 
   private finish(result: ReviewResult): void {
