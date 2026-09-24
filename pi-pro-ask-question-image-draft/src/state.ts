@@ -1,4 +1,4 @@
-import type { NormalizedReview, NormalizedStage, ReviewOption } from "./schema.ts";
+import type { NormalizedOption, NormalizedReview, NormalizedStage } from "./schema.ts";
 
 export type ReviewStatus = "completed" | "revision" | "rejected" | "cancelled" | "fallback";
 export type ReviewDecision = "approve" | "reject" | "revision" | "cancel" | "fallback";
@@ -9,7 +9,7 @@ export interface ReviewAnswer {
   kind: "option" | "multi" | "custom";
   optionIds?: string[];
   optionLabels?: string[];
-  /** Optional machine-readable values supplied by the model. */
+  /** Optional machine-readable values supplied by the model, positionally aligned with optionIds. */
   optionValues?: (string | undefined)[];
   answer: string | null;
   customText?: string;
@@ -116,13 +116,13 @@ export function mergeAnswers(previous: readonly ReviewAnswer[], stages: readonly
   return merged;
 }
 
-export function selectedOptions(stage: NormalizedStage, answer: ReviewAnswer | undefined): ReviewOption[] {
+export function selectedOptions(stage: NormalizedStage, answer: ReviewAnswer | undefined): NormalizedOption[] {
   if (!answer?.optionIds?.length) return [];
   const ids = new Set(answer.optionIds);
   return stage.options.filter((option) => ids.has(option.id));
 }
 
-export function makeOptionAnswer(stage: NormalizedStage, stageIndex: number, options: readonly ReviewOption[]): ReviewAnswer {
+export function makeOptionAnswer(stage: NormalizedStage, stageIndex: number, options: readonly NormalizedOption[]): ReviewAnswer {
   return {
     stageId: stage.id,
     stageIndex,
