@@ -93,6 +93,10 @@ function answerIsValid(answer: ReviewAnswer, stage: NormalizedStage, index: numb
     return Boolean(text) && answer.optionIds === undefined && answer.optionLabels === undefined && answer.optionValues === undefined;
   }
 
+  // Option answers are always rendered as a non-empty label. Keeping this
+  // invariant here prevents a malformed persisted answer from satisfying the
+  // approval gate merely because its option id happens to exist.
+  if (typeof answer.answer !== "string" || !answer.answer.trim()) return false;
   const ids = answer.optionIds;
   if (!Array.isArray(ids) || ids.length === 0 || new Set(ids).size !== ids.length) return false;
   const optionsById = new Map(stage.options.map((option) => [option.id, option]));
@@ -119,6 +123,19 @@ function answerIsValid(answer: ReviewAnswer, stage: NormalizedStage, index: numb
 
 export function isUsableAnswer(answer: ReviewAnswer | undefined, stage: NormalizedStage, index: number, allowIndexMismatch = false): boolean {
   return Boolean(answer && answerIsValid(answer, stage, index, allowIndexMismatch));
+}
+
+/** Return true when a stage has a usable answer, regardless of whether it is required. */
+export function isStageAnswered(stage: NormalizedStage, index: number, answer: ReviewAnswer | undefined): boolean {
+  return isUsableAnswer(answer, stage, index, true);
+}
+
+/** Return the first required stage that cannot yet be approved. */
+export function firstMissingRequiredStage(
+  review: NormalizedReview,
+  answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewAnswer[],
+): NormalizedStage | undefined {
+  return missingRequiredStages(review, answers)[0];
 }
 
 export function isReviewState(value: unknown): value is ReviewState {
@@ -295,6 +312,19 @@ export function makeReviewResult(
   if (decision === "approve" && !hasRequiredAnswers(review, answers)) {
     throw new Error("Cannot approve a visual review before every required stage has an answer.");
   }
+  if (decision === "revision") {
+    if (!revision) throw new Error("A revision result requires revision details.");
+    const stageIndex = review.stages.findIndex((stage) => stage.id === revision.stageId);
+    if (stageIndex < 0 || revision.stageIndex !== stageIndex) {
+      throw new Error("Revision details must identify a stage in the current review.");
+    }
+    if (!revision.feedback.trim()) throw new Error("Revision feedback cannot be empty.");
+    if (!Number.isInteger(revision.requestedRound) || revision.requestedRound <= review.round) {
+      throw new Error("A revision must request a later round.");
+    }
+  } else if (revision) {
+    throw new Error("Only a revision result may include revision details.");
+  }
   const status: ReviewStatus =
     decision === "approve"
       ? "completed"
@@ -303,7 +333,6 @@ export function makeReviewResult(
         : decision === "revision"
           ? "revision"
           : "cancelled";
-  if (decision === "revision" && !revision) throw new Error("A revision result requires revision details.");
   return {
     version: 1,
     reviewId: review.reviewId,
