@@ -94,7 +94,7 @@ function answerIsValid(answer: ReviewAnswer, stage: NormalizedStage, index: numb
 
   if (answer.kind === "custom") {
     const text = answer.customText?.trim() || answer.answer?.trim();
-    return Boolean(text) && answer.optionIds === undefined && answer.optionLabels === undefined && answer.optionValues === undefined;
+    return Boolean(text) && stage.allowOther && answer.optionIds === undefined && answer.optionLabels === undefined && answer.optionValues === undefined;
   }
 
   // Option answers are always rendered as a non-empty label. Keeping this
@@ -211,6 +211,11 @@ export function isReviewState(value: unknown): value is ReviewState {
 
   const stages = value.stages as NormalizedStage[];
   const answers = value.answers as ReviewAnswer[];
+  try {
+    assertValidAnswerSet({ stages } as NormalizedReview, answers);
+  } catch {
+    return false;
+  }
   const skippedStageIds = (value.skippedStageIds as string[] | undefined) ?? [];
   const skipped = new Set(skippedStageIds);
   if (new Set(skippedStageIds).size !== skippedStageIds.length) return false;
@@ -255,9 +260,10 @@ export function makeReviewState(
   status: ReviewStatus,
   skippedStageIds: readonly string[] = [],
 ): ReviewState {
+  assertValidAnswerSet(review, answers);
   const skipped = normalizeSkippedStageIds(review, skippedStageIds, answers);
-  if (status === "completed" && unresolvedStages(review, answers, skipped).length > 0) {
-    throw new Error("Cannot persist a completed review while a stage is unresolved.");
+  if (status === "completed" && missingRequiredStages(review, answers).length > 0) {
+    throw new Error("Cannot persist a completed review while a required stage is unresolved.");
   }
   return {
     version: 1,
@@ -271,7 +277,7 @@ export function makeReviewState(
     generation: review.generation,
     resetStageIds: [...review.resetStageIds],
     stages: review.stages,
-    answers: answers.map((answer) => cloneAnswer(answer)),
+    answers: orderedAnswers(review, answers),
     ...(skipped.length > 0 ? { skippedStageIds: skipped } : {}),
     status,
     updatedAt: new Date().toISOString(),
@@ -304,6 +310,12 @@ export function selectedOptions(stage: NormalizedStage, answer: ReviewAnswer | u
 }
 
 export function makeOptionAnswer(stage: NormalizedStage, stageIndex: number, options: readonly NormalizedOption[]): ReviewAnswer {
+  if (options.length === 0) throw new Error("An option answer must contain at least one option.");
+  const selectedIds = new Set(options.map((option) => option.id));
+  if (selectedIds.size !== options.length || options.some((option) => !stage.options.some((candidate) => candidate.id === option.id))) {
+    throw new Error("An option answer contains an unknown or duplicate option id.");
+  }
+  if (!stage.multiSelect && options.length !== 1) throw new Error("A single-select stage accepts exactly one option.");
   return {
     stageId: stage.id,
     stageIndex,
@@ -316,7 +328,9 @@ export function makeOptionAnswer(stage: NormalizedStage, stageIndex: number, opt
 }
 
 export function makeCustomAnswer(stage: NormalizedStage, stageIndex: number, text: string): ReviewAnswer {
+  if (!stage.allowOther) throw new Error("This stage does not allow custom answers.");
   const trimmed = text.trim();
+  if (!trimmed) throw new Error("A custom answer cannot be empty.");
   return {
     stageId: stage.id,
     stageIndex,
