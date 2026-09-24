@@ -248,7 +248,8 @@ function normalizeImage(image: ImageInput | undefined): ImageReference | undefin
   if (dataUri) out.dataUri = dataUri;
   if (mimeType) out.mimeType = mimeType;
   if (alt) out.alt = alt;
-  if (Object.keys(out).length === 0) throw new Error("image needs path, url, dataUri, mimeType, or alt.");
+  if (!out.path && !out.url && !out.dataUri) throw new Error("image needs path, url, or dataUri.");
+  if (Object.keys(out).length === 0) throw new Error("image needs path, url, or dataUri.");
   return out;
 }
 
@@ -324,7 +325,11 @@ function assertRawQuestion(value: unknown, index: number): Static<typeof Questio
   if (!isRecord(value) || typeof value.question !== "string") {
     throw new Error(`Question ${index + 1} needs a question string.`);
   }
-  assertRawStage({ ...value, prompt: value.question }, index);
+  assertRawStage({
+    ...value,
+    header: typeof value.header === "string" ? value.header : `Q${index + 1}`,
+    prompt: value.question,
+  }, index);
   return value as Static<typeof QuestionsSchema>[number];
 }
 
