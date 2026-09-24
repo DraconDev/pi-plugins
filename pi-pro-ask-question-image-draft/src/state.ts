@@ -94,7 +94,7 @@ function answerIsValid(answer: ReviewAnswer, stage: NormalizedStage, index: numb
 
   if (answer.kind === "custom") {
     const text = answer.customText?.trim() || answer.answer?.trim();
-    return Boolean(text) && stage.allowOther && answer.optionIds === undefined && answer.optionLabels === undefined && answer.optionValues === undefined;
+    return Boolean(text) && stage.allowOther && answer.answer === text && answer.customText === text && answer.optionIds === undefined && answer.optionLabels === undefined && answer.optionValues === undefined;
   }
 
   // Option answers are always rendered as a non-empty label. Keeping this
@@ -223,9 +223,10 @@ export function isReviewState(value: unknown): value is ReviewState {
     const stage = stages.find((candidate) => candidate.id === id);
     return !stage || stage.required || answers.some((answer) => answer.stageId === id);
   })) return false;
-  if (value.status === "completed" && missingRequiredStages(
+  if (value.status === "completed" && unresolvedStages(
     { reviewId: value.reviewId, round: value.round as number, resetStageIds: value.resetStageIds as string[], stages },
     answers,
+    skippedStageIds,
   ).length > 0) return false;
   return answers.every((answer) => {
     const index = stages.findIndex((stage) => stage.id === answer.stageId);
@@ -262,8 +263,8 @@ export function makeReviewState(
 ): ReviewState {
   assertValidAnswerSet(review, answers);
   const skipped = normalizeSkippedStageIds(review, skippedStageIds, answers);
-  if (status === "completed" && missingRequiredStages(review, answers).length > 0) {
-    throw new Error("Cannot persist a completed review while a required stage is unresolved.");
+  if (status === "completed" && unresolvedStages(review, answers, skipped).length > 0) {
+    throw new Error("Cannot persist a completed review while a stage is unresolved.");
   }
   return {
     version: 1,
@@ -412,8 +413,8 @@ export function makeReviewResult(
 ): ReviewResult {
   const skipped = normalizeSkippedStageIds(review, skippedStageIds, answers);
   const ordered = orderedAnswers(review, answers);
-  if (decision === "approve" && !hasRequiredAnswers(review, answers)) {
-    throw new Error("Cannot approve a visual review before every required stage has an answer.");
+  if (decision === "approve" && unresolvedStages(review, answers, skipped).length > 0) {
+    throw new Error("Cannot approve a visual review before every stage is answered or explicitly skipped.");
   }
   if (decision === "revision") {
     if (!revision) throw new Error("A revision result requires revision details.");
