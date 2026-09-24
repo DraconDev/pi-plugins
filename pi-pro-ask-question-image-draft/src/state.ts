@@ -269,6 +269,9 @@ export function makeReviewState(
   if (status === "completed" && unresolvedStages(review, answers, skipped).length > 0) {
     throw new Error("Cannot persist a completed review while a stage is unresolved.");
   }
+  if (status === "fallback" && answers.length > 0) {
+    throw new Error("A fallback review cannot persist user answers.");
+  }
   return {
     version: 1,
     reviewId: review.reviewId,
