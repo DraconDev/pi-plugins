@@ -190,12 +190,17 @@ export interface NormalizedReview {
   generation?: NormalizedGeneration;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export function normalizeText(value: string): string {
   return value.replace(/\r\n/g, "\n").replace(/\r/g, "");
 }
 
-function optionalText(value: string | undefined): string | undefined {
+function optionalText(value: unknown, field = "value"): string | undefined {
   if (value === undefined) return undefined;
+  if (typeof value !== "string") throw new Error(`${field} must be a string.`);
   const text = normalizeText(value).trim();
   return text || undefined;
 }
@@ -218,7 +223,7 @@ function normalizeImage(image: ImageInput | undefined): ImageReference | undefin
 
   if (typeof image === "string") {
     const value = image.trim();
-    if (!value) return undefined;
+    if (!value) throw new Error("image must be a non-empty string or image reference object.");
     if (isDataUri(value)) return { dataUri: value };
     if (/^https?:\/\//i.test(value)) return { url: value };
     // Keep file URLs in the path field so the loader can resolve them locally.
@@ -226,18 +231,25 @@ function normalizeImage(image: ImageInput | undefined): ImageReference | undefin
     return { path: value };
   }
 
+  if (!isRecord(image)) throw new Error("image must be a string or an image reference object.");
+  for (const key of ["path", "url", "dataUri", "mimeType", "alt"] as const) {
+    if (image[key] !== undefined && typeof image[key] !== "string") {
+      throw new Error(`image.${key} must be a string.`);
+    }
+  }
   const out: ImageReference = {};
-  const path = optionalText(image.path);
-  const url = optionalText(image.url);
-  const dataUri = optionalText(image.dataUri);
-  const mimeType = optionalText(image.mimeType)?.toLowerCase().split(";", 1)[0];
-  const alt = optionalText(image.alt);
+  const path = optionalText(image.path, "image.path");
+  const url = optionalText(image.url, "image.url");
+  const dataUri = optionalText(image.dataUri, "image.dataUri");
+  const mimeType = optionalText(image.mimeType, "image.mimeType")?.toLowerCase().split(";", 1)[0];
+  const alt = optionalText(image.alt, "image.alt");
   if (path) out.path = path;
   if (url) out.url = url;
   if (dataUri) out.dataUri = dataUri;
   if (mimeType) out.mimeType = mimeType;
   if (alt) out.alt = alt;
-  return Object.keys(out).length > 0 ? out : undefined;
+  if (Object.keys(out).length === 0) throw new Error("image needs path, url, dataUri, mimeType, or alt.");
+  return out;
 }
 
 function isReservedLabel(label: string): boolean {
@@ -275,6 +287,47 @@ function rawStageFromQuestion(question: Static<typeof QuestionsSchema>[number], 
   };
 }
 
+function assertRawOption(value: unknown, stageIndex: number, optionIndex: number): asserts value is ReviewOption {
+  if (!isRecord(value) || typeof value.label !== "string") {
+    throw new Error(`Stage ${stageIndex + 1} option ${optionIndex + 1} needs a label.`);
+  }
+  for (const key of ["id", "description", "value", "preview"] as const) {
+    if (value[key] !== undefined && typeof value[key] !== "string") {
+      throw new Error(`Stage ${stageIndex + 1} option ${optionIndex + 1}.${key} must be a string.`);
+    }
+  }
+  if (value.image !== undefined) normalizeImage(value.image as ImageInput);
+}
+
+function assertRawStage(value: unknown, stageIndex: number): asserts value is RawStage {
+  if (!isRecord(value) || typeof value.header !== "string" || typeof value.prompt !== "string") {
+    throw new Error(`Stage ${stageIndex + 1} needs header and prompt strings.`);
+  }
+  if (!Array.isArray(value.options)) throw new Error(`Stage ${stageIndex + 1} options must be an array.`);
+  if (value.kind !== undefined && value.kind !== "choice" && value.kind !== "draft") {
+    throw new Error(`Stage ${stageIndex + 1}.kind must be choice or draft.`);
+  }
+  for (const key of ["id", "description", "imagePrompt"] as const) {
+    if (value[key] !== undefined && typeof value[key] !== "string") {
+      throw new Error(`Stage ${stageIndex + 1}.${key} must be a string.`);
+    }
+  }
+  for (const key of ["allowOther", "allowRevision", "multiSelect", "required"] as const) {
+    if (value[key] !== undefined && typeof value[key] !== "boolean") {
+      throw new Error(`Stage ${stageIndex + 1}.${key} must be a boolean.`);
+    }
+  }
+  value.options.forEach((option, optionIndex) => assertRawOption(option, stageIndex, optionIndex));
+}
+
+function assertRawQuestion(value: unknown, index: number): Static<typeof QuestionsSchema>[number] {
+  if (!isRecord(value) || typeof value.question !== "string") {
+    throw new Error(`Question ${index + 1} needs a question string.`);
+  }
+  assertRawStage({ ...value, prompt: value.question }, index);
+  return value as Static<typeof QuestionsSchema>[number];
+}
+
 function normalizeGeneration(params: ReviewParams): NormalizedGeneration | undefined {
   const generation = params.generation;
   const out: NormalizedGeneration = {
@@ -293,8 +346,15 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
     throw new Error("Visual review parameters must be an object.");
   }
 
-  const suppliedStages = Array.isArray(params.stages) ? (params.stages as readonly RawStage[]) : undefined;
-  const legacyQuestions = Array.isArray(params.questions) ? params.questions : [];
+  const suppliedStages = Array.isArray(params.stages)
+    ? (params.stages as unknown[]).map((stage, index) => {
+        assertRawStage(stage, index);
+        return stage;
+      })
+    : undefined;
+  const legacyQuestions = Array.isArray(params.questions)
+    ? (params.questions as unknown[]).map((question, index) => assertRawQuestion(question, index))
+    : [];
   if (suppliedStages?.length && legacyQuestions.length) {
     throw new Error("Provide either stages or legacy questions, not both.");
   }
@@ -355,6 +415,20 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
   const provider = optionalText(params.provider) ?? generation?.provider;
   const model = optionalText(params.model) ?? generation?.model;
   const imagePrompt = optionalText(params.imagePrompt) ?? generation?.prompt;
+
+  if (params.title !== undefined && typeof params.title !== "string") throw new Error("title must be a string.");
+  if (params.reviewId !== undefined && typeof params.reviewId !== "string") throw new Error("reviewId must be a string.");
+  if (params.round !== undefined && (typeof params.round !== "number" || !Number.isInteger(params.round))) {
+    throw new Error("round must be a positive integer.");
+  }
+  if (params.notes !== undefined && typeof params.notes !== "string") throw new Error("notes must be a string.");
+  if (params.provider !== undefined && typeof params.provider !== "string") throw new Error("provider must be a string.");
+  if (params.model !== undefined && typeof params.model !== "string") throw new Error("model must be a string.");
+  if (params.imagePrompt !== undefined && typeof params.imagePrompt !== "string") throw new Error("imagePrompt must be a string.");
+  if (params.generation !== undefined && !isRecord(params.generation)) throw new Error("generation must be an object.");
+  if (params.resetStageIds !== undefined && (!Array.isArray(params.resetStageIds) || params.resetStageIds.some((id) => typeof id !== "string"))) {
+    throw new Error("resetStageIds must be an array of strings.");
+  }
 
   const round = params.round ?? 1;
   if (typeof round !== "number" || !Number.isInteger(round) || round < 1) {
