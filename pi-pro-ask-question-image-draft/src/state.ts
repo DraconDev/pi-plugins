@@ -45,16 +45,12 @@ export interface ReviewState {
   title?: string;
   provider?: string;
   model?: string;
+  imagePrompt?: string;
+  notes?: string;
   stages: NormalizedStage[];
   answers: ReviewAnswer[];
   status: ReviewStatus;
   updatedAt: string;
-}
-
-export interface ReviewStateEntry {
-  type: "custom";
-  customType: "pi-visual-review-state";
-  data?: unknown;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -66,10 +62,15 @@ export function isReviewState(value: unknown): value is ReviewState {
   return (
     value.version === 1 &&
     typeof value.reviewId === "string" &&
-    typeof value.round === "number" &&
+    Number.isInteger(value.round) &&
+    (value.round as number) >= 1 &&
     Array.isArray(value.stages) &&
     Array.isArray(value.answers) &&
-    (value.status === "completed" || value.status === "revision" || value.status === "rejected" || value.status === "cancelled" || value.status === "fallback") &&
+    (value.status === "completed" ||
+      value.status === "revision" ||
+      value.status === "rejected" ||
+      value.status === "cancelled" ||
+      value.status === "fallback") &&
     typeof value.updatedAt === "string"
   );
 }
@@ -85,7 +86,7 @@ export function findReviewState(entries: readonly unknown[], reviewId: string): 
   return found;
 }
 
-export function makeReviewState(review: NormalizedReview, answers: ReviewAnswer[], status: ReviewStatus): ReviewState {
+export function makeReviewState(review: NormalizedReview, answers: readonly ReviewAnswer[], status: ReviewStatus): ReviewState {
   return {
     version: 1,
     reviewId: review.reviewId,
@@ -93,8 +94,15 @@ export function makeReviewState(review: NormalizedReview, answers: ReviewAnswer[
     title: review.title,
     provider: review.provider,
     model: review.model,
+    imagePrompt: review.imagePrompt,
+    notes: review.notes,
     stages: review.stages,
-    answers: answers.map((answer) => ({ ...answer })),
+    answers: answers.map((answer) => ({
+      ...answer,
+      optionIds: answer.optionIds ? [...answer.optionIds] : undefined,
+      optionLabels: answer.optionLabels ? [...answer.optionLabels] : undefined,
+      optionValues: answer.optionValues ? [...answer.optionValues] : undefined,
+    })),
     status,
     updatedAt: new Date().toISOString(),
   };
@@ -104,14 +112,30 @@ export function answersForStage(answers: readonly ReviewAnswer[], stageId: strin
   return answers.find((answer) => answer.stageId === stageId);
 }
 
+function answerIsValid(answer: ReviewAnswer, stage: NormalizedStage, index: number): boolean {
+  if (answer.stageId !== stage.id || answer.stageIndex !== index) return false;
+  if (answer.kind === "custom") return Boolean(answer.customText?.trim() || answer.answer?.trim());
+  const ids = answer.optionIds;
+  if (!Array.isArray(ids) || ids.length === 0) return false;
+  const validIds = new Set(stage.options.map((option) => option.id));
+  if (ids.some((id) => !validIds.has(id))) return false;
+  if (answer.kind === "option" && ids.length !== 1) return false;
+  if (answer.kind === "multi" && !stage.multiSelect) return false;
+  return true;
+}
+
 export function mergeAnswers(previous: readonly ReviewAnswer[], stages: readonly NormalizedStage[]): Map<string, ReviewAnswer> {
-  const validOptions = new Map(stages.map((stage) => [stage.id, new Set(stage.options.map((option) => option.id))]));
   const merged = new Map<string, ReviewAnswer>();
-  for (const answer of previous) {
-    const options = validOptions.get(answer.stageId);
-    if (!options) continue;
-    if ((answer.kind === "option" || answer.kind === "multi") && answer.optionIds?.some((id) => !options.has(id))) continue;
-    merged.set(answer.stageId, { ...answer });
+  for (const [index, stage] of stages.entries()) {
+    const answer = previous.find((candidate) => candidate.stageId === stage.id);
+    if (answer && answerIsValid(answer, stage, index)) {
+      merged.set(stage.id, {
+        ...answer,
+        optionIds: answer.optionIds ? [...answer.optionIds] : undefined,
+        optionLabels: answer.optionLabels ? [...answer.optionLabels] : undefined,
+        optionValues: answer.optionValues ? [...answer.optionValues] : undefined,
+      });
+    }
   }
   return merged;
 }
@@ -146,7 +170,16 @@ export function makeCustomAnswer(stage: NormalizedStage, stageIndex: number, tex
 }
 
 export function resultFromState(state: ReviewState, decision: ReviewDecision, revision?: ReviewRevision): ReviewResult {
-  const status: ReviewStatus = decision === "approve" ? "completed" : decision === "reject" ? "rejected" : decision === "revision" ? "revision" : decision === "cancel" ? "cancelled" : "fallback";
+  const status: ReviewStatus =
+    decision === "approve"
+      ? "completed"
+      : decision === "reject"
+        ? "rejected"
+        : decision === "revision"
+          ? "revision"
+          : decision === "cancel"
+            ? "cancelled"
+            : "fallback";
   return {
     version: 1,
     reviewId: state.reviewId,

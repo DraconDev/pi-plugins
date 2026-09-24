@@ -54,6 +54,9 @@ export async function loadImage(reference: ImageReference, cwd: string, signal?:
 
   if (reference.dataUri) {
     const parsed = parseDataUri(reference.dataUri);
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(parsed.base64) || parsed.base64.length % 4 === 1) {
+      throw new Error("image.dataUri contains invalid base64 data");
+    }
     bytes = Buffer.from(parsed.base64, "base64");
     mimeType = parsed.mimeType;
     source = "data URI";
@@ -66,12 +69,19 @@ export async function loadImage(reference: ImageReference, cwd: string, signal?:
     bytes = await readFile(path);
     source = path;
   } else if (reference.url) {
-    if (!/^https?:\/\//i.test(reference.url)) throw new Error(`Unsupported image URL protocol: ${reference.url}`);
-    const downloaded = await fetchRemote(reference.url, signal);
-    bytes = downloaded.bytes;
-    mimeType = downloaded.mimeType;
-    source = downloaded.remoteUrl;
-    remoteUrl = downloaded.remoteUrl;
+    if (/^file:\/\//i.test(reference.url)) {
+      const path = fileURLToPath(reference.url);
+      bytes = await readFile(path);
+      source = path;
+    } else if (/^https?:\/\//i.test(reference.url)) {
+      const downloaded = await fetchRemote(reference.url, signal);
+      bytes = downloaded.bytes;
+      mimeType = downloaded.mimeType;
+      source = downloaded.remoteUrl;
+      remoteUrl = downloaded.remoteUrl;
+    } else {
+      throw new Error(`Unsupported image URL protocol: ${reference.url}`);
+    }
   } else {
     throw new Error("Image reference has no path, url, or dataUri");
   }
@@ -79,11 +89,21 @@ export async function loadImage(reference: ImageReference, cwd: string, signal?:
   const base64 = bytes.toString("base64");
   const resolvedMime = inferMimeType({ ...reference, mimeType }, bytes);
   if (!resolvedMime.startsWith("image/")) throw new Error(`Unsupported image MIME type: ${resolvedMime}`);
+  let dimensions: ImageDimensions | undefined;
+  try {
+    dimensions = getImageDimensions(base64, resolvedMime) ?? undefined;
+  } catch {
+    dimensions = undefined;
+  }
   return {
     base64,
     mimeType: resolvedMime,
-    filename: reference.path ? basename(reference.path) : remoteUrl ? basename(new URL(remoteUrl).pathname) || "generated-image" : "generated-image",
-    dimensions: getImageDimensions(base64, resolvedMime) ?? undefined,
+    filename: reference.path
+      ? basename(reference.path)
+      : remoteUrl
+        ? basename(new URL(remoteUrl).pathname) || "generated-image"
+        : "generated-image",
+    dimensions,
     source,
     remoteUrl,
   };
