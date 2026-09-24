@@ -192,10 +192,11 @@ export async function runDialogReview(
         customText = trimmed;
         continue;
       }
-      if (selected === SKIP_LABEL) {
+      if (selected === SKIP_LABEL && !stage.required) {
         skipStage = true;
         continue;
       }
+      if (selected === SKIP_LABEL) continue;
       if (selected === REVISION_LABEL) {
         const feedback = await ctx.ui.input("What should be revised?", "Describe the changes you want", { signal: ctx.signal });
         if (feedback === undefined) return cancelledResult(review, answers, skippedStageIds);
@@ -206,15 +207,18 @@ export async function runDialogReview(
       }
       if (selected === APPROVE_LABEL) {
         const missingStage = unresolvedStages(review, answers, [...skippedStageIds])[0];
-        const missing = missingStage
-          ? `Answer or explicitly skip stage “${missingStage.header}” before approving. Continue reviewing?`
-          : undefined;
-        if (missing) {
-          const retry = await ctx.ui.confirm("Review incomplete", missing, { signal: ctx.signal });
+        if (missingStage) {
+          const retry = await ctx.ui.confirm(
+            "Review incomplete",
+            `Answer or explicitly skip stage “${missingStage.header}” before approving. Continue reviewing?`,
+            { signal: ctx.signal },
+          );
           if (retry === false) return cancelledResult(review, answers, skippedStageIds);
           continue;
         }
-        return makeReviewResult(review, "approve", answers, undefined, [...skippedStageIds]);
+        // Do not return from inside a stage loop: later stages may still be
+        // unresolved even when the current stage is complete.
+        break;
       }
       if (selected === REJECT_LABEL) return makeReviewResult(review, "reject", answers, undefined, [...skippedStageIds]);
 
@@ -243,8 +247,8 @@ export async function runDialogReview(
     }
   }
 
-  // Every required stage has been answered at this point. Keep the final
-  // confirmation explicit so the portable path has the same approval boundary.
+  // Every stage has now been processed. Keep the final confirmation explicit
+  // so the portable path has the same approval boundary as the TUI.
   const approved = await ctx.ui.confirm("Visual review", "Approve these answers and continue?", { signal: ctx.signal });
   if (!approved) return makeReviewResult(review, "reject", answers, undefined, [...skippedStageIds]);
   return makeReviewResult(review, "approve", answers, undefined, [...skippedStageIds]);

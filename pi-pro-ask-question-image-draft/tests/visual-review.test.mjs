@@ -165,7 +165,7 @@ describe("envelopes and fallback", () => {
     const cancelCtx = { signal: ctx.signal, ui: { select: async () => undefined, confirm: async () => true, input: async () => undefined } };
     assert.equal((await runDialogReview(cancelCtx, review)).status, "cancelled");
 
-    const resumedSelects = ["D", "Done selecting", "Skip stage"];
+    const resumedSelects = ["A", "D", "Done selecting", "Skip stage"];
     const resumed = await runDialogReview({ signal: ctx.signal, ui: { select: async () => resumedSelects.shift(), confirm: async () => true, input: async () => undefined } }, review, [], ["optional"]);
     assert.equal(resumed.status, "completed");
     assert.deepEqual(resumed.answers.map((answer) => answer.stageId), ["single", "many"]);
@@ -173,6 +173,11 @@ describe("envelopes and fallback", () => {
 
     const rejectCtx = { signal: ctx.signal, ui: { select: async () => "Reject review", confirm: async () => true, input: async () => undefined } };
     assert.equal((await runDialogReview(rejectCtx, review)).status, "rejected");
+
+    const approvalSelects = ["Approve review", "A", "Approve review", "C", "D", "Done selecting", "Approve review", "Skip stage", "Approve review"];
+    const approval = await runDialogReview({ signal: ctx.signal, ui: { select: async () => approvalSelects.shift(), confirm: async () => true, input: async () => undefined } }, review);
+    assert.equal(approval.status, "completed");
+    assert.deepEqual(approval.answers.map((answer) => answer.stageId), ["single", "many"]);
   });
 });
 
