@@ -13,6 +13,16 @@ export interface VisualReviewResultDetails {
   title?: string;
   provider?: string;
   model?: string;
+  /** Optional transient progress metadata supplied while explicit image generation runs. */
+  progress?: {
+    completed: number;
+    total: number;
+    optionId: string;
+    path: string;
+    provider: string;
+    model: string;
+    byteCount: number;
+  };
   result: ReviewResult;
 }
 

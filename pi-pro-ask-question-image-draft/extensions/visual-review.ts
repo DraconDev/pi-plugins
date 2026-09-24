@@ -26,7 +26,7 @@ export const ASK_USER_QUESTION_TOOL_NAME = "ask_user_question";
 export const REVIEW_STATE_CUSTOM_TYPE = "pi-visual-review-state";
 export const TOOL_DESCRIPTION = `Ask the user for a staged visual review with optional image-backed choices, revisions, and explicit outcomes.
 
-Use this tool when a decision requires the user's approval, especially when comparing generated mockups, charts, UI concepts, or other visual artifacts. Generate the first image with a separate image-generation tool (Agnes, Codex, or another configured provider), then pass its returned local path, URL, or data URI in an option's image field. This tool consumes image references; it does not generate images itself.
+Use this tool when a decision requires the user's approval, especially when comparing generated mockups, charts, UI concepts, or other visual artifacts. For a visual comparison, either set an option's explicit generate.prompt (the built-in Agnes adapter saves a local image) or pass an image path, URL, or data URI produced by another image-generation tool. Image generation is never implicit and can consume provider quota.
 
 For staged review, provide stages with ordered prompts and options. For compatibility, the legacy questions[] shape is also accepted. Each stage defaults to allowOther: true, allowRevision: true, required: true, and multiSelect: false. To generate an image as part of the review, set option.generate.prompt explicitly; the tool calls the selected provider (Agnes by default) and then displays the saved local image. Do not author reserved sentinel labels such as "Type something." or "Request revision".
 
@@ -117,7 +117,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
     promptGuidelines: PROMPT_GUIDELINES,
     parameters: ReviewParamsSchema,
     executionMode: "sequential",
-    async execute(_toolCallId, rawParams, signal, _onUpdate, ctx): Promise<AgentToolResult<VisualReviewResultDetails>> {
+    async execute(_toolCallId, rawParams, signal, onUpdate, ctx): Promise<AgentToolResult<VisualReviewResultDetails>> {
       let review: NormalizedReview;
       try {
         review = normalizeReview(rawParams as ReviewParams);
@@ -131,7 +131,41 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
       // the configured provider. This keeps ordinary clarification questions free of
       // hidden network calls and provider quota consumption.
       try {
-        const generated = await generateReviewImages(review, { cwd: ctx.cwd, signal: signal ?? ctx.signal });
+        const generated = await generateReviewImages(review, {
+          cwd: ctx.cwd,
+          signal: signal ?? ctx.signal,
+          onProgress: ({ completed, total, option, image }) => onUpdate?.({
+            content: [{ type: "text", text: `Generated image ${completed}/${total} for ${option.label}: ${image.path}` }],
+            details: {
+              version: 1,
+              kind: "visual-review",
+              reviewId: review.reviewId,
+              round: review.round,
+              title: review.title,
+              provider: image.provider,
+              model: image.model,
+              progress: {
+                completed,
+                total,
+                optionId: option.id,
+                path: image.path,
+                provider: image.provider,
+                model: image.model,
+                byteCount: image.byteCount,
+              },
+              result: {
+                version: 1,
+                reviewId: review.reviewId,
+                round: review.round,
+                status: "fallback",
+                decision: "fallback",
+                cancelled: false,
+                answers: [],
+                fallback: { reason: "no_ui", message: "Image generation is in progress." },
+              },
+            },
+          }),
+        });
         review = generated.review;
       } catch (error) {
         const message = error instanceof ImageGenerationError
@@ -190,7 +224,8 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
         }
       } else if (ctx.mode === "tui") {
         try {
-          result = await runVisualReviewWizard(ctx, review, initialAnswers, initialSkippedStageIds);
+          const wizardResult = await runVisualReviewWizard(ctx, review, initialAnswers, initialSkippedStageIds);
+          result = wizardResult ?? makeFallbackResult(review, "no_custom_ui");
         } catch (error) {
           if (isAbortError(error) || signal?.aborted || ctx.signal?.aborted) {
             result = {
