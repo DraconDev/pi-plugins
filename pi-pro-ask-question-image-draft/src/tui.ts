@@ -381,6 +381,8 @@ export class VisualReviewWizard implements Component {
           ...stage.options.slice(0, 2).flatMap((option) => [`${option.label}: ${option.description ?? ""}`]),
         ];
         const right = new Text(rightLines.join("\n"), 0, 0);
+        // Image.render() returns protocol lines which must not be wrapped or padded as text.
+        // HStack/TUI composition recognizes these lines and preserves their escape sequences.
         const combined = new HStack(
           [
             { component: left, basis: leftWidth, shrink: 0 },
