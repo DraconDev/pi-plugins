@@ -186,10 +186,14 @@ export async function runGeneration(corpus, {
   let cursor = 0;
 
 /** Atomic cache write: a reader (or a second process) never sees a half file. */
+let flushCounter = 0;
 async function flush() {
   const manifest = { schemaVersion: SCHEMA_VERSION, kind: "benchmark-image-manifest", provider: "agnes", planned: planned.length, images, failures };
   assertNoCredentials(manifest);
-  const temporary = `${cachePath}.tmp`;
+  // Concurrent workers each write their own temporary file. Sharing one name
+  // let the first rename win and every other flush fail with ENOENT, so the
+  // cache ended up describing a fraction of the images actually on disk.
+  const temporary = `${cachePath}.${process.pid}.${flushCounter++}.tmp`;
   await writeJson(temporary, manifest);
   await rename(temporary, cachePath);
 }
