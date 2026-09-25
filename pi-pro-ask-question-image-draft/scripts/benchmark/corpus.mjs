@@ -16,6 +16,7 @@ import {
 } from "./common.mjs";
 
 export const STRATA = Object.freeze(["ordinary", "visual", "adversarial"]);
+export const TERMINAL_STATUSES = Object.freeze(new Set(["completed", "rejected", "cancelled", "revision", "fallback", "invalid"]));
 const ALL_RESERVED = new Set([...RESERVED_LABELS, "Other", "Next", "Edit answers", "Review & approve"]);
 
 function rng(seed) {
@@ -192,6 +193,10 @@ function validateCanonicalInput(value, label, allowInvalid = false) {
     if (allowInvalid) return null;
     throw new BenchmarkError("invalid_shape", `${label} is not a valid review: ${error.message}`, { cause: error });
   }
+  // Reserved-label collisions are a *valid input* rule. A scenario that is
+  // marked inputValid:false exists precisely to probe that rejection, so the
+  // reserved scan is skipped for it; absoluteScore asserts the rejection.
+  if (allowInvalid) return normalized;
   for (const stage of normalized.stages) {
     for (const option of stage.options) {
       if (ALL_RESERVED.has(option.label.trim().toLowerCase()) || [...ALL_RESERVED].some((reserved) => reserved.toLowerCase() === option.label.trim().toLowerCase())) {
@@ -231,10 +236,14 @@ export function validateCorpus(value) {
     canonicalInputs.add(canonical);
     const expected = requireRecord(scenario.expected, `${label}.expected`);
     requireString(expected.outcome, `${label}.expected.outcome`);
+    if (!TERMINAL_STATUSES.has(expected.outcome)) throw new BenchmarkError("invalid_shape", `${label}.expected.outcome ${expected.outcome} is not a terminal status.`);
     requireString(expected.classification, `${label}.expected.classification`);
     if (!Array.isArray(expected.answers)) throw new BenchmarkError("invalid_shape", `${label}.expected.answers must be an array.`);
     expected.answers.forEach((answer, answerIndex) => validateExpectedAnswer(answer, `${label}.expected.answers[${answerIndex}]`));
-    if (scenario.stratum === "adversarial" && scenario.inputValid === false && scenario.comparisonScope !== "local-only") {
+    if (inputValid && expected.outcome === "invalid") {
+      throw new BenchmarkError("invalid_shape", `${label} expects a rejection but marks its input valid.`);
+    }
+    if (!inputValid && scenario.comparisonScope !== "local-only") {
       throw new BenchmarkError("invalid_scope", `${label} invalid input must be local-only.`);
     }
     validateTerminalConstraints(scenario.terminalConstraints, `${label}.terminalConstraints`);
@@ -256,13 +265,24 @@ export function normalizeCorpus(value) {
 }
 
 export async function main(argv = process.argv.slice(2)) {
-  const args = parseArgs(argv, { count: "number", seed: "number", out: "string", corpus: "string", validate: "boolean" });
+  const args = parseArgs(argv, { count: "number", seed: "number", out: "string", corpus: "string", validate: "boolean", import: "string" });
   if (args.validate) {
     const path = args.corpus ?? args.out ?? ".pi/benchmark/corpus.json";
     const { readJson } = await import("./common.mjs");
     const existing = await readJson(path, "corpus_missing");
     validateCorpus(existing);
     process.stdout.write(`${JSON.stringify({ corpus: resolve(path), valid: true, count: existing.count })}\n`);
+    return;
+  }
+  // --import validates an externally assembled corpus (for example the
+  // Space Bunny Alpha shards) and re-emits it through the same gate instead of
+  // silently trusting the file.
+  if (args.import) {
+    const { readJson } = await import("./common.mjs");
+    const imported = await readJson(args.import, "corpus_missing");
+    const corpus = normalizeCorpus(imported);
+    const out = await writeJson(args.out ?? ".pi/benchmark/corpus.json", corpus);
+    process.stdout.write(`${JSON.stringify({ out: resolve(out), imported: resolve(args.import), count: corpus.count, strata: corpus.strata, seed: corpus.seed })}\n`);
     return;
   }
   const corpus = generateCorpus({ count: parseCount(args.count), seed: parseSeed(args.seed) });
