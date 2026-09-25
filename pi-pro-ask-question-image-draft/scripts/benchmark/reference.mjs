@@ -9,16 +9,17 @@ import { createInterface } from "node:readline";
 const REFERENCE = process.env.PI_BENCHMARK_RPIV_ROOT ?? "/home/dracon/.pi/agent/npm/node_modules/@juicesharp/rpiv-ask-user-question";
 const LOADER = process.env.PI_BENCHMARK_LOADER ?? "/home/dracon/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js";
 
-function answerScript(canonicalInput) {
+function answerScript(canonicalInput, expectedAnswers = []) {
   return canonicalInput.questions.map((question, questionIndex) => {
-    const expected = question.expected ?? { kind: "option", answer: question.options[0].label };
+    const expected = expectedAnswers.find((answer) => answer.questionIndex === questionIndex)
+      ?? { kind: "option", answer: question.options[0].label };
     return { questionIndex, ...expected };
   });
 }
 
-function mockContext(input) {
+function mockContext(input, expectedAnswers = []) {
   const questions = input.questions;
-  const expected = answerScript(input);
+  const expected = answerScript(input, expectedAnswers);
   let questionIndex = 0;
   const controller = new AbortController();
   return {
@@ -32,7 +33,6 @@ function mockContext(input) {
         async select(title, choices) {
           const answer = expected[questionIndex];
           if (!answer) return undefined;
-          if (answer.kind === "multi") return `${questions[questionIndex].options.length + 1}. Type something.`;
           if (answer.kind === "custom") return `${questions[questionIndex].options.length + 1}. Type something.`;
           const optionIndex = questions[questionIndex].options.findIndex((option) => option.label === answer.answer);
           if (optionIndex < 0) return undefined;
@@ -78,7 +78,7 @@ try {
   const output = [];
   for (const scenario of request.scenarios) {
     const input = { questions: scenario.canonicalInput.questions };
-    const { context } = mockContext(input);
+    const { context } = mockContext(input, scenario.expected?.answers ?? []);
     try {
       const result = await tool.execute(`benchmark-${scenario.id}`, input, context.signal, undefined, context);
       output.push({ id: scenario.id, ok: true, result });

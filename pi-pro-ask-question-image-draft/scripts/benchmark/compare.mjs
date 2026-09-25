@@ -24,7 +24,7 @@ function normalizedAnswers(answers) {
 }
 
 function expectedAnswers(scenario) {
-  if (scenario.comparisonScope === "shared") {
+  if (scenario.canonicalInput.questions) {
     return scenario.expected.answers.map((answer) => ({
       questionIndex: answer.questionIndex,
       kind: answer.kind,
@@ -34,7 +34,13 @@ function expectedAnswers(scenario) {
   }
   return scenario.expected.answers.map((answer) => {
     const stageIndex = scenario.canonicalInput.stages?.findIndex((stage) => stage.id === answer.stageId) ?? -1;
-    return { questionIndex: stageIndex, stageId: answer.stageId, kind: answer.kind, answer: answer.answer ?? null, ...(answer.selected ? { selected: [...answer.selected] } : {}) };
+    return {
+      questionIndex: stageIndex,
+      stageId: answer.stageId,
+      kind: answer.kind,
+      answer: answer.answer ?? null,
+      ...(answer.selected ? { selected: [...answer.selected] } : {}),
+    };
   });
 }
 
@@ -43,6 +49,7 @@ function localUi(scenario) {
   const answers = scenario.expected.answers;
   let index = 0;
   let pendingCustom;
+  let activeMultiStage;
   const selectedMulti = new Set();
   return {
     signal: new AbortController().signal,
@@ -50,15 +57,27 @@ function localUi(scenario) {
       async select(title, choices) {
         if (index >= questions.length) return "Approve review";
         const stage = questions[index];
-        const expected = answers.find((answer) => (answer.questionIndex ?? stage.id) === index || answer.stageId === stage.id);
+        const expected = answers.find((answer) => answer.questionIndex === index || (answer.stageId !== undefined && answer.stageId === stage.id));
         if (!expected) return "Skip stage";
-        if (expected.kind === "custom") { pendingCustom = expected.answer; return "Type something."; }
+        if (expected.kind === "custom") {
+          pendingCustom = expected.answer;
+          index += 1;
+          return "Type something.";
+        }
         if (expected.kind === "multi") {
+          if (activeMultiStage !== index) {
+            selectedMulti.clear();
+            activeMultiStage = index;
+          }
           const wanted = [...(expected.selected ?? expected.optionLabels ?? [])];
           const next = wanted.find((label) => !selectedMulti.has(label));
-          if (next) { selectedMulti.add(next); return next; }
+          if (next) {
+            selectedMulti.add(next);
+            return next;
+          }
           index += 1;
           selectedMulti.clear();
+          activeMultiStage = undefined;
           return "Done selecting";
         }
         const option = stage.options.find((candidate) => candidate.label === expected.answer) ?? stage.options[0];
@@ -84,7 +103,7 @@ export async function runLocal(scenario) {
     const execution = runDialogReview(localUi(scenario), review);
     const result = await Promise.race([
       execution,
-      new Promise((_, reject) => setTimeout(() => reject(new BenchmarkError("local_timeout", `Local scripted execution timed out for ${scenario.id}.`)), 100).unref()),
+      new Promise((_, reject) => setTimeout(() => reject(new BenchmarkError("local_timeout", `Local scripted execution timed out for ${scenario.id}.`)), 2000)),
     ]);
     return { ok: result.status === scenario.expected.outcome, accepted: true, validation: "accepted", result, response: buildResponse(result, review) };
   } catch (error) {
@@ -99,7 +118,13 @@ export function absoluteScore(scenario, local) {
   const expected = expectedAnswers(scenario);
   const actual = scenario.canonicalInput.questions
     ? normalizedAnswers(local.response?.details?.answers)
-    : result.answers.map((answer) => ({ questionIndex: answer.stageIndex, stageId: answer.stageId, kind: answer.kind, answer: answer.answer ?? null, ...(answer.optionLabels ? { selected: [...answer.optionLabels] } : {}) }));
+    : result.answers.map((answer) => ({
+      questionIndex: answer.stageIndex,
+      stageId: answer.stageId,
+      kind: answer.kind,
+      answer: answer.answer ?? null,
+      ...(answer.kind === "multi" && answer.optionLabels ? { selected: [...answer.optionLabels] } : {}),
+    }));
   const pass = stableStringify(actual) === stableStringify(expected);
   return { pass, reason: pass ? "absolute-local-match" : "answer-mismatch" };
 }
