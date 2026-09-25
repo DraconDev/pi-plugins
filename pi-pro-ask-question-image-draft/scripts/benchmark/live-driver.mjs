@@ -155,6 +155,9 @@ const waitFor = async (predicate, label, ms = 12000) => {
   return false;
 };
 try {
+  evidence.argv = process.argv.slice(2);
+  evidence.parsedArgs = Object.fromEntries(args);
+  evidence.imagePath = imagePath;
   evidence.tty = { stdin: Boolean(process.stdin.isTTY), stdout: Boolean(process.stdout.isTTY), columns: terminal.columns, rows: terminal.rows };
   if (!process.stdin.isTTY || !process.stdout.isTTY) fail("tty", new Error("the live driver must run on a real TTY"));
   flush();
