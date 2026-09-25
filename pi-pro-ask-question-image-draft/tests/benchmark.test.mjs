@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 
 import { generateCorpus, validateCorpus } from "../scripts/benchmark/corpus.mjs";
 import { assertNoCredentials, wilsonLowerBound } from "../scripts/benchmark/common.mjs";
-import { verifyAggregateReport } from "../scripts/benchmark/report.mjs";
+import { buildAggregateReport, verifyAggregateReport } from "../scripts/benchmark/report.mjs";
 import { detectImage, promptHash } from "../scripts/benchmark/images.mjs";
 import { blindLabels } from "../scripts/benchmark/compare.mjs";
 
@@ -103,22 +103,38 @@ function detectFile(bytes) {
 }
 
 describe("aggregate report verifier", () => {
-  it("accepts a fully evidenced report and rejects every missing gate or premature activation claim", () => {
-    assert.deepEqual(verifyAggregateReport(validAggregate()), { verified: true, activationClaim: "evidenced" });
-    const missingCounts = validAggregate();
-    delete missingCounts.corpus.strata.visual;
-    assert.throws(() => verifyAggregateReport(missingCounts), /stratum/);
-    const unresolved = validAggregate();
-    unresolved.defects = [{ id: "BUG-1", severity: "P0", status: "open" }];
+  it("rejects missing gates, premature activation claims, and missing evidence", async () => {
+    const corpus = generateCorpus({ count: 1000, seed: 20260925 });
+    const results = { kind: "benchmark-comparison", cases: corpus.scenarios.map((scenario) => ({ id: scenario.id, pass: true, stableAcrossPasses: true })) };
+    const build = (overrides = {}) => buildAggregateReport({
+      corpus, results,
+      manifest: { images: [], failures: [], planned: 0 },
+      judging: {
+        summary: {
+          judgedCases: 200, candidateWins: 200, candidateWinRate: 1, wilson95LowerBound: 0.98,
+          ties: 0, undecided: 0, severeImageFailureRate: 0,
+        },
+        skippedCases: 0,
+      },
+      liveSmoke: { status: "passed", observedAt: "2026-09-25T10:00:00Z", details: "real TTY and editor", assertions: {}, pty: { usedPseudoTerminal: true } },
+      defects: [],
+      ...overrides,
+    });
+
+    const ready = await build();
+    assert.equal(ready.releaseReady, true, JSON.stringify(ready.gates));
+    assert.deepEqual(verifyAggregateReport(ready), { verified: true, releaseReady: true, activationClaim: "not-claimed" });
+
+    const noSmoke = await build({ liveSmoke: { status: "not_run" } });
+    assert.equal(noSmoke.releaseReady, false);
+    assert.equal(noSmoke.gates.liveSmoke, false);
+
+    const unresolved = await build({ defects: [{ id: "BUG-1", severity: "P0", status: "open" }] });
     assert.throws(() => verifyAggregateReport(unresolved), /Unresolved critical/);
-    const noSmoke = validAggregate();
-    delete noSmoke.liveSmoke;
-    assert.throws(() => verifyAggregateReport(noSmoke), /evidence/);
-    const premature = validAggregate();
-    premature.activation.observedAt = "2026-09-25T10:00:59Z";
-    assert.throws(() => verifyAggregateReport(premature), /after all gates/);
-    const noActivation = validAggregate();
-    noActivation.activation.claimed = false;
-    assert.throws(() => verifyAggregateReport(noActivation), /Activation evidence/);
+
+    // An activation claim on a report whose gates failed must never verify.
+    const premature = structuredClone(noSmoke);
+    premature.activation = { claimed: true, status: "passed", afterGates: true, details: "x" };
+    assert.throws(() => verifyAggregateReport(premature), /after every gate/);
   });
 });
