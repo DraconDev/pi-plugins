@@ -290,8 +290,15 @@ export function normalizeCorpus(value) {
   return structuredClone(value);
 }
 
+async function readOptionalJson(path) {
+  try { return JSON.parse(await (await import("node:fs/promises")).readFile(resolve(path), "utf8")); } catch { return null; }
+}
+
 export async function main(argv = process.argv.slice(2)) {
-  const args = parseArgs(argv, { count: "number", seed: "number", out: "string", corpus: "string", validate: "boolean", import: "string" });
+  const args = parseArgs(argv, {
+    count: "number", seed: "number", out: "string", corpus: "string",
+    validate: "boolean", import: "string", replace: "boolean",
+  });
   if (args.validate) {
     const path = args.corpus ?? args.out ?? ".pi/benchmark/corpus.json";
     const { readJson } = await import("./common.mjs");
@@ -311,9 +318,23 @@ export async function main(argv = process.argv.slice(2)) {
     process.stdout.write(`${JSON.stringify({ out: resolve(out), imported: resolve(args.import), count: corpus.count, strata: corpus.strata, seed: corpus.seed })}\n`);
     return;
   }
+  const target = args.out ?? ".pi/benchmark/corpus.json";
+  // The corpus on disk is durable benchmark evidence. Regenerating the
+  // deterministic fixture over an imported corpus (for example the Space Bunny
+  // Alpha shards) would silently destroy it, so an existing valid corpus is
+  // re-validated and reported, and replacement requires an explicit --replace.
+  const existing = await readOptionalJson(target);
+  if (existing && args.replace !== true) {
+    const corpus = normalizeCorpus(existing);
+    process.stdout.write(`${JSON.stringify({
+      out: resolve(target), count: corpus.count, strata: corpus.strata, seed: corpus.seed,
+      source: corpus.provenance?.generator ?? "fixture", action: "revalidated",
+    })}\n`);
+    return;
+  }
   const corpus = generateCorpus({ count: parseCount(args.count), seed: parseSeed(args.seed) });
-  const out = await writeJson(args.out ?? ".pi/benchmark/corpus.json", corpus);
-  process.stdout.write(`${JSON.stringify({ out: resolve(out), count: corpus.count, strata: corpus.strata, seed: corpus.seed })}\n`);
+  const out = await writeJson(target, corpus);
+  process.stdout.write(`${JSON.stringify({ out: resolve(out), count: corpus.count, strata: corpus.strata, seed: corpus.seed, action: "generated" })}\n`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
