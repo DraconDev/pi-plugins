@@ -228,9 +228,17 @@ try {
   // Live paint from the same component the TUI renders.
   const frame = () => wizard.render(terminal.columns).join("\n");
   const painted = (needle) => frame().includes(needle);
+  // Strip SGR, OSC-8 hyperlink, and cursor sequences before reading the marker.
+  const plain = (line) => line
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
+    .replace(/\x1b[@-Z\\-_]/g, "");
   const activeRow = () => {
-    const plain = (line) => line.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
-    return frame().split("\n").map(plain).find((line) => /^\s*> /.test(line))?.trim() ?? null;
+    for (const line of frame().split("\n").map(plain)) {
+      const match = /(?:^|\s)>\s?(\S[^│]{0,48}?)\s{2,}/.exec(line) ?? /(?:^|\s)>\s?(\S.*)$/.exec(line);
+      if (match) return match[1].trim();
+    }
+    return null;
   };
   const moveTo = async (rowText, label) => {
     const history = [];
@@ -239,7 +247,7 @@ try {
       history.push(current);
       if (current === rowText) return record("row", { label, row: current, moves: attempt });
       if (history.length > 2 && history.at(-1) === history.at(-3)) {
-        fail(label, new Error(`row navigation wrapped without reaching "${rowText}"; active row is ${current}`));
+        fail(label, new Error(`row navigation wrapped without reaching "${rowText}"; frame=${JSON.stringify(frame().split("\n").filter((line) => line.trim()).slice(0, 8))}`));
       }
       const before = seenKeys.filter((key) => key.includes("[B")).length;
       requestKey("\u001b[B", `${label}: move down`);
@@ -258,21 +266,15 @@ try {
     return false;
   };
 
-  // 1. Choose the second option on the first stage.
-  requestKey("\u001b[B", "move to the second treatment");
-  await waitFor(() => seenKeys.filter((key) => key.includes("[B")).length >= 1, "down-key");
+  // 1. Answer the image-backed stage with the real keyboard.
+  await moveTo("Dense treatment", "second-option");
+  const beforeSelect = seenKeys.length;
   requestKey("\r", "select the treatment");
-  await tick(600);
-  record("select", { afterFirstStage: transcript.slice(-200) });
-
-  // 2. Move to the optional follow-up stage with Tab (the documented control).
-  const beforeTab = seenKeys.length;
-  requestKey("\t", "tab to the next stage");
-  await waitFor(() => seenKeys.length > beforeTab, "tab-key", 8000);
+  await waitFor(() => seenKeys.length > beforeSelect, "select-key", 8000);
   await waitFor(() => !painted("Pick the visual treatment") && painted("Follow-up"), "stage-advance", 15000);
-  record("stage-advance", { row: activeRow(), frame: frame().split("\n").filter((line) => line.trim()).slice(0, 12) });
+  record("stage-advance", { row: activeRow() });
 
-  // 3. Collapse and reopen the overlay with the real Ctrl+] key.
+  // 2. Collapse and reopen the overlay with the real Ctrl+] key.
   requestKey("\u001d", "collapse the overlay");
   await waitFor(() => hiddenFrames > 0, "collapse");
   record("collapse", { hiddenFrames });
@@ -280,33 +282,56 @@ try {
   await waitFor(() => overlayHandle.isHidden() === false, "reopen");
   record("reopen", { visible: true, row: activeRow() });
 
-  // 4. Answer the optional stage and reach the final review.
-  requestKey("\u001b[A", "move to the first follow-up option");
-  await tick(400);
+  // 3. Answer the optional follow-up stage, then open the final review.
+  await moveTo("Nothing else", "follow-up-option");
+  const beforeFollowUp = seenKeys.length;
   requestKey("\r", "answer the follow-up stage");
-  await waitFor(() => /review|approve/i.test(frame()), "final-review");
-  record("final-review", { rendered: true });
+  await waitFor(() => seenKeys.length > beforeFollowUp, "follow-up-key", 8000);
+  await tick(500);
+  const beforeTabReview = seenKeys.length;
+  requestKey("\t", "tab to the final review");
+  await waitFor(() => seenKeys.length > beforeTabReview, "review-tab-key", 8000);
+  await waitFor(() => painted("Edit answers") || painted("Approve review"), "final-review", 15000);
+  record("final-review", { row: activeRow() });
 
-  // 5. External editor through the "Type something." row and the real
-  //    app.editor.external keybinding, exactly as a user would. The first stage
-  //    still holds the image-backed decision, so go back with shift+Tab.
+  // 4. Go back to the first stage through the review's "Edit answers" row and
+  //    open the configured external editor from the custom-answer input.
+  await moveTo("Edit answers", "edit-answers-row");
+  const beforeEdit = seenKeys.length;
+  requestKey("\r", "return to the stages");
+  await waitFor(() => seenKeys.length > beforeEdit, "edit-key", 8000);
+  await waitFor(() => painted("Pick the visual treatment"), "back-to-stage-one", 15000);
+  record("back-to-stage-one", { row: activeRow() });
+
   const externalKey = externalKeys[0];
   if (!externalKey) fail("editor", new Error("no app.editor.external keybinding is defined"));
-  requestKey("\u001b[D", "left arrow back to the first stage");
-  await waitFor(() => painted("Pick the visual treatment"), "back-to-stage-one", 15000);
   await moveTo("Type something.", "other-row");
+  const beforeOther = seenKeys.length;
   requestKey("\r", "open the custom answer editor");
+  await waitFor(() => seenKeys.length > beforeOther, "other-key", 8000);
   await waitFor(() => painted("Enter to submit"), "custom-input-mode", 15000);
-  record("custom-input", { frame: frame().split("\n").filter((line) => line.trim()).slice(0, 10) });
+  record("custom-input", { key: externalKey });
+
+  // 5. The configured external editor takes over the real terminal.
   requestKey(externalKey, "open the configured external editor");
-  await waitFor(() => /Launching external editor/.test(transcript), "editor-launch", 20000);
+  await waitFor(() => /Launching external editor/.test(transcript), "editor-launch", 25000);
   record("editor", { launched: true, key: externalKey });
 
-  // The harness quits the editor; the typed text is then submitted.
-  await tick(1500);
+  // The harness quits the editor; the answer typed there is then submitted.
+  await waitFor(() => painted("Enter to submit"), "back-from-editor", 25000);
+  requestKey("literal:Reviewed in the external editor", "type the edited answer");
+  await tick(600);
+  const beforeSubmitCustom = seenKeys.length;
   requestKey("\r", "submit the custom answer");
-  await waitFor(() => /review|approve/i.test(frame()), "final-review-again", 15000);
+  await waitFor(() => seenKeys.length > beforeSubmitCustom, "submit-custom-key", 8000);
+  await tick(700);
+  record("custom-submitted", { row: activeRow() });
+
+  // 6. Approve through the explicit final review action.
+  await moveTo("Approve review", "approve-row");
+  const beforeApprove = seenKeys.length;
   requestKey("\r", "approve the review");
+  await waitFor(() => seenKeys.length > beforeApprove, "approve-key", 8000);
 
   const result = await execution;
   clearTimeout(timeoutGuard);
