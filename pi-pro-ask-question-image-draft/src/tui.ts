@@ -736,6 +736,7 @@ export class VisualReviewWizard implements Component, Focusable {
     if (this.collapsed === collapsed) return;
     this.collapsed = collapsed;
     this.overlayHandle?.setHidden(collapsed);
+    if (!collapsed) this.overlayHandle?.focus();
     this.invalidate();
   }
 
