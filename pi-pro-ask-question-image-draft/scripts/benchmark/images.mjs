@@ -176,11 +176,33 @@ export async function runGeneration(corpus, {
 } = {}) {
   const planned = planImages(corpus, { limit: max, scenarioLimit });
   const cache = (await readCacheFile(cachePath)) ?? { schemaVersion: SCHEMA_VERSION, kind: "benchmark-image-manifest", images: [], failures: [] };
-  const byHash = new Map((cache.images ?? []).map((image) => [image.hash, image]));
-  const images = [...(cache.images ?? [])];
+  // The cache is self-healing. Anything in it that the current plan did not ask
+  // for - an entry from an older prompt, a duplicate, a leftover from a run
+  // that was interrupted - is dropped before the run starts, and reported. A
+  // stale entry used to survive into the manifest and then fail validation
+  // because its image was no longer on disk, which made the pipeline
+  // unrecoverable without deleting the cache by hand.
+  const planHashes = new Set(planned.map((item) => item.hash));
+  const kept = [];
+  const seenHashes = new Set();
+  let pruned = 0;
+  for (const entry of cache.images ?? []) {
+    if (!planHashes.has(entry.hash) || seenHashes.has(entry.hash)) { pruned += 1; continue; }
+    seenHashes.add(entry.hash);
+    kept.push(entry);
+  }
+  const byHash = new Map(kept.map((image) => [image.hash, image]));
+  const images = [...kept];
   // A failure record is superseded once that option is generated successfully,
-  // so the ledger never reports a stale failure next to a real image.
-  let failures = [...(cache.failures ?? [])];
+  // so the ledger never reports a stale failure next to a real image, and a
+  // failure is only ever recorded once per option.
+  const planOptionIds = new Set(planned.map((item) => item.optionId));
+  const failedOnce = new Map();
+  for (const failure of cache.failures ?? []) {
+    if (!planOptionIds.has(failure.optionId) || failedOnce.has(failure.optionId)) { pruned += 1; continue; }
+    failedOnce.set(failure.optionId, failure);
+  }
+  let failures = [...failedOnce.values()];
   let generated = 0;
   let cached = 0;
   let cursor = 0;
@@ -235,6 +257,8 @@ async function flush() {
           mimeType: detected.mimeType, width: detected.width, height: detected.height, byteCount: bytes.length,
           generatedAt: new Date().toISOString(),
         };
+        const index = images.findIndex((item) => item.hash === entry.hash);
+        if (index >= 0) images.splice(index, 1);
         images.push(entry);
         byHash.set(item.hash, entry);
         failures = failures.filter((failure) => failure.optionId !== item.optionId);
@@ -258,7 +282,7 @@ async function flush() {
   const manifest = { schemaVersion: SCHEMA_VERSION, kind: "benchmark-image-manifest", provider: "agnes", planned: planned.length, images, failures };
   assertNoCredentials(manifest);
   await flush();
-  return { manifest, generated, cached, failures: failures.length, planned: planned.length };
+  return { manifest, generated, cached, failures: failures.length, planned: planned.length, pruned };
 }
 
 /**
@@ -314,7 +338,7 @@ export async function main(argv = process.argv.slice(2)) {
   }
 
   const corpus = await readJson(args.corpus ?? ".pi/benchmark/corpus.json", "corpus_missing");
-  const { manifest, generated, cached, failures } = await runGeneration(corpus, {
+  const { manifest, generated, cached, failures, pruned } = await runGeneration(corpus, {
     max,
     out: args["image-dir"] ?? (args.out?.endsWith(".json") ? DEFAULT_IMAGE_DIR : args.out ?? DEFAULT_IMAGE_DIR),
     cachePath,
@@ -336,7 +360,7 @@ export async function main(argv = process.argv.slice(2)) {
   }
   process.stdout.write(`${JSON.stringify({
     out: written, manifest: cachePath, planned: manifest.planned, generated, cached,
-    validated: report.generated, failures, providerCalls: generated, budget: max,
+    validated: report.generated, failures, providerCalls: generated, budget: max, pruned,
     contractAliases: (report.contractAliases ?? []).map((alias) => alias.name),
   })}\n`);
   return report;
