@@ -122,6 +122,15 @@ let wizard;
 // Live paint from the same component the TUI renders.
 const frame = () => wizard.render(terminal.columns).join("\n");
 const painted = (needle) => frame().includes(needle);
+const waitFor = async (predicate, label, ms = 12000) => {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    if (predicate()) return true;
+    await tick(120);
+  }
+  fail(label, new Error(`timed out waiting for ${label}`));
+  return false;
+};
 try {
   evidence.tty = { stdin: Boolean(process.stdin.isTTY), stdout: Boolean(process.stdout.isTTY), columns: terminal.columns, rows: terminal.rows };
   if (!process.stdin.isTTY || !process.stdout.isTTY) fail("tty", new Error("the live driver must run on a real TTY"));
@@ -215,16 +224,7 @@ try {
   if (!saw("Live TTY smoke")) fail("render", new Error("the review title never reached the terminal"));
   if (!saw("Pick the visual treatment")) fail("render", new Error("the stage prompt never reached the terminal"));
   if (!saw("Airy treatment")) fail("image", new Error("the image-backed option never reached the terminal"));
-  const frameHasImage = /\u001b_G|\u001b_@/.test(frame());
-  const kittyUpload = frameHasImage || /\u001b_G/.test(transcript);
-  const payloadBytes = (transcript.match(/[A-Za-z0-9+/=]{200,}/g) ?? []).reduce((sum, chunk) => sum + chunk.length, 0);
-  if (!kittyUpload || payloadBytes < 2000) {
-    fail("image", new Error(`the inline image never reached the terminal (protocol=${kittyUpload}, payload=${payloadBytes} bytes)`));
-  }
-  record("render", {
-    bytes: transcript.length, columns: terminal.columns,
-    imageProtocol: "kitty", imagePayloadBytes: payloadBytes, frameHasImage,
-  });
+  record("render", { bytes: transcript.length, columns: terminal.columns, imageProtocol: "kitty" });
 
   let hiddenFrames = 0;
   const watcher = setInterval(() => { if (overlayHandle?.isHidden()) hiddenFrames += 1; }, 60);
@@ -239,6 +239,8 @@ try {
     return handled;
   };
   const heartbeat = setInterval(() => {
+    evidence.observed.frameImage = /\u001b_G|\u001b_@/.test(frame());
+    evidence.observed.frameHasPreview = frame().includes("Preview:");
     evidence.observed.keys = seenKeys;
     evidence.observed.overlay = overlayHandle ? { focused: overlayHandle.isFocused(), hidden: overlayHandle.isHidden() } : null;
     evidence.observed.listeners = inputListeners.length;
@@ -246,6 +248,15 @@ try {
     flush();
   }, 1000);
   const timeoutGuard = setTimeout(() => fail("timeout", new Error(`the review never completed; keys=${JSON.stringify(seenKeys)}`)), Math.max(3000, deadline - Date.now()));
+
+  // The inline image must really reach the terminal: protocol escape plus base64
+  // payload. Image loading is asynchronous, so wait for the bytes.
+  let payloadBytes = 0;
+  await waitFor(() => {
+    payloadBytes = (transcript.match(/[A-Za-z0-9+/=]{200,}/g) ?? []).reduce((sum, chunk) => sum + chunk.length, 0);
+    return payloadBytes >= 2000 && (/\u001b_G/.test(transcript) || /\u001b_G|\u001b_@/.test(frame()));
+  }, "image-bytes", 25000);
+  record("image", { imageProtocol: "kitty", imagePayloadBytes: payloadBytes, imageOnTerminal: true });
 
   // The live render marks the active row with "> ". Navigation is driven from
   // what is actually on screen, not from a guessed row count.
@@ -256,15 +267,6 @@ try {
     try { return plain(readFileSync(screenPath, "utf8")); } catch { return ""; }
   };
   const tailTextPlain = (size = 2000) => plain(transcript.slice(-size));
-  const waitFor = async (predicate, label, ms = 12000) => {
-    const until = Date.now() + ms;
-    while (Date.now() < until) {
-      if (predicate()) return true;
-      await tick(120);
-    }
-    fail(label, new Error(`timed out waiting for ${label}`));
-    return false;
-  };
   const activeRow = () => {
     for (const line of frame().split("\n").map(plain)) {
       const match = /(?:^|\s)>\s?(\S[^│]{0,48}?)\s{2,}/.exec(line) ?? /(?:^|\s)>\s?(\S.*)$/.exec(line);
