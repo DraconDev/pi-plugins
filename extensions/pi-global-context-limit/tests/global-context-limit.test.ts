@@ -236,8 +236,9 @@ test("Pi ModelRuntime composes native, user-store, and extension-registered mode
       baseUrl: "https://user-store.invalid",
       apiKey: "test-only",
       refreshModels: async ({ stored }) => {
-        userStoreModels = structuredClone(stored?.models ?? []) as Array<Record<string, unknown>>;
-        return userStoreModels;
+        const restored = structuredClone(stored?.models ?? []) as unknown as Array<Record<string, unknown>>;
+        userStoreModels = restored;
+        return restored as never[];
       },
     });
     runtime.registerProvider("extension-registered", {
