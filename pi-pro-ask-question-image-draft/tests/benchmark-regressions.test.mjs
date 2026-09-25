@@ -71,7 +71,7 @@ describe("ledger: judging defects", () => {
   it("JUDGE-002: the judged arm letters follow the seeded blinding, so a candidate win is never recorded as a reference win", async () => {
     for (const id of ["v-1", "v-2", "v-3", "v-4"]) {
       const scenario = { ...VISUAL_SCENARIO, id };
-      const item = await buildCase(scenario, manifestFor(FIXTURE_CORPUS, { id }), { seed: 7 });
+      const item = await buildCase(scenario, manifestFor(smallCorpus(), { id }), { seed: 7 });
       const labels = blindLabels(7, id);
       // The prompt must describe the image arm with the letter the label map
       // calls the candidate; a hard-coded "A" inverted half of all cases.
@@ -166,19 +166,19 @@ describe("ledger: visual decision-utility defects", () => {
 
   it("VISUAL-001: the visual gate is computed from judged cases and is never satisfied by ties or misses", async () => {
     const judged = (wins) => ({ summary: { judgedCases: 200, decidedCases: 200, candidateWins: wins, candidateWinRate: wins / 200, wilson95LowerBound: (wins / 200) - 0.05, ties: 0, undecided: 0, judgeErrors: 0, severeImageFailures: 0, severeImageFailureRate: 0 } });
-    const manifest = manifestFor(FIXTURE_CORPUS);
-    const FIXTURE_CORPUS = smallCorpus();
+    const SMALL = smallCorpus();
+    const manifest = manifestFor(SMALL);
     const report = await buildAggregateReport({
-      corpus: FIXTURE_CORPUS,
-      results: { kind: "benchmark-comparison", cases: FIXTURE_CORPUS.scenarios.map((scenario) => ({ id: scenario.id, pass: true })) },
+      corpus: SMALL,
+      results: { kind: "benchmark-comparison", cases: SMALL.scenarios.map((scenario) => ({ id: scenario.id, pass: true })) },
       manifest, judging: judged(68), liveSmoke: { status: "passed", observedAt: new Date().toISOString(), details: "x" },
       defects: [],
     });
     assert.equal(report.gates.visualUplift, false);
     assert.equal(report.releaseReady, false);
     const good = await buildAggregateReport({
-      corpus: FIXTURE_CORPUS,
-      results: { kind: "benchmark-comparison", cases: FIXTURE_CORPUS.scenarios.map((scenario) => ({ id: scenario.id, pass: true })) },
+      corpus: SMALL,
+      results: { kind: "benchmark-comparison", cases: SMALL.scenarios.map((scenario) => ({ id: scenario.id, pass: true })) },
       manifest, judging: judged(130), liveSmoke: { status: "passed", observedAt: new Date().toISOString(), details: "x" },
       defects: [],
     });
@@ -269,7 +269,7 @@ describe("ledger: report and gate defects", () => {
     assert.throws(() => verifyDefectLedger(drifted, { judged: { candidateWins: 68, judgedCases: 200, candidateWinRate: 0.34, wilson95LowerBound: 0.27 } }), /claim.candidateWins 65 != measured 68/);
   });
 
-  it("HARNESS-009: regenerating the corpus reproduces the shipped Space Bunny Alpha corpus from the repository", async () => {
+  it("CORPUS-001: regenerating the corpus reproduces the shipped Space Bunny Alpha corpus from the repository", async () => {
     const durable = await loadDurableCorpus({ count: 1000, seed: 20260925 });
     assert.ok(durable, `${DURABLE_CORPUS_PATH} must be present in the repository`);
     assert.equal(durable.count, 1000);
@@ -290,7 +290,7 @@ describe("ledger: report and gate defects", () => {
 
 describe("ledger: harness defects", () => {
   it("HARNESS-001: image and result counts are recomputed from the artifacts, never self-reported", async () => {
-    const empty = await ingestImageManifest(manifestFor(FIXTURE_CORPUS, { keys: [] }), { max: 600 });
+    const empty = await ingestImageManifest(manifestFor(smallCorpus(), { keys: [] }), { max: 600 });
     assert.equal(empty.generated, 0);
     assert.equal(empty.images.length, 0);
   });
@@ -311,7 +311,7 @@ describe("ledger: harness defects", () => {
     assert.doesNotThrow(() => { import("../scripts/benchmark/corpus.mjs"); });
   });
 
-  it("HARNESS-009: an existing imported corpus is re-validated, and replacement is explicit", async () => {
+  it("HARNESS-009: an existing imported corpus is re-validated rather than silently overwritten", async () => {
     const directory = await mkdtemp(join(tmpdir(), "corpus-"));
     const target = join(directory, "corpus.json");
     await writeFile(target, JSON.stringify({ ...generateCorpus({ count: 3, seed: 7 }), provenance: { generator: "space-bunny-alpha" } }));

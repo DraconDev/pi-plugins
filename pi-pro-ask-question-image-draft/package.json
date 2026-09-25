@@ -32,9 +32,12 @@
     "benchmark:compare": "node scripts/benchmark/compare.mjs",
     "benchmark:images": "node scripts/benchmark/images.mjs",
     "benchmark:images:report": "node scripts/benchmark/image-report.mjs",
-    "benchmark:report": "node scripts/benchmark/report.mjs",
     "benchmark:images:generate": "node scripts/benchmark/generate-images.mjs",
-    "benchmark:judge": "node scripts/benchmark/judge.mjs"
+    "benchmark:judge": "node scripts/benchmark/judge.mjs",
+    "benchmark:ledger": "node scripts/benchmark/ledger.mjs",
+    "benchmark:publish": "node scripts/benchmark/publish.mjs",
+    "benchmark:verify-evidence": "node scripts/benchmark/publish.mjs --verify",
+    "benchmark:report": "node scripts/benchmark/report.mjs"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
