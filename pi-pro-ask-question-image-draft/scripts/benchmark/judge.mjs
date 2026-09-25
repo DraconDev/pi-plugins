@@ -110,7 +110,16 @@ export async function buildCase(scenario, manifest, { seed }) {
   const labels = blindLabels(seed, scenario.id);
   const imageSide = "A";
   const textSide = "B";
-  const textFallback = stages[0]?.options?.[0]?.preview ?? "";
+  // Both arms describe the same three treatments, so neither side is starved of
+  // information: A shows them as generated images, B as the terminal text/ASCII
+  // rendering the package falls back to today.
+  const textRenderings = stages[0]?.options ?? [];
+  const asciiArm = textRenderings.map((option, index) => {
+    const preview = option.preview?.trim();
+    return preview
+      ? `B option ${index + 1} (${option.label}):\n${preview.slice(0, 1200)}`
+      : `B option ${index + 1} (${option.label}): ${option.description ?? "no preview text"}`;
+  }).join("\n\n");
   return {
     id: scenario.id,
     skipped: false,
@@ -118,9 +127,10 @@ export async function buildCase(scenario, manifest, { seed }) {
     prompt: [
       `Task: ${scenario.visualPrompt?.prompt ?? stages[0]?.prompt}`,
       "",
-      "A: the option rendered as a generated image at terminal size.",
-      "B: the same option presented as the current text/ASCII terminal rendering.",
-      textFallback ? `B rendering:\n${textFallback.slice(0, 2000)}` : "B rendering: the same option label and description only.",
+      "Arm A: the three treatments rendered as generated images at terminal size (attached below).",
+      "Arm B: the same three treatments as the current text/ASCII terminal rendering.",
+      "",
+      asciiArm || "Arm B: the same option labels and descriptions only.",
     ].join("\n"),
     images: bound.slice(0, 3).map((entry) => ({ path: entry.path, mimeType: entry.mimeType })),
     referenceTextSide: textSide,
