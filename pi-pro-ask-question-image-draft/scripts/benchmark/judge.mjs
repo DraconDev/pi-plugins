@@ -120,6 +120,27 @@ function toImageContent(base64, mimeType) {
 }
 
 /**
+ * Normalise the judge's `severeFailure` - which names arms ("A", "B", "both") -
+ * into arms this case can be charged for.
+ *
+ * The summary used to compare against the literal string "candidate", which the
+ * judge never emits, so the severe-failure rate was structurally zero and the
+ * 2% ceiling could not be measured at all. Attribution has to run through the
+ * case's own label map or the cap is a rubber stamp.
+ */
+export function attributeSevereFailure(value, labels) {
+  const raw = typeof value === "string" ? value : (value?.label ?? "none");
+  if (raw !== "A" && raw !== "B" && raw !== "both") return { label: "none", candidate: false, reference: false, raw };
+  const candidateArm = raw === "both" ? null : labels[raw];
+  return {
+    label: raw,
+    candidate: raw === "both" || candidateArm === "candidate",
+    reference: raw === "both" || candidateArm === "reference",
+    raw,
+  };
+}
+
+/**
  * Adjudicate independent passes. Agreement decides. A disagreement is put to a
  * third independent adjudicator pass and decided by majority; only a split that
  * the adjudicator cannot break stays undecided, and it is never credited.
@@ -135,16 +156,21 @@ export function adjudicate(passes, labels, adjudicator = null) {
   });
   if (first.winner !== second.winner) {
     if (!adjudicator || adjudicator.winner === "tie") {
-      return { winner: "undecided", method: "disagreement", passes, candidate: false };
+      return { winner: "undecided", method: "disagreement", passes, candidate: false, severeFailure: attributeSevereFailure("none", labels) };
     }
     const votes = [first.winner, second.winner, adjudicator.winner];
     const [winner, count] = ["A", "B"].map((side) => [side, votes.filter((vote) => vote === side).length])
       .sort((left, right) => right[1] - left[1])[0];
-    if (count < 2) return { winner: "undecided", method: "disagreement", passes, adjudicator, candidate: false };
-    return { ...decide(winner, "adjudicated"), adjudicator, severeFailure: adjudicator.severeFailure };
+    if (count < 2) return { winner: "undecided", method: "disagreement", passes, adjudicator, candidate: false, severeFailure: attributeSevereFailure("none", labels) };
+    // The adjudicator's severity call is the case's severity: it is the pass
+    // that had to settle the case.
+    return { ...decide(winner, "adjudicated"), adjudicator, severeFailure: attributeSevereFailure(adjudicator.severeFailure, labels) };
   }
-  if (first.winner === "tie") return { ...decide("tie", "agreement"), candidate: false };
-  return { ...decide(first.winner, "agreement"), severeFailure: first.severeFailure === second.severeFailure ? first.severeFailure : "disagreement" };
+  if (first.winner === "tie") return { ...decide("tie", "agreement"), candidate: false, severeFailure: attributeSevereFailure("none", labels) };
+  // Two passes that disagree about severity have both flagged it; "both" is the
+  // honest reading, and it is still attributed through the label map.
+  const agreed = first.severeFailure === second.severeFailure ? first.severeFailure : "both";
+  return { ...decide(first.winner, "agreement"), severeFailure: attributeSevereFailure(agreed, labels) };
 }
 
 export function judgeSummary(results) {
@@ -160,7 +186,8 @@ export function judgeSummary(results) {
   const judgeErrors = results.filter((item) => item.method === "judge_error").length;
   const adjudicated = results.filter((item) => item.method === "adjudicated").length;
   const recovered = results.filter((item) => item.passModes?.some((mode) => mode === "recovered")).length;
-  const severe = decided.filter((item) => item.severeFailure === "candidate").length;
+  const severe = decided.filter((item) => item.severeFailure?.candidate === true);
+  const severeReference = decided.filter((item) => item.severeFailure?.reference === true);
   return {
     judgedCases: total,
     decidedCases: decided.length,
@@ -174,8 +201,12 @@ export function judgeSummary(results) {
     wilson95LowerBound: wilsonLowerBound(wins, Math.max(1, total)),
     decidedWinRate: decided.length ? wins / decided.length : 0,
     decidedWilson95LowerBound: wilsonLowerBound(wins, Math.max(1, decided.length)),
-    severeImageFailures: severe,
-    severeImageFailureRate: total ? severe / total : 0,
+    severeImageFailures: severe.length,
+    severeImageFailureRate: total ? severe.length / total : 0,
+    // The baseline is charged on the same scale, so a reader can see the cap is
+    // met by measurement rather than by a lenient rubric.
+    severeReferenceFailures: severeReference.length,
+    severeReferenceFailureRate: total ? severeReference.length / total : 0,
   };
 }
 
