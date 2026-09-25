@@ -22,13 +22,21 @@ assert.ok(Array.isArray(settings.packages), "settings.packages must be an array"
 
 const active = settings.packages.includes(expectedPackage);
 if (!active) {
-  process.stdout.write(`${JSON.stringify({
+  const record = {
     status: "not_run",
     reason: "the local package is not activated",
     settingsPath,
     pluginPath,
     supersededStillActive: settings.packages.includes(superseded),
-  }, null, 2)}\n`);
+  };
+  process.stdout.write(`${JSON.stringify(record, null, 2)}\n`);
+  // The post-activation gate is only meaningful after an activation. A caller
+  // that explicitly asked for it (PI_VERIFY_ACTIVATION=1) must see a failure
+  // rather than a green "nothing to check".
+  if (process.env.PI_VERIFY_ACTIVATION === "1") {
+    process.stderr.write("verify-activation: the local package is not activated, so the post-activation gate cannot pass.\n");
+    process.exitCode = 1;
+  }
   process.exit(0);
 }
 
