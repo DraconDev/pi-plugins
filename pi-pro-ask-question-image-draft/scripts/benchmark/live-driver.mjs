@@ -22,10 +22,20 @@ const PACKAGE_ROOT = resolve(HERE, "../..");
 const LOADER = process.env.PI_BENCHMARK_LOADER
   ?? "/home/dracon/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js";
 
+/** Accepts both `--flag=value` and `--flag value` so the harness can pass
+ * arguments either way without a bare flag silently becoming "true". */
 const args = new Map();
-for (const token of process.argv.slice(2)) {
-  const [key, ...rest] = token.replace(/^--/, "").split("=");
-  args.set(key, rest.join("=") || "true");
+{
+  const tokens = process.argv.slice(2);
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token.startsWith("--")) continue;
+    const [key, ...rest] = token.replace(/^--/, "").split("=");
+    if (rest.length) { args.set(key, rest.join("=")); continue; }
+    const next = tokens[index + 1];
+    if (next !== undefined && !next.startsWith("--")) { args.set(key, next); index += 1; continue; }
+    args.set(key, "true");
+  }
 }
 const imagePath = resolve(args.get("image") ?? "");
 const outPath = resolve(args.get("out") ?? "/tmp/live-smoke-evidence.json");
@@ -237,6 +247,22 @@ try {
   if (!saw("Live TTY smoke")) fail("render", new Error("the review title never reached the terminal"));
   if (!saw("Pick the visual treatment")) fail("render", new Error("the stage prompt never reached the terminal"));
   if (!saw("Airy treatment")) fail("image", new Error("the image-backed option never reached the terminal"));
+  {
+    const probe = wizard.render(110);
+    const imageLineIndex = probe.findIndex((line) => /\u001b_G|\u001b_@/.test(line));
+    record("image-probe", {
+      totalLines: probe.length,
+      imageLineIndex,
+      previewLines: probe.filter((line) => line.includes("Preview:")).length,
+      altLines: probe.filter((line) => /Alt:|Image:/.test(line)).length,
+      loadedEntry: (() => {
+        const entry = wizard.loadedImages?.get("direction:airy");
+        return entry ? { hasImage: Boolean(entry.image), error: entry.error ?? null, keys: Object.keys(entry) } : null;
+      })(),
+      nestedCaps: (await import("/home/dracon/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist/terminal-image.js")).getCapabilities().images,
+      directCaps: getCapabilities().images,
+    });
+  }
   // The wizard renders through the pi-tui copy that jiti resolved for the
   // extension, which can be a different module instance than this file's.
   const wizardTui = await import("/home/dracon/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist/index.js");
