@@ -258,7 +258,7 @@ export async function runGeneration(corpus, {
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv, {
     corpus: "string", manifest: "string", out: "string", cache: "string", max: "number",
-    scenarios: "number", quiet: "boolean", "ingest-only": "boolean", concurrency: "number",
+    scenarios: "number", quiet: "boolean", "ingest-only": "boolean", concurrency: "number", "image-dir": "string",
   });
   const max = parsePositiveLimit(args.max, IMAGE_BUDGET);
   const out = args.out ?? DEFAULT_MANIFEST;
@@ -276,7 +276,7 @@ export async function main(argv = process.argv.slice(2)) {
   const corpus = await readJson(args.corpus ?? ".pi/benchmark/corpus.json", "corpus_missing");
   const { manifest, generated, cached, failures } = await runGeneration(corpus, {
     max,
-    out: args.out?.endsWith(".json") ? DEFAULT_IMAGE_DIR : (args.out ?? DEFAULT_IMAGE_DIR),
+    out: args["image-dir"] ?? (args.out?.endsWith(".json") ? DEFAULT_IMAGE_DIR : args.out ?? DEFAULT_IMAGE_DIR),
     cachePath,
     scenarioLimit: args.scenarios ?? Infinity,
     concurrency: args.concurrency ?? 4,

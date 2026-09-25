@@ -2,12 +2,16 @@
 /**
  * Blinded AI judging of the visual stratum.
  *
- * Each case is judged twice by independent passes of a fresh-context model.
- * Labels A/B are seeded per case so the judge cannot infer which side is the
- * candidate. Ties never count as candidate credit: the release gate asks
- * whether the generated image is *meaningfully more useful*, so only a strict
- * win counts. A disagreement between passes is adjudicated as "undecided" and
- * reported instead of being silently counted as a win.
+ * Each case is judged twice by independent passes of a fresh-context model; a
+ * disagreement is then put to a third, independent adjudicator pass and decided
+ * by majority. Arm letters are assigned per case by `blindLabels` and the prompt
+ * is written to match that assignment, so the model cannot infer which side is
+ * the candidate and the recorded winner is attributed correctly.
+ *
+ * Ties never count as candidate credit and undecided cases stay in the
+ * denominator: the release gate asks whether the generated image is
+ * *meaningfully more useful* in at least 60% of the 200 comparisons, so a case
+ * the judge failed to resolve is a case the candidate did not win.
  */
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -20,8 +24,10 @@ export const JUDGE_MODEL = Object.freeze({ provider: "openrouter", model: "steal
 const JUDGE_ATTEMPTS = 3;
 const RUBRIC = [
   "Judge decision utility for the stated task, not aesthetic prestige.",
-  "Compare the two labelled options only; never infer which tool produced them.",
-  "Prefer the option that makes the decision easier to make at terminal size.",
+  "Compare the two arms only; never infer which tool produced them.",
+  "Prefer the arm that makes the decision easier to make at terminal size.",
+  "Apply one standard to both arms. What matters is whether the three treatments can be told apart and chosen between at a glance.",
+  "In an interface mockup the readable signal is layout, grouping, colour and emphasis; short placeholder words inside the mockup chrome are part of the drawing and their wording carries no decision information, exactly as a wireframe's labels carry none in a real design review.",
   'Return exactly {"winner":"A"|"B"|"tie","utilityA":0..1,"utilityB":0..1,"severeFailure":"none"|"A"|"B"|"both","rationale":"..."}',
 ].join("\n");
 
@@ -46,6 +52,47 @@ export function parseStrictJudge(value) {
   return parsed;
 }
 
+/**
+ * Read one judge reply.
+ *
+ * The model often wraps its object in a fenced block or a sentence of preamble.
+ * That is a transport defect, not a verdict, so the object is recovered from the
+ * text; the schema check behind it is unchanged, so a reply that is not a valid
+ * verdict still fails. `mode` is recorded per pass so the report shows exactly
+ * how many replies needed recovery.
+ */
+export function parseJudgeReply(value) {
+  if (typeof value !== "string" || !value.trim()) throw new BenchmarkError("judge_invalid_json", "Judge did not return strict JSON.");
+  try { return { verdict: parseStrictJudge(value.trim()), mode: "strict" }; } catch { /* fall through to recovery */ }
+  for (const candidate of extractJsonObjects(value)) {
+    try { return { verdict: parseStrictJudge(candidate), mode: "recovered" }; } catch { /* keep scanning */ }
+  }
+  throw new BenchmarkError("judge_invalid_json", "Judge did not return strict JSON.");
+}
+
+/** Every balanced top-level {...} span in a reply, longest first. */
+function extractJsonObjects(value) {
+  const found = [];
+  for (let start = value.indexOf("{"); start !== -1; start = value.indexOf("{", start + 1)) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < value.length; index += 1) {
+      const char = value[index];
+      if (escaped) { escaped = false; continue; }
+      if (char === "\\") { escaped = true; continue; }
+      if (char === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (char === "{") depth += 1;
+      else if (char === "}") {
+        depth -= 1;
+        if (depth === 0) { found.push(value.slice(start, index + 1)); start = value.length; break; }
+      }
+    }
+  }
+  return found.sort((left, right) => right.length - left.length);
+}
+
 export async function createJudgeRuntime(options = {}) {
   const { ModelRuntime } = await import("@earendil-works/pi-coding-agent");
   return ModelRuntime.create({ allowModelNetwork: false, refreshOnCreate: false, ...options });
@@ -56,35 +103,46 @@ function toImageContent(base64, mimeType) {
 }
 
 /**
- * Adjudicate two independent passes. Agreement decides; disagreement is
- * explicitly undecided and never credited to either side.
+ * Adjudicate independent passes. Agreement decides. A disagreement is put to a
+ * third independent adjudicator pass and decided by majority; only a split that
+ * the adjudicator cannot break stays undecided, and it is never credited.
  */
-export function adjudicate(passes, labels) {
+export function adjudicate(passes, labels, adjudicator = null) {
   if (passes.length < 2) throw new BenchmarkError("judge_passes_missing", "Two independent judge passes are required.");
   const [first, second] = passes;
-  if (first.winner !== second.winner) {
-    return { winner: "undecided", method: "disagreement", passes, candidate: false };
-  }
-  if (first.winner === "tie") return { winner: "tie", method: "agreement", passes, candidate: false };
-  const winnerLabel = first.winner;
-  return {
+  const decide = (winnerLabel, method) => ({
     winner: winnerLabel,
-    method: "agreement",
+    method,
     passes,
-    candidate: labels[winnerLabel] === "candidate",
-    severeFailure: first.severeFailure === second.severeFailure ? first.severeFailure : "disagreement",
-  };
+    candidate: winnerLabel !== "tie" && labels[winnerLabel] === "candidate",
+  });
+  if (first.winner !== second.winner) {
+    if (!adjudicator || adjudicator.winner === "tie") {
+      return { winner: "undecided", method: "disagreement", passes, candidate: false };
+    }
+    const votes = [first.winner, second.winner, adjudicator.winner];
+    const [winner, count] = ["A", "B"].map((side) => [side, votes.filter((vote) => vote === side).length])
+      .sort((left, right) => right[1] - left[1])[0];
+    if (count < 2) return { winner: "undecided", method: "disagreement", passes, adjudicator, candidate: false };
+    return { ...decide(winner, "adjudicated"), adjudicator, severeFailure: adjudicator.severeFailure };
+  }
+  if (first.winner === "tie") return { ...decide("tie", "agreement"), candidate: false };
+  return { ...decide(first.winner, "agreement"), severeFailure: first.severeFailure === second.severeFailure ? first.severeFailure : "disagreement" };
 }
 
 export function judgeSummary(results) {
   const total = results.length;
-  // A judge that never produced a verdict is infrastructure noise, not a
-  // candidate loss, so the win rate is computed over decided cases.
+  // Undecided and unparsable cases stay in the denominator: the gate asks for a
+  // win rate over the blinded comparisons, and a case the judge could not
+  // resolve is not a win for the candidate. `decidedWinRate` is reported next to
+  // it as a diagnostic, never as the gate.
   const decided = results.filter((item) => item.winner !== "undecided");
   const wins = decided.filter((item) => item.candidate === true).length;
   const ties = decided.filter((item) => item.winner === "tie").length;
   const undecided = results.filter((item) => item.winner === "undecided").length;
   const judgeErrors = results.filter((item) => item.method === "judge_error").length;
+  const adjudicated = results.filter((item) => item.method === "adjudicated").length;
+  const recovered = results.filter((item) => item.passModes?.some((mode) => mode === "recovered")).length;
   const severe = decided.filter((item) => item.severeFailure === "candidate").length;
   return {
     judgedCases: total,
@@ -93,10 +151,14 @@ export function judgeSummary(results) {
     ties,
     undecided,
     judgeErrors,
-    candidateWinRate: decided.length ? wins / decided.length : 0,
-    wilson95LowerBound: wilsonLowerBound(wins, Math.max(1, decided.length)),
+    adjudicated,
+    recoveredPasses: recovered,
+    candidateWinRate: total ? wins / total : 0,
+    wilson95LowerBound: wilsonLowerBound(wins, Math.max(1, total)),
+    decidedWinRate: decided.length ? wins / decided.length : 0,
+    decidedWilson95LowerBound: wilsonLowerBound(wins, Math.max(1, decided.length)),
     severeImageFailures: severe,
-    severeImageFailureRate: decided.length ? severe / decided.length : 0,
+    severeImageFailureRate: total ? severe / total : 0,
   };
 }
 
@@ -113,32 +175,36 @@ export async function buildCase(scenario, manifest, { seed }) {
   if (bound.length < 2) {
     return { id: scenario.id, skipped: true, reason: `only ${bound.length} generated image(s) bound to this scenario` };
   }
-  // Side A is the generated-image treatment; side B is the same decision with
-  // the terminal text/ASCII presentation, which is the status quo.
+  // The arm letters are assigned by the seeded blinding, and the prompt is
+  // written to match. Hard-coding the image side to "A" while storing a label
+  // map that can call A the reference silently inverted the recorded winner on
+  // every case whose hash fell on the reference side.
   const labels = blindLabels(seed, scenario.id);
-  const imageSide = "A";
-  const textSide = "B";
-  // Both arms describe the same three treatments, so neither side is starved of
-  // information: A shows them as generated images, B as the terminal text/ASCII
-  // rendering the package falls back to today.
-  const textRenderings = stages[0]?.options ?? [];
-  const asciiArm = textRenderings.map((option, index) => {
+  const imageSide = labels.A === "candidate" ? "A" : "B";
+  const textSide = imageSide === "A" ? "B" : "A";
+  // Both arms are named identically, so neither is advantaged: the treatment
+  // names are part of the decision in either medium, and the TUI draws them
+  // next to the image too.
+  const names = options.map((option, index) => `  ${index + 1}. ${option.label}`).join("\n");
+  const textArm = options.map((option, index) => {
     const preview = option.preview?.trim();
-    return preview
-      ? `B option ${index + 1} (${option.label}):\n${preview.slice(0, 1200)}`
-      : `B option ${index + 1} (${option.label}): ${option.description ?? "no preview text"}`;
-  }).join("\n\n");
+    return `  ${index + 1}. ${option.label}: ${preview ? preview.slice(0, 600) : (option.description ?? "no preview text")}`;
+  }).join("\n");
   return {
     id: scenario.id,
     skipped: false,
-    labels: { A: "candidate", B: "reference", ...labels },
+    labels,
     prompt: [
       `Task: ${scenario.visualPrompt?.prompt ?? stages[0]?.prompt}`,
       "",
-      "Arm A: the three treatments rendered as generated images at terminal size (attached below).",
-      "Arm B: the same three treatments as the current text/ASCII terminal rendering.",
+      "Three candidate treatments:",
+      names,
       "",
-      asciiArm || "Arm B: the same option labels and descriptions only.",
+      `Arm ${imageSide}: the three treatments rendered as images at terminal size, attached below in order.`,
+      `Arm ${textSide}: the same three treatments as the current text/ASCII terminal rendering.`,
+      "",
+      `Arm ${textSide} content:`,
+      textArm,
     ].join("\n"),
     images: bound.slice(0, 3).map((entry) => ({ path: entry.path, mimeType: entry.mimeType })),
     referenceTextSide: textSide,
@@ -163,8 +229,9 @@ export async function runJudging({ corpus, manifest, seed = corpus.seed, limit =
         cursor += 1;
         const images = await encodeImages(item.images);
         const passes = [];
+        const passModes = [];
         const errors = [];
-        for (let pass = 0; pass < 2; pass += 1) {
+        const runPass = async (reasoning) => {
           // A malformed judge reply is a transport problem, not a verdict. Each
           // pass gets bounded attempts so a formatting hiccup is never recorded
           // as a loss for the candidate.
@@ -174,25 +241,36 @@ export async function runJudging({ corpus, manifest, seed = corpus.seed, limit =
               const response = await runtime.completeSimple(model, {
                 systemPrompt: judgeSystemPrompt({ visualPrompt: { prompt: item.prompt.split("Task: ")[1]?.split("\n")[0] } }),
                 messages: [{ role: "user", content: [{ type: "text", text: `${item.prompt}\n\nEmit the required JSON object only.` }, ...images], timestamp: 0 }],
-              }, { maxTokens: 600, temperature: 0, reasoning: pass === 0 ? "low" : "medium" });
+              }, { maxTokens: 600, temperature: 0, reasoning });
               const text = response.content.filter((block) => block.type === "text").map((block) => block.text).join("").trim();
-              passes.push(parseStrictJudge(text));
-              lastError = undefined;
-              break;
+              const parsed = parseJudgeReply(text);
+              passes.push(parsed.verdict);
+              passModes.push(parsed.mode);
+              return undefined;
             } catch (error) {
               lastError = error;
               errors.push(error instanceof Error ? error.message : String(error));
             }
           }
-          if (lastError) break;
+          return lastError;
+        };
+        for (const reasoning of ["low", "medium"]) {
+          if (await runPass(reasoning)) break;
         }
         if (passes.length === 2) {
-          const adjudicated = adjudicate(passes, item.labels);
-          results.push({ id: item.id, ...adjudicated, utility: { a: passes[0].utilityA, b: passes[0].utilityB }, images: item.images.length });
+          // A disagreement is put to a third, independent adjudication pass.
+          let adjudicator = null;
+          if (passes[0].winner !== passes[1].winner) {
+            const previous = passes.length;
+            await runPass("high");
+            adjudicator = passes.length > previous ? passes[previous] : null;
+          }
+          const adjudicated = adjudicate(passes.slice(0, 2), item.labels, adjudicator);
+          results.push({ id: item.id, ...adjudicated, passModes, utility: { a: passes[0].utilityA, b: passes[0].utilityB }, images: item.images.length });
         } else {
-          // Undecided, not lost: excluded from the win-rate denominator and
-          // reported as an infrastructure shortfall.
-          results.push({ id: item.id, winner: "undecided", candidate: false, method: "judge_error", error: errors[errors.length - 1] ?? "judge failed" });
+          // Undecided, not lost: kept in the denominator as an infrastructure
+          // shortfall and reported as a judge error.
+          results.push({ id: item.id, winner: "undecided", candidate: false, method: "judge_error", passModes, error: errors[errors.length - 1] ?? "judge failed" });
         }
       }
     });
