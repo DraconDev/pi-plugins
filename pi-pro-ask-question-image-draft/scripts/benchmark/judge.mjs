@@ -8,16 +8,29 @@
  * is written to match that assignment, so the model cannot infer which side is
  * the candidate and the recorded winner is attributed correctly.
  *
+ * Two measurement conditions are load-bearing and were both wrong before:
+ *
+ * 1. The images are attached as the raster a *terminal user actually sees*.
+ *    `scripts/benchmark/terminal-render.mjs` resamples each generated PNG onto
+ *    the exact cell grid `src/tui.ts` gives an option preview (31 x 16 cells on
+ *    a 110-column terminal). Attaching the untouched 1024x1024 file scored
+ *    detail that no user could resolve.
+ * 2. The baseline arm is the text presentation the package renders today
+ *    (`scripts/benchmark/text-arm.mjs` reproduces `renderRows` and
+ *    `fallbackPreview`), not a hand-written summary of the options.
+ *
  * Ties never count as candidate credit and undecided cases stay in the
  * denominator: the release gate asks whether the generated image is
  * *meaningfully more useful* in at least 60% of the 200 comparisons, so a case
  * the judge failed to resolve is a case the candidate did not win.
  */
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { BenchmarkError, parseArgs, readJson, SCHEMA_VERSION, wilsonLowerBound, writeJson } from "./common.mjs";
 import { blindLabels } from "./compare.mjs";
+import { previewCellGrid, renderAtTerminalDimensions } from "./terminal-render.mjs";
+import { textArmForScenario } from "./text-arm.mjs";
 
 export const JUDGE_MODEL = Object.freeze({ provider: "openrouter", model: "stealth/space-bunny-alpha" });
 /** Bounded attempts per pass before a case is reported undecided. */
@@ -25,9 +38,9 @@ const JUDGE_ATTEMPTS = 3;
 const RUBRIC = [
   "Judge decision utility for the stated task, not aesthetic prestige.",
   "Compare the two arms only; never infer which tool produced them.",
-  "Prefer the arm that makes the decision easier to make at terminal size.",
-  "Apply one standard to both arms. What matters is whether the three treatments can be told apart and chosen between at a glance.",
-  "In an interface mockup the readable signal is layout, grouping, colour and emphasis; short placeholder words inside the mockup chrome are part of the drawing and their wording carries no decision information, exactly as a wireframe's labels carry none in a real design review.",
+  "Every image you are shown is rendered at the exact size a terminal displays it at. Judge what is visible at that size.",
+  "Prefer the arm that makes the decision easier to make at that size.",
+  "Mark an arm as a severe failure when its three treatments cannot be told apart at that size, or when it is unreadable, corrupted, or otherwise unusable. Report the illegibility; do not excuse it.",
   'Return exactly {"winner":"A"|"B"|"tie","utilityA":0..1,"utilityB":0..1,"severeFailure":"none"|"A"|"B"|"both","rationale":"..."}',
 ].join("\n");
 
@@ -166,12 +179,28 @@ export function judgeSummary(results) {
   };
 }
 
-function encodeImages(entries) {
-  return Promise.all(entries.map(async (entry) => toImageContent((await readFile(resolve(entry.path))).toString("base64"), entry.mimeType)));
+const TERMINAL_RENDER_DIR = ".pi/benchmark/terminal-renders";
+
+/**
+ * Attach the images the way a terminal user sees them.
+ *
+ * The rendered rasters are written to disk as well, so the measurement an
+ * auditor is asked to trust is an artifact they can open, not a claim in a
+ * prompt string.
+ */
+async function encodeImages(entries, { columns = 110, renderDir = TERMINAL_RENDER_DIR } = {}) {
+  const grid = previewCellGrid({ columns });
+  await mkdir(resolve(renderDir), { recursive: true });
+  return Promise.all(entries.map(async (entry) => {
+    const rendered = renderAtTerminalDimensions(await readFile(resolve(entry.path)), grid);
+    const name = `${String(entry.path).split("/").pop()}.${grid.widthCells}x${grid.heightCells}cells.png`;
+    await writeFile(resolve(renderDir, name), rendered.png);
+    return toImageContent(rendered.png.toString("base64"), "image/png");
+  }));
 }
 
 /** Build one blinded comparison: images first, then the labelled prompt. */
-export async function buildCase(scenario, manifest, { seed }) {
+export async function buildCase(scenario, manifest, { seed, columns = 110 }) {
   const stages = scenario.canonicalInput.stages ?? [];
   const options = stages[0]?.options ?? [];
   const byKey = new Map((manifest.images ?? []).flatMap((image) => (image.optionIds ?? []).map((id) => [id, image])));
@@ -186,14 +215,11 @@ export async function buildCase(scenario, manifest, { seed }) {
   const labels = blindLabels(seed, scenario.id);
   const imageSide = labels.A === "candidate" ? "A" : "B";
   const textSide = imageSide === "A" ? "B" : "A";
-  // Both arms are named identically, so neither is advantaged: the treatment
-  // names are part of the decision in either medium, and the TUI draws them
-  // next to the image too.
+  // Both arms show the same three treatments, neither side is advantaged, and
+  // each arm is shown in the medium it is actually used in: the images at
+  // terminal-display size, the baseline as the text the package renders today.
   const names = options.map((option, index) => `  ${index + 1}. ${option.label}`).join("\n");
-  const textArm = options.map((option, index) => {
-    const preview = option.preview?.trim();
-    return `  ${index + 1}. ${option.label}: ${preview ? preview.slice(0, 600) : (option.description ?? "no preview text")}`;
-  }).join("\n");
+  const textArm = textArmForScenario(scenario, { columns }).split("\n").map((line) => `  ${line}`).join("\n");
   return {
     id: scenario.id,
     skipped: false,
@@ -204,10 +230,8 @@ export async function buildCase(scenario, manifest, { seed }) {
       "Three candidate treatments:",
       names,
       "",
-      `Arm ${imageSide}: the three treatments rendered as images at terminal size, attached below in order.`,
-      `Arm ${textSide}: the same three treatments as the current text/ASCII terminal rendering.`,
-      "",
-      `Arm ${textSide} content:`,
+      `Arm ${imageSide}: the three treatments as images, each rendered at the exact size a terminal displays it at. The three images are attached in order.`,
+      `Arm ${textSide}: the same three treatments as the text a terminal user sees today, printed exactly as the tool renders it:`,
       textArm,
     ].join("\n"),
     images: bound.slice(0, 3).map((entry) => ({ path: entry.path, mimeType: entry.mimeType })),
@@ -216,10 +240,10 @@ export async function buildCase(scenario, manifest, { seed }) {
   };
 }
 
-export async function runJudging({ corpus, manifest, seed = corpus.seed, limit = 200, out = ".pi/benchmark/judge.json", concurrency = 4, dryRun = false }) {
+export async function runJudging({ corpus, manifest, seed = corpus.seed, limit = 200, out = ".pi/benchmark/judge.json", concurrency = 4, dryRun = false, columns = 110, renderDir = TERMINAL_RENDER_DIR }) {
   const cases = corpus.scenarios.filter((scenario) => scenario.stratum === "visual").slice(0, limit);
   const built = [];
-  for (const scenario of cases) built.push(await buildCase(scenario, manifest, { seed }));
+  for (const scenario of cases) built.push(await buildCase(scenario, manifest, { seed, columns }));
   const runnable = built.filter((item) => !item.skipped);
   const results = [];
   if (!dryRun && runnable.length) {
@@ -231,7 +255,7 @@ export async function runJudging({ corpus, manifest, seed = corpus.seed, limit =
       while (cursor < runnable.length) {
         const item = runnable[cursor];
         cursor += 1;
-        const images = await encodeImages(item.images);
+        const images = await encodeImages(item.images, { columns, renderDir });
         const passes = [];
         const passModes = [];
         const errors = [];
@@ -287,6 +311,16 @@ export async function runJudging({ corpus, manifest, seed = corpus.seed, limit =
     model: JUDGE_MODEL,
     seed,
     blinded: true,
+    // The measurement condition is part of the evidence, not an implementation
+    // detail: the cell grid the images were rendered to, the terminal width it
+    // was derived from, and that the baseline is the package text rendering.
+    condition: {
+      imageArm: "generated image resampled to the inline preview cell grid",
+      terminalColumns: columns,
+      grid: previewCellGrid({ columns }),
+      renderedArtifacts: renderDir,
+      baselineArm: "the text/ASCII presentation src/tui.ts renders when no inline image is available",
+    },
     tieIsNotCredit: true,
     plannedCases: cases.length,
     skippedCases: built.filter((item) => item.skipped).length,
@@ -299,12 +333,13 @@ export async function runJudging({ corpus, manifest, seed = corpus.seed, limit =
 }
 
 export async function main(argv = process.argv.slice(2)) {
-  const args = parseArgs(argv, { corpus: "string", images: "string", out: "string", limit: "number", seed: "number", concurrency: "number", "dry-run": "boolean" });
+  const args = parseArgs(argv, { corpus: "string", images: "string", out: "string", limit: "number", seed: "number", concurrency: "number", "dry-run": "boolean", columns: "number" });
   const corpus = await readJson(args.corpus ?? ".pi/benchmark/corpus.json", "corpus_missing");
   const manifest = await readJson(args.images ?? ".pi/benchmark/image-manifest.json", "manifest_missing");
   const report = await runJudging({
     corpus, manifest, seed: args.seed ?? corpus.seed, limit: args.limit ?? 200,
     out: args.out ?? ".pi/benchmark/judge.json", concurrency: args.concurrency ?? 4, dryRun: args["dry-run"] === true,
+    columns: args.columns ?? 110,
   });
   process.stdout.write(`${JSON.stringify({ judged: report.summary.judgedCases, wins: report.summary.candidateWins, winRate: report.summary.candidateWinRate, lowerBound: report.summary.wilson95LowerBound, ties: report.summary.ties, undecided: report.summary.undecided, skipped: report.skippedCases })}\n`);
 }
