@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "kind": "benchmark-aggregate-report",
-  "observedAt": "2026-09-25T23:29:30.463Z",
+  "observedAt": "2026-09-25T23:31:09.661Z",
   "sources": {
     "corpus": ".pi/benchmark/corpus.json",
     "results": ".pi/benchmark/results.json",
@@ -8166,6 +8166,18 @@
       "severeImageFailureRate": 0
     }
   },
+  "resources": {
+    "imageGenerations": 600,
+    "imageBudget": 600,
+    "passesRequested": 2,
+    "executionsPerCase": 2,
+    "localExecutions": 2000,
+    "referenceAdapter": "pi-loadExtensions-jiti-isolated-child",
+    "sharedReferenceCases": 333,
+    "judgeModelCalls": 440,
+    "judgeCases": 200,
+    "bound": true
+  },
   "gates": {
     "accuracy": true,
     "confidenceBound": true,
@@ -8174,6 +8186,7 @@
     "visualConfidence": true,
     "severeFailures": true,
     "imageBudget": true,
+    "resourceBounds": true,
     "liveSmoke": true,
     "noUnresolvedCriticalDefects": true
   },
