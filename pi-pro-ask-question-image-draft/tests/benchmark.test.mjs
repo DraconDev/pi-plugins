@@ -8,6 +8,10 @@ import { buildAggregateReport, verifyAggregateReport } from "../scripts/benchmar
 import { detectImage, promptHash } from "../scripts/benchmark/images.mjs";
 import { blindLabels } from "../scripts/benchmark/compare.mjs";
 
+function unverified(report) {
+  return { ...report, releaseReady: report.gates && Object.values(report.gates).every(Boolean) };
+}
+
 function validAggregate() {
   return {
     schemaVersion: 1,
@@ -123,14 +127,17 @@ describe("aggregate report verifier", () => {
 
     const ready = await build();
     assert.equal(ready.releaseReady, true, JSON.stringify(ready.gates));
-    assert.deepEqual(verifyAggregateReport(ready), { verified: true, releaseReady: true, activationClaim: "not-claimed" });
+    assert.deepEqual(verifyAggregateReport(ready), { verified: true, releaseReady: true, activationClaim: "not-claimed", unresolvedCritical: [] });
 
     const noSmoke = await build({ liveSmoke: { status: "not_run" } });
     assert.equal(noSmoke.releaseReady, false);
     assert.equal(noSmoke.gates.liveSmoke, false);
 
+    // An open P0/P1 is a release fact, surfaced as data rather than a crash.
     const unresolved = await build({ defects: [{ id: "BUG-1", severity: "P0", status: "open" }] });
-    assert.throws(() => verifyAggregateReport(unresolved), /Unresolved critical/);
+    const verified = verifyAggregateReport(unresolved);
+    assert.deepEqual(verified.unresolvedCritical, ["BUG-1"]);
+    assert.equal(unverified(unresolved).releaseReady, false);
 
     // An activation claim on a report whose gates failed must never verify.
     const premature = structuredClone(noSmoke);

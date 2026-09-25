@@ -334,3 +334,48 @@ async function capture(run) {
   try { await run(); } finally { process.stdout.write = original; }
   return output;
 }
+
+describe("harness honesty: gates that must fail loudly", () => {
+  it("the post-activation gate fails when it is explicitly requested but nothing was activated", async () => {
+    const { spawnSync } = await import("node:child_process");
+    const script = new URL("../scripts/verify-activation.mjs", import.meta.url).pathname;
+    const settings = join(await mkdtemp(join(tmpdir(), "activation-")), "settings.json");
+    await writeFile(settings, JSON.stringify({ packages: ["npm:@juicesharp/rpiv-ask-user-question"] }));
+    const base = { ...process.env, PI_SETTINGS_PATH: settings };
+    const plain = spawnSync(process.execPath, [script], { env: base, encoding: "utf8" });
+    assert.equal(plain.status, 0);
+    assert.match(plain.stdout, /"status": "not_run"/);
+    // Explicitly asking for the post-activation gate must not look green.
+    const requested = spawnSync(process.execPath, [script], { env: { ...base, PI_VERIFY_ACTIVATION: "1" }, encoding: "utf8" });
+    assert.equal(requested.status, 1);
+    assert.match(requested.stderr, /not activated/);
+  });
+
+  it("an open P0/P1 is reported as data, and only fails the release gate", () => {
+    const report = {
+      schemaVersion: 1, kind: "benchmark-aggregate-report",
+      corpus: { count: 1000, strata: { ordinary: 700, visual: 200, adversarial: 100 } },
+      comparison: { deterministicAccuracy: 1, wilson95LowerBound: 1 },
+      defects: [{ id: "BUG-1", severity: "P0", status: "open" }],
+      liveSmoke: { status: "passed", observedAt: "2026-09-25T10:00:00Z", details: "real tty" },
+      gates: { visualUplift: false, accuracy: true },
+      releaseReady: false,
+      activation: { claimed: false, status: "not_run" },
+    };
+    const verified = verifyAggregateReport(report);
+    assert.equal(verified.verified, true);
+    assert.deepEqual(verified.unresolvedCritical, ["BUG-1"]);
+    assert.equal(verified.releaseReady, false);
+    assert.equal(verified.activationClaim, "not-claimed");
+  });
+
+  it("a pseudo-terminal runner gives the child a real TTY and forwards its exit code", async () => {
+    const { spawnSync } = await import("node:child_process");
+    const ptyRun = new URL("../scripts/benchmark/pty-run.py", import.meta.url).pathname;
+    const tty = spawnSync("python3", [ptyRun, process.execPath, "-e", "process.stdout.write(String(process.stdin.isTTY && process.stdout.isTTY))"], { encoding: "utf8" });
+    assert.equal(tty.status, 0, tty.stderr);
+    assert.equal(tty.stdout.trim(), "true");
+    const failing = spawnSync("python3", [ptyRun, process.execPath, "-e", "process.exit(7)"], { encoding: "utf8" });
+    assert.equal(failing.status, 7);
+  });
+});

@@ -147,8 +147,17 @@ async function main(argv = process.argv.slice(2)) {
   const record = await runLiveSmoke({ image: image.path, editor, out: args.out, timeout: args.timeout ?? 90 });
   record.image = { requested: image.requested ?? image.path, rendered: image.path, substituted: image.substituted };
   await writeJson(args.out ?? ".pi/benchmark/live-smoke.json", record);
-  process.stdout.write(`${JSON.stringify({ status: record.status, details: record.details, image: record.image })}\n`);
-  if (record.status !== "passed") process.exitCode = 1;
+  await writeStdout(`${JSON.stringify({ status: record.status, details: record.details, image: record.image })}\n`);
+  // Settings and the child PTY keep handles open; exit deliberately once the
+  // result line is flushed so the command's exit code is trustworthy.
+  process.exit(record.status === "passed" ? 0 : 1);
+}
+
+function writeStdout(text) {
+  return new Promise((done) => {
+    if (process.stdout.write(text)) done();
+    else process.stdout.once("drain", done);
+  });
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

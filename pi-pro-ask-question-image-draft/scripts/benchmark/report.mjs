@@ -170,26 +170,51 @@ export function verifyAggregateReport(report) {
     throw new BenchmarkError("missing_evidence", "Deterministic accuracy and Wilson lower bound are required.");
   }
   if (!Array.isArray(report.defects)) throw new BenchmarkError("missing_evidence", "Defect ledger is required.");
-  const unresolvedCritical = report.defects.filter((defect) => (defect.severity === "P0" || defect.severity === "P1") && defect.status !== "resolved");
-  if (unresolvedCritical.length) throw new BenchmarkError("unresolved_critical_defects", `Unresolved critical defects: ${unresolvedCritical.map((defect) => defect.id).join(", ")}.`);
+  // An open P0/P1 is a *release* fact, not a malformed report: the verifier
+  // surfaces it as data and the release gate turns it into a failure. Only
+  // structural problems (missing evidence, impossible activation claims) throw.
+  const unresolvedCritical = report.defects
+    .filter((defect) => (defect.severity === "P0" || defect.severity === "P1") && defect.status !== "resolved")
+    .map((defect) => defect.id);
   evidenceOf(report.liveSmoke, "liveSmoke");
   if (report.activation?.claimed === true) {
     if (report.activation.status !== "passed" || report.releaseReady !== true) {
       throw new BenchmarkError("activation_order_invalid", "Activation can only be claimed after every gate passed.");
     }
   }
-  return { verified: true, releaseReady: report.releaseReady === true, activationClaim: report.activation?.claimed === true ? "evidenced" : "not-claimed" };
+  return {
+    verified: true,
+    releaseReady: report.releaseReady === true,
+    activationClaim: report.activation?.claimed === true ? "evidenced" : "not-claimed",
+    unresolvedCritical,
+  };
 }
 
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv, {
     corpus: "string", results: "string", images: "string", judging: "string",
-    smoke: "string", defects: "string", activation: "string", out: "string", verify: "string",
+    smoke: "string", defects: "string", activation: "string", out: "string", verify: "string", "require-release": "boolean",
   });
   if (args.verify) {
     const report = await readJson(String(args.verify), "report_missing");
+    // Integrity first: a malformed report, an empty ledger, or an activation
+    // claim without passing gates is always an error. Whether the release
+    // gates passed is data the caller asks for explicitly, so a "not ready"
+    // verdict is never a crash and never a silent pass either.
     const result = verifyAggregateReport(report);
-    process.stdout.write(`${JSON.stringify({ report: resolve(args.verify), ...result })}\n`);
+    const requireRelease = args["require-release"] === true || process.env.PI_REQUIRE_RELEASE === "1";
+    const unmet = [
+      ...Object.entries(report.gates ?? {}).filter(([, value]) => value !== true).map(([name]) => `gate:${name}`),
+      ...result.unresolvedCritical.map((id) => `defect:${id}`),
+    ];
+    process.stdout.write(`${JSON.stringify({
+      report: resolve(args.verify), ...result,
+      unmetGates: unmet,
+      releaseGate: requireRelease && report.releaseReady !== true ? "failed" : "not_required",
+    })}\n`);
+    if (requireRelease && report.releaseReady !== true) {
+      throw new BenchmarkError("gate_failed", `Release gates are unmet: ${unmet.join(", ")}.`);
+    }
     return;
   }
   const optional = async (path, code) => {

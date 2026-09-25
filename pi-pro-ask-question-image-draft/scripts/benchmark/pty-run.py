@@ -13,6 +13,7 @@ import signal
 import struct
 import sys
 import termios
+import time
 import fcntl
 
 
@@ -31,6 +32,8 @@ def main() -> int:
         os._exit(127)
 
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+    # Forward the child's output until its PTY master reports EOF. EOF means the
+    # child is gone, so the loop must end and then reap it - not kill it.
     while True:
         try:
             readable, _, _ = select.select([fd], [], [], 0.1)
@@ -40,23 +43,30 @@ def main() -> int:
             try:
                 chunk = os.read(fd, 1 << 16)
             except OSError:
-                chunk = b""
+                break
             if not chunk:
                 break
-            os.write(1, chunk)
+            try:
+                os.write(1, chunk)
+            except OSError:
+                break
+
+    deadline = time.time() + 5
+    while time.time() < deadline:
         waited, status = os.waitpid(pid, os.WNOHANG)
         if waited == pid:
             return os.waitstatus_to_exitcode(status)
+        time.sleep(0.05)
 
     try:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
         pass
     try:
-        os.waitpid(pid, 0)
+        _, status = os.waitpid(pid, 0)
+        return os.waitstatus_to_exitcode(status)
     except ChildProcessError:
-        pass
-    return 143
+        return 143
 
 
 if __name__ == "__main__":
