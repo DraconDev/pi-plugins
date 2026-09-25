@@ -122,7 +122,18 @@ describe("strict staged state gate", () => {
   });
 
   it("persists generated image references without making them answers", () => {
-    const review = baseReview();
+    const review = normalizeReview({
+      reviewId: "generated-state",
+      stages: [{
+        id: "layout",
+        header: "Layout",
+        prompt: "Choose a layout",
+        options: [
+          { id: "grid", label: "Grid", image: { path: "/tmp/generated.png" } },
+          { id: "stack", label: "Stack" },
+        ],
+      }],
+    });
     const answer = answerFor(review, "layout", "grid");
     const state = makeReviewState(review, [answer], "completed", [], [{
       stageId: "layout",

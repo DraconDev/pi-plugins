@@ -38,8 +38,11 @@ type Row =
   | { kind: "option"; option: NormalizedOption }
   | { kind: "done" }
   | { kind: "other" }
+  | { kind: "note" }
   | { kind: "skip" }
   | { kind: "revision" }
+  | { kind: "edit" }
+  | { kind: "globalNote" }
   | { kind: "approve" }
   | { kind: "reject" };
 
@@ -48,6 +51,7 @@ export interface VisualReviewWizardOptions {
   cwd: string;
   initialAnswers?: readonly ReviewAnswer[];
   initialSkippedStageIds?: readonly string[];
+  initialGlobalNote?: string;
   signal?: AbortSignal;
 }
 
@@ -57,6 +61,9 @@ const DONE_LABEL = "Done selecting";
 const SKIP_LABEL = "Skip stage";
 const APPROVE_LABEL = "Approve review";
 const REJECT_LABEL = "Reject review";
+const NOTE_LABEL = "Add note";
+const EDIT_LABEL = "Edit answers";
+const GLOBAL_NOTE_LABEL = "Add global note";
 
 function editorTheme(theme: Theme): EditorTheme {
   return {
@@ -95,25 +102,40 @@ function rowsForStage(stage: NormalizedStage): Row[] {
   const rows: Row[] = stage.options.map((option) => ({ kind: "option", option }));
   if (stage.multiSelect) rows.push({ kind: "done" });
   if (stage.allowOther) rows.push({ kind: "other" });
+  rows.push({ kind: "note" });
   if (!stage.required) rows.push({ kind: "skip" });
   if (stage.allowRevision) rows.push({ kind: "revision" });
-  rows.push({ kind: "approve" }, { kind: "reject" });
   return rows;
+}
+
+function rowsForReview(): Row[] {
+  return [
+    { kind: "edit" },
+    { kind: "globalNote" },
+    { kind: "approve" },
+    { kind: "reject" },
+  ];
 }
 
 function rowLabel(row: Row): string {
   if (row.kind === "option") return row.option.label;
   if (row.kind === "done") return DONE_LABEL;
   if (row.kind === "other") return OTHER_LABEL;
+  if (row.kind === "note") return NOTE_LABEL;
   if (row.kind === "skip") return SKIP_LABEL;
   if (row.kind === "revision") return REVISION_LABEL;
+  if (row.kind === "edit") return EDIT_LABEL;
+  if (row.kind === "globalNote") return GLOBAL_NOTE_LABEL;
   return row.kind === "approve" ? APPROVE_LABEL : REJECT_LABEL;
 }
 
 function rowDescription(row: Row): string | undefined {
   if (row.kind === "option") return row.option.description;
   if (row.kind === "done") return "Commit the checked options";
+  if (row.kind === "note") return "Attach a note to this stage without answering it";
   if (row.kind === "revision") return "Describe changes, then return to the model for regeneration";
+  if (row.kind === "edit") return "Return to the first unanswered stage";
+  if (row.kind === "globalNote") return "Attach a note to the complete review";
   if (row.kind === "approve") return "Approve the review and continue";
   if (row.kind === "reject") return "Reject this proposal without changing it";
   if (row.kind === "skip") return "Continue without answering this optional stage";
@@ -188,8 +210,9 @@ function resultFor(
   answers: Map<string, ReviewAnswer>,
   skippedStageIds: ReadonlySet<string>,
   revision?: ReviewRevision,
+  globalNote?: string,
 ): ReviewResult {
-  return makeReviewResult(review, decision, answers, revision, [...skippedStageIds]);
+  return makeReviewResult(review, decision, answers, revision, [...skippedStageIds], globalNote);
 }
 
 class LinesComponent implements Component {
@@ -207,6 +230,7 @@ export class VisualReviewWizard implements Component, Focusable {
   private readonly cwd: string;
   private readonly signal?: AbortSignal;
   private readonly answers = new Map<string, ReviewAnswer>();
+  private readonly notesByStage = new Map<string, string>();
   private readonly skippedStageIds = new Set<string>();
   /** Per-stage selection state is updated by Space/Enter before a multi-select stage is confirmed. */
   private readonly selections = new Map<string, Set<string>>();
@@ -216,8 +240,9 @@ export class VisualReviewWizard implements Component, Focusable {
   private _focused = false;
   private stageIndex = 0;
   private selectedIndex = 0;
-  private inputMode: "none" | "other" | "revision" = "none";
+  private inputMode: "none" | "other" | "revision" | "note" | "globalNote" = "none";
   private inputStageIndex = 0;
+  private globalNote = "";
   private cachedWidth = -1;
   private cachedLines: string[] | undefined;
   private disposed = false;
@@ -232,6 +257,7 @@ export class VisualReviewWizard implements Component, Focusable {
     initialAnswers: readonly ReviewAnswer[] = [],
     signal?: AbortSignal,
     initialSkippedStageIds: readonly string[] = [],
+    initialGlobalNote = "",
   ) {
     this.review = review;
     this.theme = theme;
@@ -239,6 +265,7 @@ export class VisualReviewWizard implements Component, Focusable {
     this.done = done;
     this.signal = signal;
     this.requestRender = () => tui.requestRender();
+    this.globalNote = initialGlobalNote;
     this.editor = new Editor(tui, editorTheme(theme));
     this.editor.focused = true;
     this.editor.onSubmit = (value) => this.submitEditor(value);
@@ -248,6 +275,7 @@ export class VisualReviewWizard implements Component, Focusable {
       if (answer && isStageAnswered(stage, stageIndex, answer)) {
         const resumedAnswer: ReviewAnswer = { ...answer, stageId: stage.id, stageIndex };
         this.answers.set(stage.id, resumedAnswer);
+        if (resumedAnswer.notes) this.notesByStage.set(stage.id, resumedAnswer.notes);
         this.selections.set(
           stage.id,
           stage.multiSelect && resumedAnswer.kind === "multi" && resumedAnswer.optionIds
@@ -288,8 +316,33 @@ export class VisualReviewWizard implements Component, Focusable {
 
   private readonly onAbort = (): void => {
     if (this.finished) return;
-    this.finish(resultFor(this.review, "cancel", this.answers, this.skippedStageIds));
+    this.finish(resultFor(this.review, "cancel", this.answers, this.skippedStageIds, undefined, this.globalNote));
   };
+
+  private get isReviewTab(): boolean {
+    return this.stageIndex >= this.review.stages.length;
+  }
+
+  private currentStage(): NormalizedStage | undefined {
+    return this.review.stages[this.stageIndex];
+  }
+
+  private currentRows(): Row[] {
+    const stage = this.currentStage();
+    return stage ? rowsForStage(stage) : rowsForReview();
+  }
+
+  private storeAnswer(stageId: string, answer: ReviewAnswer): void {
+    const note = this.notesByStage.get(stageId);
+    this.answers.set(stageId, note ? { ...answer, notes: note } : answer);
+  }
+
+  private setStageNote(stageId: string, note: string): void {
+    if (note) this.notesByStage.set(stageId, note);
+    else this.notesByStage.delete(stageId);
+    const answer = this.answers.get(stageId);
+    if (answer) this.answers.set(stageId, note ? { ...answer, notes: note } : { ...answer, notes: undefined });
+  }
 
   invalidate(): void {
     this.cachedWidth = -1;
@@ -313,9 +366,8 @@ export class VisualReviewWizard implements Component, Focusable {
       return;
     }
 
-    const stage = this.review.stages[this.stageIndex];
-    if (!stage) return;
-    const rows = rowsForStage(stage);
+    const stage = this.currentStage();
+    const rows = this.currentRows();
     if (!rows.length) return;
 
     if (matchesKey(data, Key.up)) {
@@ -329,24 +381,66 @@ export class VisualReviewWizard implements Component, Focusable {
       return;
     }
     if (matchesKey(data, Key.tab) || matchesKey(data, Key.right)) {
-      this.stageIndex = (this.stageIndex + 1) % this.review.stages.length;
+      this.stageIndex = (this.stageIndex + 1) % (this.review.stages.length + 1);
       this.selectedIndex = 0;
       this.invalidate();
       return;
     }
     if (matchesKey(data, Key.shift("tab")) || matchesKey(data, Key.left)) {
-      this.stageIndex = (this.stageIndex - 1 + this.review.stages.length) % this.review.stages.length;
+      this.stageIndex = (this.stageIndex - 1 + this.review.stages.length + 1) % (this.review.stages.length + 1);
       this.selectedIndex = 0;
       this.invalidate();
       return;
     }
     if (matchesKey(data, Key.escape)) {
-      this.finish(resultFor(this.review, "cancel", this.answers, this.skippedStageIds));
+      this.finish(resultFor(this.review, "cancel", this.answers, this.skippedStageIds, undefined, this.globalNote));
+      return;
+    }
+    if (data === "n" || data === "\u000e") {
+      if (this.isReviewTab) {
+        this.inputMode = "globalNote";
+        this.editor.setText(this.globalNote);
+      } else {
+        this.inputMode = "note";
+        this.inputStageIndex = this.stageIndex;
+        this.editor.setText(this.answers.get(this.review.stages[this.stageIndex]?.id ?? "")?.notes ?? "");
+      }
+      this.editor.focused = this._focused;
+      this.invalidate();
       return;
     }
 
     const row = rows[this.selectedIndex];
     if (!row) return;
+    if (row.kind === "note") {
+      if (matchesKey(data, Key.enter) || matchesKey(data, Key.space) || data === "n") {
+        if (!stage) return;
+        this.inputMode = "note";
+        this.inputStageIndex = this.stageIndex;
+        this.editor.setText(this.answers.get(stage.id)?.notes ?? "");
+        this.editor.focused = this._focused;
+        this.invalidate();
+      }
+      return;
+    }
+    if (row.kind === "globalNote") {
+      if (matchesKey(data, Key.enter) || matchesKey(data, Key.space) || data === "n") {
+        this.inputMode = "globalNote";
+        this.editor.setText(this.globalNote);
+        this.editor.focused = this._focused;
+        this.invalidate();
+      }
+      return;
+    }
+    if (row.kind === "edit") {
+      if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
+        const missing = unresolvedStages(this.review, this.answers, [...this.skippedStageIds])[0];
+        this.stageIndex = missing ? this.review.stages.indexOf(missing) : 0;
+        this.selectedIndex = 0;
+        this.invalidate();
+      }
+      return;
+    }
     if (row.kind === "approve") {
       if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
         const missing = unresolvedStages(this.review, this.answers, [...this.skippedStageIds])[0];
@@ -356,15 +450,16 @@ export class VisualReviewWizard implements Component, Focusable {
           this.invalidate();
           return;
         }
-        this.finish(resultFor(this.review, "approve", this.answers, this.skippedStageIds));
+        this.finish(resultFor(this.review, "approve", this.answers, this.skippedStageIds, undefined, this.globalNote));
       }
       return;
     }
     if (row.kind === "reject") {
-      if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) this.finish(resultFor(this.review, "reject", this.answers, this.skippedStageIds));
+      if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) this.finish(resultFor(this.review, "reject", this.answers, this.skippedStageIds, undefined, this.globalNote));
       return;
     }
-      if (row.kind === "other" || row.kind === "revision" || row.kind === "skip") {
+    if (row.kind === "other" || row.kind === "revision" || row.kind === "skip") {
+      if (!stage) return;
       if (!matchesKey(data, Key.enter) && !matchesKey(data, Key.space)) return;
       if (row.kind === "skip") {
         this.answers.delete(stage.id);
@@ -380,6 +475,7 @@ export class VisualReviewWizard implements Component, Focusable {
       return;
     }
     if (row.kind !== "option" && row.kind !== "done") return;
+    if (!stage) return;
 
     if (stage.multiSelect) {
       if (!matchesKey(data, Key.space) && !matchesKey(data, Key.enter)) return;
@@ -387,28 +483,20 @@ export class VisualReviewWizard implements Component, Focusable {
       if (row.kind === "done") {
         if (selected.size === 0) return;
         const options = stage.options.filter((option) => selected.has(option.id));
-        this.answers.set(stage.id, makeOptionAnswer(stage, this.stageIndex, options));
+        this.storeAnswer(stage.id, makeOptionAnswer(stage, this.stageIndex, options));
         this.skippedStageIds.delete(stage.id);
         this.advanceAfterAnswer();
         return;
       }
-      if (matchesKey(data, Key.space)) {
-        if (selected.has(row.option.id)) selected.delete(row.option.id);
-        else selected.add(row.option.id);
-        this.invalidate();
-        return;
-      }
-      if (selected.size === 0) return;
-      const options = stage.options.filter((option) => selected.has(option.id));
-      this.answers.set(stage.id, makeOptionAnswer(stage, this.stageIndex, options));
-      this.skippedStageIds.delete(stage.id);
-      this.advanceAfterAnswer();
+      if (selected.has(row.option.id)) selected.delete(row.option.id);
+      else selected.add(row.option.id);
+      this.invalidate();
       return;
     }
 
     if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
       if (row.kind !== "option") return;
-      this.answers.set(stage.id, makeOptionAnswer(stage, this.stageIndex, [row.option]));
+      this.storeAnswer(stage.id, makeOptionAnswer(stage, this.stageIndex, [row.option]));
       this.skippedStageIds.delete(stage.id);
       this.advanceAfterAnswer();
     }
@@ -417,8 +505,7 @@ export class VisualReviewWizard implements Component, Focusable {
   render(width: number): string[] {
     if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
     const safeWidth = Math.max(20, width);
-    const stage = this.review.stages[this.stageIndex];
-    if (!stage) return [];
+    const stage = this.currentStage();
     const lines: string[] = [];
     const border = (text: string) => this.theme.fg("borderAccent", text);
     const addWrapped = (text: string, indent = 1) => {
@@ -436,35 +523,57 @@ export class VisualReviewWizard implements Component, Focusable {
       const raw = ` ${answered ? "✓" : "□"} ${item.header} `;
       return active ? this.theme.bg("selectedBg", this.theme.fg("text", raw)) : this.theme.fg(answered ? "success" : "muted", raw);
     });
+    const reviewTab = this.isReviewTab;
+    tabs.push(reviewTab ? " ✓ Review " : " □ Review ");
     lines.push(` ${tabs.join(" ")} `);
     lines.push("");
-    addWrapped(stage.prompt);
-    if (stage.description) {
-      lines.push("");
-      addWrapped(this.theme.fg("muted", stage.description));
+    if (stage) {
+      addWrapped(stage.prompt);
+      if (stage.description) {
+        lines.push("");
+        addWrapped(this.theme.fg("muted", stage.description));
+      }
+    } else {
+      addWrapped(this.theme.bold("Review your answers"));
+      for (const item of this.review.stages) {
+        const answer = this.answers.get(item.id);
+        const skipped = this.skippedStageIds.has(item.id);
+        const summary = answer
+          ? `${answer.answer ?? answer.optionLabels?.join(", ") ?? "(no response)"}${answer.notes ? ` — ${answer.notes}` : ""}`
+          : skipped ? "Skipped" : "Outstanding";
+        addWrapped(`  ${item.header}: ${summary}`, 1);
+      }
+      if (this.globalNote) addWrapped(`  Global note: ${this.globalNote}`, 1);
     }
     lines.push("");
 
     if (this.inputMode !== "none") {
       this.editor.focused = this._focused;
-      lines.push(this.theme.fg("accent", this.inputMode === "revision" ? "Describe the revision you want:" : "Type your answer:"));
+      const prompt = this.inputMode === "revision"
+        ? "Describe the revision you want:"
+        : this.inputMode === "note"
+          ? "Add a note for this stage:"
+          : this.inputMode === "globalNote"
+            ? "Add a global note:"
+            : "Type your answer:";
+      lines.push(this.theme.fg("accent", prompt));
       lines.push("");
       for (const line of this.editor.render(Math.max(1, safeWidth - 4))) lines.push(`  ${line}`);
       lines.push("");
       lines.push(this.theme.fg("dim", "Enter to submit • Esc to go back"));
     } else {
       this.editor.focused = false;
-      const rows = rowsForStage(stage);
-      const leftWidth = this.imageMode && safeWidth >= 88 ? Math.min(36, Math.max(26, Math.floor(safeWidth * 0.3))) : safeWidth - 2;
-      const listLines = this.renderRows(stage, rows, leftWidth);
-      if (this.imageMode && safeWidth >= 88) {
+      const rows = this.currentRows();
+      const leftWidth = this.imageMode && stage && safeWidth >= 88 ? Math.min(36, Math.max(26, Math.floor(safeWidth * 0.3))) : safeWidth - 2;
+      const listLines = stage ? this.renderRows(stage, rows, leftWidth) : this.renderRowsForReview(rows, leftWidth);
+      if (this.imageMode && stage && safeWidth >= 88) {
         const rightWidth = Math.max(1, safeWidth - leftWidth - 5);
         const left = new LinesComponent(listLines);
         const selected = rows[this.selectedIndex];
-        const rightLines = selected?.kind === "option" ? this.renderSelectedVisual(selected.option, rightWidth) : [
+        const rightLines = selected?.kind === "option" && stage ? this.renderSelectedVisual(selected.option, rightWidth) : [
           this.theme.fg("dim", "Select an option to inspect its image."),
           "",
-          ...stage.options.slice(0, 2).flatMap((option) => [`${option.label}: ${option.description ?? ""}`]),
+          ...(stage?.options.slice(0, 2).flatMap((option) => [`${option.label}: ${option.description ?? ""}`]) ?? []),
         ];
         const right = new LinesComponent(rightLines);
         // Image.render() returns protocol lines which must not be wrapped or padded as text.
@@ -483,7 +592,7 @@ export class VisualReviewWizard implements Component, Focusable {
       } else {
         for (const line of listLines) lines.push(` ${line}`);
         const selected = rows[this.selectedIndex];
-        if (selected?.kind === "option") {
+        if (selected?.kind === "option" && stage) {
           lines.push("");
           for (const line of this.renderSelectedVisual(selected.option, safeWidth - 4)) {
             if (isImageLine(line)) lines.push(line);
@@ -492,14 +601,14 @@ export class VisualReviewWizard implements Component, Focusable {
         }
       }
       lines.push("");
-      const current = this.answers.get(stage.id);
-      if (current) lines.push(this.theme.fg("success", `Current answer: ${current.answer ?? current.optionLabels?.join(", ") ?? "(empty)"}`));
-      const selection = this.selection(stage.id);
-      const help = stage.multiSelect
+      const current = stage ? this.answers.get(stage.id) : undefined;
+      if (current) lines.push(this.theme.fg("success", `Current answer: ${current.answer ?? current.optionLabels?.join(", ") ?? "(empty)"}${current.notes ? ` — ${current.notes}` : ""}`));
+      const selection = stage ? this.selection(stage.id) : new Set<string>();
+      const help = stage?.multiSelect
         ? `↑↓ move • Space toggle • Enter confirm • Tab stages • Esc cancel`
-        : "↑↓ move • Enter select • Tab/←→ stages • Esc cancel";
+        : stage ? "↑↓ move • Enter select • Tab/←→ stages • Esc cancel" : "↑↓ move • Enter review action • Tab stages • Esc cancel";
       lines.push(this.theme.fg("dim", help));
-      if (stage.multiSelect && selection.size > 0) {
+      if (stage?.multiSelect && selection.size > 0) {
         lines.push(this.theme.fg("accent", `Selected: ${stage.options.filter((option) => selection.has(option.id)).map((option) => option.label).join(", ")}`));
       }
     }
@@ -521,6 +630,19 @@ export class VisualReviewWizard implements Component, Focusable {
     return selected;
   }
 
+  private renderRowsForReview(rows: readonly Row[], width: number): string[] {
+    const lines: string[] = [];
+    rows.forEach((row, index) => {
+      const active = index === this.selectedIndex;
+      const prefix = active ? this.theme.fg("accent", "> ") : "  ";
+      lines.push(...wrapTextWithAnsi(`${prefix}${rowLabel(row)}`, Math.max(1, width)));
+      if (rowDescription(row)) {
+        for (const line of wrapTextWithAnsi(this.theme.fg("muted", `     ${rowDescription(row)}`), Math.max(1, width))) lines.push(line);
+      }
+    });
+    return lines;
+  }
+
   private renderRows(stage: NormalizedStage, rows: readonly Row[], width: number): string[] {
     const lines: string[] = [];
     const selected = this.selection(stage.id);
@@ -531,9 +653,7 @@ export class VisualReviewWizard implements Component, Focusable {
       const label = `${marker}${rowLabel(row)}`;
       lines.push(...wrapTextWithAnsi(`${prefix}${label}`, Math.max(1, width)));
       if (rowDescription(row)) {
-        for (const line of wrapTextWithAnsi(this.theme.fg("muted", `     ${rowDescription(row)}`), Math.max(1, width))) {
-          lines.push(line);
-        }
+        for (const line of wrapTextWithAnsi(this.theme.fg("muted", `     ${rowDescription(row)}`), Math.max(1, width))) lines.push(line);
       }
     });
     return lines;
@@ -552,8 +672,24 @@ export class VisualReviewWizard implements Component, Focusable {
   private submitEditor(value: string): void {
     if (this.inputMode === "none" || this.finished) return;
     const stage = this.review.stages[this.inputStageIndex];
-    if (!stage) return;
     const text = value.trim();
+    if (this.inputMode === "note") {
+      if (stage) this.setStageNote(stage.id, text);
+      this.inputMode = "none";
+      this.editor.setText("");
+      this.editor.focused = false;
+      this.invalidate();
+      return;
+    }
+    if (this.inputMode === "globalNote") {
+      this.globalNote = text;
+      this.inputMode = "none";
+      this.editor.setText("");
+      this.editor.focused = false;
+      this.invalidate();
+      return;
+    }
+    if (!stage) return;
     if (this.inputMode === "revision") {
       if (!text) {
         this.inputMode = "none";
@@ -568,7 +704,7 @@ export class VisualReviewWizard implements Component, Focusable {
         feedback: text,
         requestedRound: this.review.round + 1,
       };
-      this.finish(resultFor(this.review, "revision", this.answers, this.skippedStageIds, revision));
+      this.finish(resultFor(this.review, "revision", this.answers, this.skippedStageIds, revision, this.globalNote));
       return;
     }
     if (!text) {
@@ -578,7 +714,7 @@ export class VisualReviewWizard implements Component, Focusable {
       this.invalidate();
       return;
     }
-    this.answers.set(stage.id, makeCustomAnswer(stage, this.inputStageIndex, text));
+    this.storeAnswer(stage.id, makeCustomAnswer(stage, this.inputStageIndex, text));
     this.skippedStageIds.delete(stage.id);
     this.inputMode = "none";
     this.editor.setText("");
@@ -587,13 +723,6 @@ export class VisualReviewWizard implements Component, Focusable {
   }
 
   private advanceAfterAnswer(): void {
-    const next = this.review.stages[this.stageIndex + 1];
-    if (next) {
-      this.stageIndex += 1;
-      this.selectedIndex = 0;
-      this.invalidate();
-      return;
-    }
     const missingStage = unresolvedStages(this.review, this.answers, [...this.skippedStageIds])[0];
     if (missingStage) {
       this.stageIndex = this.review.stages.indexOf(missingStage);
@@ -601,8 +730,8 @@ export class VisualReviewWizard implements Component, Focusable {
       this.invalidate();
       return;
     }
-    const approveRow = rowsForStage(this.review.stages[this.stageIndex]).findIndex((row) => row.kind === "approve");
-    this.selectedIndex = Math.max(0, approveRow);
+    this.stageIndex = this.review.stages.length;
+    this.selectedIndex = rowsForReview().findIndex((row) => row.kind === "approve");
     this.invalidate();
   }
 
@@ -628,7 +757,7 @@ export async function runVisualReviewWizard(
     return makeFallbackResult(review, ctx.hasUI ? "no_custom_ui" : "no_ui");
   }
   return ctx.ui.custom<ReviewResult>((tui, theme, _keybindings, done) => {
-    return new VisualReviewWizard(tui, theme, review, ctx.cwd, done, initialAnswers, ctx.signal, initialSkippedStageIds);
+    return new VisualReviewWizard(tui, theme, review, ctx.cwd, done, initialAnswers, ctx.signal, initialSkippedStageIds, "");
   }, {
     overlay: true,
     overlayOptions: {

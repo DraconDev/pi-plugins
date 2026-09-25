@@ -14,6 +14,7 @@ export interface ReviewAnswer {
   optionValues?: (string | undefined)[];
   answer: string | null;
   customText?: string;
+  notes?: string;
 }
 
 export interface ReviewRevision {
@@ -47,6 +48,7 @@ export interface ReviewResult {
   skippedStageIds?: string[];
   /** Images created by explicit option.generate requests during this call. */
   generatedImages?: GeneratedImageReference[];
+  globalNote?: string;
   revision?: ReviewRevision;
   fallback?: {
     reason: "no_ui" | "no_custom_ui" | "rpc";
@@ -71,6 +73,7 @@ export interface ReviewState {
   /** Optional stages explicitly skipped by the user. */
   skippedStageIds?: string[];
   generatedImages?: GeneratedImageReference[];
+  globalNote?: string;
   status: ReviewStatus;
   updatedAt: string;
 }
@@ -105,6 +108,7 @@ function isAnswerShape(value: unknown): value is ReviewAnswer {
     (value.kind === "option" || value.kind === "multi" || value.kind === "custom") &&
     (value.answer === null || typeof value.answer === "string") &&
     isOptionalString(value.customText) &&
+    isOptionalString(value.notes) &&
     (value.optionIds === undefined || isStringArray(value.optionIds)) &&
     (value.optionLabels === undefined || isStringArray(value.optionLabels)) &&
     (value.optionValues === undefined ||
@@ -149,6 +153,7 @@ function answerIsValid(answer: ReviewAnswer, stage: NormalizedStage, index: numb
     const expected = ids.map((id) => optionsById.get(id)?.label).join(", ");
     if (answer.answer !== expected) return false;
   }
+  if (answer.notes !== undefined && (!answer.notes.trim() || answer.notes.length > 2_000)) return false;
   return true;
 }
 
@@ -205,6 +210,7 @@ export function isReviewState(value: unknown): value is ReviewState {
     (value.skippedStageIds !== undefined && !isStringArray(value.skippedStageIds)) ||
     (value.generatedImages !== undefined &&
       (!Array.isArray(value.generatedImages) || !value.generatedImages.every(isGeneratedImageReference))) ||
+    !isOptionalString(value.globalNote) ||
     (value.status !== "completed" &&
       value.status !== "revision" &&
       value.status !== "rejected" &&
@@ -300,6 +306,7 @@ export function makeReviewState(
   status: ReviewStatus,
   skippedStageIds: readonly string[] = [],
   generatedImages?: readonly GeneratedImageReference[],
+  globalNote?: string,
 ): ReviewState {
   assertValidAnswerSet(review, answers);
   const skipped = normalizeSkippedStageIds(review, skippedStageIds, answers);
@@ -324,6 +331,7 @@ export function makeReviewState(
     answers: orderedAnswers(review, answers),
     ...(skipped.length > 0 ? { skippedStageIds: skipped } : {}),
     ...(generatedImages && generatedImages.length > 0 ? { generatedImages: generatedImages.map((image) => ({ ...image })) } : {}),
+    ...(globalNote ? { globalNote } : {}),
     status,
     updatedAt: new Date().toISOString(),
   };
@@ -463,6 +471,7 @@ export function makeReviewResult(
   answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewAnswer[],
   revision?: ReviewRevision,
   skippedStageIds: readonly string[] = [],
+  globalNote?: string,
 ): ReviewResult {
   assertValidAnswerSet(review, answers);
   const skipped = normalizeSkippedStageIds(review, skippedStageIds, answers);
@@ -500,6 +509,7 @@ export function makeReviewResult(
     cancelled: decision === "cancel",
     answers: ordered,
     ...(skipped.length > 0 ? { skippedStageIds: skipped } : {}),
+    ...(globalNote ? { globalNote } : {}),
     ...(revision ? { revision: { ...revision } } : {}),
   };
 }
@@ -528,7 +538,7 @@ export function resultFromState(state: ReviewState, decision: ReviewDecision, re
     resetStageIds: state.resetStageIds,
     stages: state.stages,
   };
-  const result = makeReviewResult(review, decision, state.answers, revision, state.skippedStageIds);
+  const result = makeReviewResult(review, decision, state.answers, revision, state.skippedStageIds, state.globalNote);
   return state.generatedImages && state.generatedImages.length > 0
     ? { ...result, generatedImages: state.generatedImages.map((image) => ({ ...image })) }
     : result;

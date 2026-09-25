@@ -84,6 +84,24 @@ function restoreReviewArtifacts(review: NormalizedReview, previous: ReviewState 
   };
 }
 
+function carriedGeneratedImages(review: NormalizedReview, previous: ReviewState | undefined): GeneratedImageReference[] {
+  if (!previous?.generatedImages?.length) return [];
+  return previous.generatedImages.filter((image) => {
+    const stage = review.stages.find((candidate) => candidate.id === image.stageId);
+    const option = stage?.options.find((candidate) => candidate.id === image.optionId);
+    return Boolean(option?.image?.path === image.path && !option.generate);
+  }).map((image) => ({ ...image }));
+}
+
+function mergeGeneratedImages(
+  previous: GeneratedImageReference[],
+  generated: GeneratedImageReference[],
+): GeneratedImageReference[] {
+  const merged = new Map(previous.map((image) => [`${image.stageId}:${image.optionId}`, { ...image }]));
+  for (const image of generated) merged.set(`${image.stageId}:${image.optionId}`, { ...image });
+  return [...merged.values()];
+}
+
 function resultDetails(result: ReviewResult, review: NormalizedReview): VisualReviewResultDetails {
   return {
     version: 1,
@@ -93,6 +111,10 @@ function resultDetails(result: ReviewResult, review: NormalizedReview): VisualRe
     title: review.title,
     provider: review.provider,
     model: review.model,
+    answers: [],
+    cancelled: result.cancelled,
+    ...(result.globalNote ? { globalNote: result.globalNote } : {}),
+    ...(result.error ? { error: result.error } : {}),
     result,
   };
 }
@@ -157,6 +179,33 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
 
       const previous = getPriorState(ctx, review.reviewId);
       review = restoreReviewArtifacts(review, previous);
+      const initialAnswers = initialAnswersFor(review, previous);
+      const initialSkippedStageIds = initialSkippedStageIdsFor(review, previous);
+      const carriedImages = carriedGeneratedImages(review, previous);
+
+      if (previous && review.round <= previous.round) {
+        // Reject a stale round before any explicit generation request. This keeps an
+        // accidental retry from spending provider quota.
+        return textResult(
+          {
+            version: 1,
+            reviewId: review.reviewId,
+            round: review.round,
+            status: "revision",
+            decision: "revision",
+            cancelled: false,
+            answers: initialAnswers,
+            ...(carriedImages.length > 0 ? { generatedImages: carriedImages } : {}),
+            revision: {
+              stageId: review.stages[0]?.id ?? "review",
+              stageIndex: 0,
+              feedback: "The next round must be greater than the persisted round.",
+              requestedRound: previous.round + 1,
+            },
+          },
+          review,
+        );
+      }
 
       // Generation is deliberately explicit in the input contract. Existing image
       // references are left untouched; only options carrying `generate` are sent to
@@ -185,6 +234,8 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
                 model: image.model,
                 byteCount: image.byteCount,
               },
+              answers: [],
+              cancelled: false,
               result: {
                 version: 1,
                 reviewId: review.reviewId,
@@ -199,7 +250,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
           }),
         });
         review = generated.review;
-        generatedImages = generated.images.map((image) => {
+        const newImages = generated.images.map((image) => {
           const match = review.stages.flatMap((stage) => stage.options
             .filter((option) => option.image?.path === image.path)
             .map((option) => ({ stageId: stage.id, optionId: option.id })))[0] ?? { stageId: "unknown", optionId: "unknown" };
@@ -213,39 +264,12 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
             generated: true,
           };
         });
+        generatedImages = mergeGeneratedImages(carriedImages, newImages);
       } catch (error) {
         const message = error instanceof ImageGenerationError
           ? `Image generation failed (${error.code}): ${error.message}`
           : `Image generation failed: ${error instanceof Error ? error.message : String(error)}`;
         return errorResponse(message, review);
-      }
-
-      const initialAnswers = initialAnswersFor(review, previous);
-      const initialSkippedStageIds = initialSkippedStageIdsFor(review, previous);
-
-      if (previous && review.round <= previous.round) {
-        // A model can accidentally reuse a completed round. It is safer to
-        // require a later round than to silently discard prior answers, even
-        // when resetStageIds is present.
-        return textResult(
-          {
-            version: 1,
-            reviewId: review.reviewId,
-            round: review.round,
-            status: "revision",
-            decision: "revision",
-            cancelled: false,
-            answers: initialAnswers,
-            ...(generatedImages.length > 0 ? { generatedImages } : {}),
-            revision: {
-              stageId: review.stages[0]?.id ?? "review",
-              stageIndex: 0,
-              feedback: "The next round must be greater than the persisted round, or affected stages must be listed in resetStageIds.",
-              requestedRound: Math.max(review.round, previous.round + 1),
-            },
-          },
-          review,
-        );
       }
 
       let result: ReviewResult;
