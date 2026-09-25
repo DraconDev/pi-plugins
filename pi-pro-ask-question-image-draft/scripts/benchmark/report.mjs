@@ -241,11 +241,11 @@ export function verifyAggregateReport(report, { corpus = null, testsDir = "tests
   if (report?.schemaVersion !== SCHEMA_VERSION || report?.kind !== "benchmark-aggregate-report") {
     throw new BenchmarkError("invalid_shape", "Unsupported aggregate report schema.");
   }
-  const corpus = report.corpus;
-  if (!corpus || corpus.count !== 1000 || !corpus.strata || STRATA.some((stratum) => corpus.strata[stratum] === undefined)) {
+  const summary = report.corpus;
+  if (!summary || summary.count !== 1000 || !summary.strata || STRATA.some((stratum) => summary.strata[stratum] === undefined)) {
     throw new BenchmarkError("missing_evidence", "Corpus count and all stratum counts are required.");
   }
-  if (corpus.strata.ordinary !== 700 || corpus.strata.visual !== 200 || corpus.strata.adversarial !== 100) {
+  if (summary.strata.ordinary !== 700 || summary.strata.visual !== 200 || summary.strata.adversarial !== 100) {
     throw new BenchmarkError("count_mismatch", "Aggregate report must contain the 700/200/100 corpus split.");
   }
   const comparison = report.comparison;
