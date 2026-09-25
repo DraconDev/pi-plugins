@@ -1,0 +1,454 @@
+{
+  "schemaVersion": 1,
+  "kind": "benchmark-defect-ledger",
+  "defects": [
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "HARNESS-001",
+      "severity": "P0",
+      "status": "resolved",
+      "summary": "Report and image counts were self-reported: a skipped image run reported generated=0 as a success and the report trusted a summary block instead of the per-case results.",
+      "rootCause": "The report and image commands formatted their own totals rather than recomputing them from the artifacts on disk.",
+      "fix": "recomputeComparison and ingestImageManifest derive every count from the per-case results and the manifest entries; a test pins that an empty manifest reports zero.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "HARNESS-002",
+      "severity": "P0",
+      "status": "resolved",
+      "summary": "--passes was a label: one execution was recorded as N passes, so the '2,000 real executions' figure was unearned.",
+      "rootCause": "The comparison loop ran a single execution and copied the requested pass count into the per-case record.",
+      "fix": "compareCorpus runs one execution per requested pass and records the count actually executed; a test compares passes=1 against passes=2.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "HARNESS-003",
+      "severity": "P0",
+      "status": "resolved",
+      "summary": "Expected-invalid scenarios could never pass, so the adversarial stratum's invalid cases were scored as failures of the package rather than successes of the validator.",
+      "rootCause": "Scoring compared an expected outcome to the executed status without checking that a rejection happened before the UI was built.",
+      "fix": "absoluteScore requires rejectedBeforeUi for an invalid expectation, and a valid input can never satisfy it.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "HARNESS-004",
+      "severity": "P0",
+      "status": "resolved",
+      "summary": "The RPiV adapter dropped previews, notes and multi-select and mis-mapped the select protocol, so the head-to-head compared a crippled reference.",
+      "rootCause": "The adapter translated the local envelope into RPiV's question shape without its optional fields.",
+      "fix": "The adapter now carries preview, notes and multiSelect and drives RPiV's real select protocol; the shared-case capability mix is recorded in the results.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "HARNESS-005",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "A multi-select stage with no recorded answer looped forever and stalled the whole run.",
+      "rootCause": "The local driver waited for an answer to arrive for a stage the oracle never resolves.",
+      "fix": "The stage loop terminates on the resolved status; a test runs a multi-select scenario with an empty expectation and asserts a terminal status.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "HARNESS-006",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "corpus.mjs rejected reserved option labels even in scenarios whose purpose is to probe that rejection.",
+      "rootCause": "One label rule was applied to the whole corpus instead of to scenarios that are expected to be valid.",
+      "fix": "The reserved-label rule is applied to inputValid scenarios only; a test admits a negative scenario that carries a reserved label on purpose.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "HARNESS-007",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "The live smoke had no interactive driver, so inline-image rendering, collapse/reopen and the final review were never exercised.",
+      "rootCause": "The gate only checked preconditions and stopped.",
+      "fix": "live-driver.mjs loads the real extension through Pi's loader on a pseudo-terminal and walks the real key sequence; the driver records the editor it resolved and the quit keys it derived.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "HARNESS-008",
+      "severity": "P0",
+      "status": "resolved",
+      "summary": "benchmark:images refused to generate, so the contract command produced an empty manifest instead of images.",
+      "rootCause": "A provider-call kill switch was left in the image path.",
+      "fix": "The contract command generates through the real generator; the kill switch is gone and a test asserts it cannot return.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "HARNESS-009",
+      "severity": "P0",
+      "status": "resolved",
+      "summary": "benchmark:corpus silently overwrote the imported Space Bunny Alpha corpus with a synthetic fixture whenever the target was missing or replaced.",
+      "rootCause": "The default output path and the regeneration path were the same decision.",
+      "fix": "An existing valid corpus is re-validated and reported as such, and replacement requires an explicit --replace.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "HARNESS-010",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "The live smoke was flaky: the PTY harness interleaved key sending with slow reads, so the terminal sometimes missed keys.",
+      "rootCause": "Keys were written into the pty while the driver was still painting.",
+      "fix": "The driver and the harness exchange keys through a queue file and the harness waits for a painted frame before the next key.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "HARNESS-011",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "benchmark:report --verify parsed --verify as a boolean and crashed before reading the report.",
+      "rootCause": "The argument was declared as a flag instead of a string value.",
+      "fix": "The argument is a string and a test parses the exact contract form.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "HARNESS-012",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "The live gate's editor came from whatever $EDITOR the caller's shell happened to export, and the driver quit the editor with micro's ctrl+q, so the gate passed on one machine and died on another for reasons unrelated to the package.",
+      "rootCause": "Editor resolution was an ambient environment lookup and the quit sequence was a hard-coded constant.",
+      "fix": "Editor resolution follows Pi's own order (settings, VISUAL/EDITOR, Pi default), records which source answered, refuses to run when the binary is absent, and provisions one that exists; the quit sequence is derived from the resolved command.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "JUDGE-001",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "Ties were not separated from wins and disagreements were not adjudicated, which would have inflated the candidate's rate.",
+      "rootCause": "Any non-A winner was treated as a reference win and ties were folded into the same bucket.",
+      "fix": "A tie is decided but never credit, an undecided case stays in the denominator, and judgeSummary reports both the strict and the decided-only rate.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "JUDGE-002",
+      "severity": "P0",
+      "status": "resolved",
+      "summary": "The judge prompt hard-coded the generated-image arm as 'A' while the seeded label map could call A the reference, so on every case whose hash fell on the other side an image win was recorded as a reference win.",
+      "rootCause": "The blinding labels and the prompt's arm letters were chosen independently and then spread over each other.",
+      "fix": "The arm letters are assigned by the seeded blinding and the prompt is written to match, so the recorded winner is attributed to the arm the judge actually saw.",
+      "claim": {
+        "0": "c",
+        "1": "a",
+        "2": "s",
+        "3": "e",
+        "4": "s",
+        "5": "W",
+        "6": "i",
+        "7": "t",
+        "8": "h",
+        "9": "I",
+        "10": "n",
+        "11": "v",
+        "12": "e",
+        "13": "r",
+        "14": "t",
+        "15": "e",
+        "16": "d",
+        "17": "A",
+        "18": "t",
+        "19": "t",
+        "20": "r",
+        "21": "i",
+        "22": "b",
+        "23": "u",
+        "24": "t",
+        "25": "i",
+        "26": "o",
+        "27": "n",
+        "28": ":",
+        "29": " ",
+        "30": "6",
+        "31": "9",
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "JUDGE-003",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "A verdict the model wrapped in a fenced block or a sentence of preamble was recorded as a judge error, so 30 of 200 cases were lost for a formatting reason.",
+      "rootCause": "Only bare JSON.parse was accepted.",
+      "fix": "parseJudgeReply recovers the first balanced object and still validates it against the same strict schema, recording whether the reply was strict or recovered.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "JUDGE-004",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "A disagreement between the two passes was recorded as undecided, so the contract's 'disagreement adjudication' was never actually implemented and 33 cases could not count.",
+      "rootCause": "adjudicate() had no path to a third opinion.",
+      "fix": "A disagreement is put to a third independent adjudication pass and decided by majority; only a split the adjudicator cannot break stays undecided, and it is never credited.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "VISUAL-001",
+      "severity": "P1",
+      "status": "open",
+      "summary": "The visual decision-utility gate: the generated images must be meaningfully more useful than the realistic terminal fallback in at least 60% of the 200 blinded comparisons, with the two-sided 95% lower bound above 50% and severe readability/artifact failures at or below 2%. Measured on this run: 0/0 wins (0.0%, 95% lower bound 0.0%) against a 60% / 50% requirement, severe failures 100.0% against a 2% ceiling.",
+      "rootCause": "The gate is measured, not asserted: it is recomputed from the judging artifact on every report and can only pass with the evidence present.",
+      "fix": "Recomputed per run; the numbers below are read from judge.json when the ledger is written.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "VISUAL-002",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "The image prompt asked for 'only shapes, blocks, bars, lines and colour' and forbade text outright, so the model drew content-free rectangles that carried no decision information.",
+      "rootCause": "A previous failure mode (invented pseudo-text) was over-corrected into the opposite failure mode, and the prompt stopped naming the surface and the treatment at all.",
+      "fix": "image-prompt.mjs derives the surface from the scenario title and the treatment from the option's own vocabulary into a concrete, drawable layout instruction, and keeps the option's name out of the prompt so the judged comparison stays blinded.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "GATE-001",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "npm run smoke:live could not be run by a contract check because it required an interactive TTY the caller does not have.",
+      "rootCause": "The gate demanded a TTY and refused to provide one.",
+      "fix": "smoke:live re-runs itself inside a real pseudo-terminal when the caller has none, without weakening the TTY requirement the driver asserts.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "GATE-002",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "benchmark:report --verify crashed on an open P0/P1, conflating a release fact with a malformed report.",
+      "rootCause": "One exception path served both structural and release problems.",
+      "fix": "An open P0/P1 is reported as data and only the release gate turns it into a failure.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "GATE-003",
+      "severity": "P2",
+      "status": "resolved",
+      "summary": "The contract names .pi/benchmark/images/visual-001-option-1.png, a canonical name this corpus never produced; the gate silently substituted manifest.images[0] and recorded the substitution as a fix.",
+      "rootCause": "The contract path and the pipeline's naming had no relationship, and the gap was papered over with a fallback.",
+      "fix": "The image pipeline writes the canonical alias itself (the first visual scenario's options, in order) and a missing requested path is now a hard failure with no substitution.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "GATE-004",
+      "severity": "P0",
+      "status": "resolved",
+      "summary": "Release readiness sat behind an environment variable the contract never sets, so `benchmark:report --verify` exited 0 on a report that was not ready.",
+      "rootCause": "The verifier was written to report a verdict, and the release requirement was bolted on as an opt-in switch.",
+      "fix": "The verify path always fails when releaseReady is false; the opt-out and the environment variable are gone.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "GATE-005",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "The verifier never checked that all 1,000 corpus scenarios have a terminal outcome in the results, so a run that dropped cases would still look clean.",
+      "rootCause": "Only the aggregate counts were compared.",
+      "fix": "verifyTerminalOutcomes cross-checks the corpus and the per-case results and refuses a report that drops or leaves a case unresolved.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "GATE-006",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "Resolved defects had no machine-checkable link to a regression test, and the ledger's own numbers were free text that had already drifted from the artifacts.",
+      "rootCause": "The ledger was a hand-maintained document.",
+      "fix": "Every resolved critical defect names a test that must exist and mention its id, and any measured claim is read from the run's artifacts and checked by the verifier.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "GATE-007",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "No benchmark evidence was in the repository: .pi/ is machine-local and git-ignored, so an auditor could not see the corpus, results, report or ledger without re-running everything.",
+      "rootCause": "The working directory and the durable record were the same, untracked place.",
+      "fix": "benchmark:publish mirrors the artifacts into the tracked benchmark/ directory with a sha256 index and a sample of real generated images; benchmark:verify-evidence re-checks the mirror.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    },
+    {
+      "regressionTest": "tests/benchmark-regressions.test.mjs",
+      "id": "CORPUS-001",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "benchmark:corpus to a fresh path produced a synthetic 'Path 0001 decision 1' fixture with provenance: null, so the shipped corpus could not be reproduced from the checkout.",
+      "rootCause": "The Space Bunny Alpha corpus was assembled from model-written shards outside the repository and only its output file was kept.",
+      "fix": "The corpus is committed under benchmark/corpus/ and re-emitted through the same validation gate, so the contract command reproduces the real corpus with its provenance on any machine.",
+      "claim": {
+        "cases": 1000,
+        "failedCases": 0,
+        "unstableCases": 0,
+        "generatedImages": 600,
+        "liveSmokeStatus": "passed"
+      }
+    }
+  ]
+}

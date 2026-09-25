@@ -313,8 +313,25 @@ function scoreReference(scenario, reference, localAbsolute) {
     referenceValidation,
     referenceStatus,
     envelopeMatch: typeof referenceEnvelope === "string" && localEnvelope !== null ? referenceEnvelope === localEnvelope : null,
+    // A mismatch is disclosed, not gated: the excerpt shows *how* the two
+    // envelopes differ instead of leaving a bare rate for an auditor to trust.
+    envelopeDifference: typeof referenceEnvelope === "string" && localEnvelope !== null && referenceEnvelope !== localEnvelope
+      ? firstDifference(referenceEnvelope, localEnvelope)
+      : null,
     referenceCapabilities: reference.capabilities ?? null,
   };
+}
+
+/** The first line where two envelopes disagree, for an honest disclosure. */
+export function firstDifference(referenceEnvelope, localEnvelope) {
+  const left = String(referenceEnvelope).split("\n");
+  const right = String(localEnvelope).split("\n");
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    if (left[index] !== right[index]) {
+      return { line: index + 1, reference: (left[index] ?? "").slice(0, 200), local: (right[index] ?? "").slice(0, 200) };
+    }
+  }
+  return { line: 0, reference: "", local: "" };
 }
 
 export function blindLabels(seed, id) {
@@ -393,6 +410,15 @@ export async function compareCorpus(corpus, { passes = 2, blind = false, seed = 
       adapter: reference.adapter, sharedOnly: true, sharedCases: sharedCases.length,
       referenceRejections: sharedCases.filter((item) => item.referenceValidation === "rejected").length,
       envelopeMatchRate: sharedCases.length ? sharedCases.filter((item) => item.envelopeMatch === true).length / sharedCases.length : null,
+      envelopeMismatches: sharedCases.filter((item) => item.envelopeMatch === false).length,
+      envelopeMismatchByClassification: Object.fromEntries(
+        [...new Set(sharedCases.filter((item) => item.envelopeMatch === false).map((item) => item.classification))]
+          .map((classification) => [classification, sharedCases.filter((item) => item.envelopeMatch === false && item.classification === classification).length]),
+      ),
+      // Envelope text is disclosed, never gated: the two tools document
+      // different response contracts, and every shared case is scored on the
+      // answers and the status, which is what the tool contract promises.
+      envelopeGate: false,
       losses: referenceLosses,
       candidateFailures,
     },

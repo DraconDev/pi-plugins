@@ -207,8 +207,9 @@ export function verifyDefectLedger(ledger, { cases = null, judged = null, testsD
   return { verified: true, defects: ledger.length };
 }
 
+/** Accept either a repo-relative path or a name relative to the tests directory. */
 function regressionTestExists(reference, testsDir) {
-  return existsSync(resolve(testsDir, reference));
+  return existsSync(resolve(reference)) || existsSync(resolve(testsDir, reference));
 }
 
 /**

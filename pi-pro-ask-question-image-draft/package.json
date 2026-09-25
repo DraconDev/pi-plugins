@@ -37,7 +37,8 @@
     "benchmark:ledger": "node scripts/benchmark/ledger.mjs",
     "benchmark:publish": "node scripts/benchmark/publish.mjs",
     "benchmark:verify-evidence": "node scripts/benchmark/publish.mjs --verify",
-    "benchmark:report": "node scripts/benchmark/report.mjs"
+    "benchmark:report": "node scripts/benchmark/report.mjs",
+    "benchmark:run": "bash scripts/benchmark/run-all.sh"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

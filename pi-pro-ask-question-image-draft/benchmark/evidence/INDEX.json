@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "kind": "benchmark-evidence-index",
+  "note": "sha256 of every mirrored artifact. `npm run benchmark:verify-evidence` re-checks them.",
+  "artifacts": [
+    {
+      "file": "corpus.json",
+      "sha256": "e0849c6042cffda6bc7f79abbfe9f9b3be40eaa9df3c812749476687e815925f",
+      "bytes": 2706270
+    },
+    {
+      "file": "results.json",
+      "sha256": "3c9a32a8d7a8359e0de05dffed6ffd1b39b48fb456ea7ccc0f934b63490ffecf",
+      "bytes": 940593
+    },
+    {
+      "file": "image-manifest.json",
+      "sha256": "4112366d5545b185e9f19ecbaa72df31574e71f5408f769563f69f7a7b8f27ac",
+      "bytes": 895148
+    },
+    {
+      "file": "images.json",
+      "sha256": "eec814a41158341f50d50de32a2f2c53cf8dbd462cdf01481d6959572f02ae9d",
+      "bytes": 741720
+    },
+    {
+      "file": "image-report.json",
+      "sha256": "ac56eaf41844ea769ef56f7bffb9b39a3e2c0f776789c0c607d70a36f518a858",
+      "bytes": 742233
+    },
+    {
+      "file": "judge.json",
+      "sha256": "a424a74694b054110fcad61c9b06e87a9cacd9e8fd975ebf070b8f61afb2ba05",
+      "bytes": 216361
+    },
+    {
+      "file": "live-smoke.json",
+      "sha256": "707316d80a1224452297c5420519397457136569a81c5a8c5b235dc42528aa52",
+      "bytes": 4196
+    },
+    {
+      "file": "report.json",
+      "sha256": "f32896a326286396d430ab1a23294d28024c283d591fd8ba01061647bca7d6c7",
+      "bytes": 14058
+    },
+    {
+      "file": "defects.json",
+      "sha256": "b69e0b1234b3efd33bf94965b1530e1ce45d01768a7e4cc8d42fc96225fa2cc0",
+      "bytes": 20833
+    }
+  ],
+  "samples": [
+    {
+      "file": "visual-a-002-b.png",
+      "scenarioId": "visual-a-002",
+      "optionId": "visual-a-002:b",
+      "promptHash": "7461aad0393fbeced59359a026f7f0434114a4bd221668de0e754db265444468",
+      "bytes": 793033,
+      "sha256": "67e559e69934438d477718a47353c70e490d05e052150d55521a1c6e2e96d815",
+      "mode": "link"
+    },
+    {
+      "file": "visual-a-002-a.png",
+      "scenarioId": "visual-a-002",
+      "optionId": "visual-a-002:a",
+      "promptHash": "9f453af665b43cfe5dc89b9d31d2e1c2f52792b3005a9438b4371bbc14378ee8",
+      "bytes": 564178,
+      "sha256": "74e511aaf7170b11702314bb09ebf603c4f87cf21075f5671238522afea66f7d",
+      "mode": "link"
+    },
+    {
+      "file": "visual-a-001-a.png",
+      "scenarioId": "visual-a-001",
+      "optionId": "visual-a-001:a",
+      "promptHash": "f7a3ddf178cbb6d31225e1f6f4f5941a5a9c2a968ee308b125563a7fcc4e8788",
+      "bytes": 682209,
+      "sha256": "553a7f85192b2c1a722668855637914f98b38334a2c4635f28cd98f6a306e97e",
+      "mode": "link"
+    },
+    {
+      "file": "visual-a-001-b.png",
+      "scenarioId": "visual-a-001",
+      "optionId": "visual-a-001:b",
+      "promptHash": "9f5e591a80001d646bf89262962ee9f1c0a50e6c27ba93ef8ef3aa4c3c470920",
+      "bytes": 806743,
+      "sha256": "95677904ebf872a191e2a14105c382e1bd08ec939aa0f29b889132a8547bf04d",
+      "mode": "link"
+    },
+    {
+      "file": "visual-a-001-c.png",
+      "scenarioId": "visual-a-001",
+      "optionId": "visual-a-001:c",
+      "promptHash": "a683fef50caf51fefa37690ac3aa99e548d644238159d1697d41a5afb3c6cff0",
+      "bytes": 878783,
+      "sha256": "e752cd4b48826150605824dc1bf0a0866c09653d598da77d11000044ac2cc285",
+      "mode": "link"
+    },
+    {
+      "file": "visual-a-002-c.png",
+      "scenarioId": "visual-a-002",
+      "optionId": "visual-a-002:c",
+      "promptHash": "a521fe21febedcc8c23fe8a459118753c07e45932975c53b20622393e5632998",
+      "bytes": 886343,
+      "sha256": "5d57dd061107129c53aa0af1ac15edc6de26a7b6724b36c0438b4eafbd525779",
+      "mode": "link"
+    }
+  ]
+}

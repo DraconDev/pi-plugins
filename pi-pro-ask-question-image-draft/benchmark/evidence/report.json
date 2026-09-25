@@ -1,0 +1,327 @@
+{
+  "schemaVersion": 1,
+  "kind": "benchmark-aggregate-report",
+  "observedAt": "2026-09-25T20:11:06.762Z",
+  "corpus": {
+    "count": 1000,
+    "seed": 20260925,
+    "strata": {
+      "ordinary": 700,
+      "visual": 200,
+      "adversarial": 100
+    },
+    "provenance": {
+      "generator": "space-bunny-alpha",
+      "generatorProvider": "openrouter/stealth/space-bunny-alpha",
+      "seed": 20260925,
+      "sourceShards": {
+        "adversarial": {
+          "records": 100,
+          "subagentRun": "4a779bf2-f527-4a49-904c-cd29220b48f5"
+        },
+        "images-a": {
+          "records": 100,
+          "subagentRun": "4a779bf2-f527-4a49-904c-cd29220b48f5"
+        },
+        "inclusive-a": {
+          "records": 100,
+          "subagentRun": "4a779bf2-f527-4a49-904c-cd29220b48f5"
+        },
+        "legacy-a": {
+          "records": 100,
+          "subagentRun": "4a779bf2-f527-4a49-904c-cd29220b48f5"
+        },
+        "legacy-b": {
+          "records": 100,
+          "subagentRun": "4a779bf2-f527-4a49-904c-cd29220b48f5"
+        },
+        "limits-a": {
+          "records": 100,
+          "subagentRun": "4a779bf2-f527-4a49-904c-cd29220b48f5"
+        },
+        "ordinary-extra-a": {
+          "records": 100,
+          "subagentRun": "45da8892-e3ba-4f16-b15d-d0b75593e7d5"
+        },
+        "ordinary-extra-b": {
+          "records": 100,
+          "subagentRun": "d4e41340-188f-456e-8453-a93d0de595b4"
+        },
+        "staged-a": {
+          "records": 100,
+          "subagentRun": "96d2db0c-3e47-439d-ada9-4d4f62b5ce61"
+        },
+        "staged-b": {
+          "records": 100,
+          "subagentRun": "4a779bf2-f527-4a49-904c-cd29220b48f5"
+        },
+        "visual-a": {
+          "records": 100,
+          "subagentRun": "4a779bf2-f527-4a49-904c-cd29220b48f5"
+        },
+        "visual-b": {
+          "records": 100,
+          "subagentRun": "4a779bf2-f527-4a49-904c-cd29220b48f5"
+        }
+      },
+      "selection": "700 ordinary compatibility + 200 visual + 100 adversarial, one family each, no synthesis of missing content",
+      "normalization": "Source question/header/options/stage-count/unicode/longText/outcome preserved; negative-domain records keep their own negative input; source outcome labels that conflict with recorded answer actions are reconciled and listed in provenance.sourceOutcomeConflict; visual stages carry a null image slot until the image pipeline fills it.",
+      "assembledAt": "2026-09-25T00:00:00.000Z"
+    }
+  },
+  "comparison": {
+    "total": 1000,
+    "passed": 1000,
+    "failed": 0,
+    "deterministicAccuracy": 1,
+    "wilson95LowerBound": 0.9961732415144449,
+    "unstableCases": [],
+    "exactOracle": {
+      "total": 539,
+      "passed": 539
+    },
+    "terminalOnly": {
+      "total": 461,
+      "passed": 461
+    },
+    "byStratum": {
+      "ordinary": {
+        "total": 700,
+        "passed": 700,
+        "accuracy": 1
+      },
+      "visual": {
+        "total": 200,
+        "passed": 200,
+        "accuracy": 1
+      },
+      "adversarial": {
+        "total": 100,
+        "passed": 100,
+        "accuracy": 1
+      }
+    },
+    "failures": [],
+    "shared": {
+      "adapter": "pi-loadExtensions-jiti-isolated-child",
+      "sharedOnly": true,
+      "sharedCases": 333,
+      "referenceRejections": 0,
+      "envelopeMatchRate": 0.8408408408408409,
+      "losses": [],
+      "candidateFailures": []
+    }
+  },
+  "images": {
+    "planned": 600,
+    "generated": 600,
+    "cached": 600,
+    "generationFailures": 0,
+    "withinBudget": true,
+    "judgedCases": 200,
+    "skippedCases": 0,
+    "visualUplift": 0.34,
+    "visualUpliftLowerBound": 0.277915459709088,
+    "severeFailureRate": 0,
+    "ties": 0,
+    "undecided": 33,
+    "gates": {
+      "visualUplift": false,
+      "confidenceBound": false,
+      "severeFailures": true,
+      "imageBudget": true
+    }
+  },
+  "gates": {
+    "accuracy": true,
+    "confidenceBound": true,
+    "stability": true,
+    "visualUplift": false,
+    "visualConfidence": false,
+    "severeFailures": true,
+    "imageBudget": true,
+    "liveSmoke": true,
+    "noUnresolvedCriticalDefects": false
+  },
+  "releaseReady": false,
+  "defects": [
+    {
+      "id": "HARNESS-001",
+      "severity": "P0",
+      "status": "resolved",
+      "area": "benchmark",
+      "summary": "Report and image counts were self-reported: images.mjs reported generated=0 for a skipped run, and report.mjs trusted gate booleans instead of recomputing them.",
+      "fix": "images.mjs now reports 0 generated unless a generation run recorded entries; report.mjs recomputes accuracy, uplift, and every gate from the artifacts on disk.",
+      "evidence": "scripts/benchmark/report.mjs recomputeComparison/recomputeGates"
+    },
+    {
+      "id": "HARNESS-002",
+      "severity": "P0",
+      "status": "resolved",
+      "area": "benchmark",
+      "summary": "--passes was a label: one execution was recorded as N passes.",
+      "fix": "compare.mjs executes the corpus N times per case and requires identical results plus an oracle match.",
+      "evidence": "results.json passes.executedPerCase"
+    },
+    {
+      "id": "HARNESS-003",
+      "severity": "P0",
+      "status": "resolved",
+      "area": "benchmark",
+      "summary": "Expected-invalid scenarios could never pass, so the negative stratum was silently scored as a failure.",
+      "fix": "absoluteScore treats a real pre-UI rejection as the expected outcome; a rejection of a valid input is still a failure.",
+      "evidence": "results.json byStratum.adversarial"
+    },
+    {
+      "id": "HARNESS-004",
+      "severity": "P0",
+      "status": "resolved",
+      "area": "benchmark",
+      "summary": "The RPiV adapter dropped previews, notes, and multi-select and mis-mapped the select protocol, producing a fake 100% shared parity.",
+      "fix": "reference.mjs drives RPiV's real RPC contract (N. label rows, the Type something. row, comma-separated multi-select, dismissal) and reports the capabilities it exercised.",
+      "evidence": "results.json reference.losses"
+    },
+    {
+      "id": "HARNESS-005",
+      "severity": "P1",
+      "status": "resolved",
+      "area": "benchmark",
+      "summary": "A multi-select stage with no recorded answer looped forever and stalled the whole run.",
+      "fix": "The scripted dialog commits multi-select stages and the per-case timeout aborts the controller, so a runaway case cannot hang the corpus.",
+      "evidence": "results.json summary.unstableCases"
+    },
+    {
+      "id": "HARNESS-006",
+      "severity": "P1",
+      "status": "resolved",
+      "area": "benchmark",
+      "summary": "corpus.mjs rejected reserved option labels even in scenarios whose purpose is to probe that rejection.",
+      "fix": "Reserved-label and shape rules apply to valid inputs only; negative scenarios are asserted to reject before any UI interaction.",
+      "evidence": "corpus --import"
+    },
+    {
+      "id": "HARNESS-007",
+      "severity": "P1",
+      "status": "resolved",
+      "area": "smoke",
+      "summary": "The live smoke had no interactive driver and refused to run, so inline-image rendering, collapse/reopen, and the external editor were never exercised on a real terminal.",
+      "fix": "live-driver.mjs runs the real extension on a real pi-tui screen inside a pseudo-terminal and asserts every step against the bytes the terminal received.",
+      "evidence": "live-smoke.json assertions"
+    },
+    {
+      "id": "JUDGE-001",
+      "severity": "P1",
+      "status": "resolved",
+      "area": "judging",
+      "summary": "Ties were not separated from wins and disagreements were not adjudicated, which would have inflated the candidate's win rate.",
+      "fix": "judge.mjs credits a win only on two agreeing passes, counts ties and undecided separately, and reports the Wilson lower bound over strict wins.",
+      "evidence": "judge.json summary"
+    },
+    {
+      "id": "VISUAL-001",
+      "severity": "P1",
+      "status": "open",
+      "area": "visual-quality",
+      "summary": "Blinded judging of 200 Agnes image treatments against the current text/ASCII terminal presentation gives the candidate 65/200 wins (32.5%, Wilson 95% lower bound 26.4%) with 30 undecided passes and zero severe failures, far below the 60% win rate and >50% lower bound the release gate requires.",
+      "evidence": ".pi/benchmark/judge.json summary; a 40-case re-run with both arms describing the same three treatments scored 30%, so the result is not an artifact of one arm being starved of context",
+      "impact": "The visual gate fails, releaseReady is false, and the local package must not replace RPiV on this evidence.",
+      "next": "Decide with the user whether to invest in the image pipeline (composition, cropping, and terminal legibility) or to ship the text/ASCII presentation, then re-run the judged gate."
+    },
+    {
+      "id": "HARNESS-008",
+      "severity": "P0",
+      "status": "resolved",
+      "area": "benchmark",
+      "summary": "`benchmark:images` refused to generate (provider_calls_disabled), so the contract command `npm run benchmark:images -- --max 600` failed even though generation worked in a separate script.",
+      "fix": "images.mjs is now the single generation/ingest/report surface: it generates missing images inside the 600-image budget, caches by prompt hash, prunes superseded failures, and still supports --ingest-only for zero provider calls.",
+      "evidence": "npm run benchmark:images -- --max 600 --out .pi/benchmark/images.json -> validated 600, providerCalls 0 on rerun"
+    },
+    {
+      "id": "HARNESS-009",
+      "severity": "P0",
+      "status": "resolved",
+      "area": "benchmark",
+      "summary": "The contract command `benchmark:corpus -- --count 1000 ...` silently overwrote the imported Space Bunny Alpha corpus with the deterministic fixture corpus, destroying the benchmark's provenance evidence.",
+      "fix": "An existing valid corpus is re-validated and reported instead of replaced; overwriting requires an explicit --replace.",
+      "evidence": "tests/benchmark-harness.test.mjs 'regenerating the fixture corpus cannot silently destroy an imported corpus'"
+    },
+    {
+      "id": "HARNESS-010",
+      "severity": "P1",
+      "status": "resolved",
+      "area": "smoke",
+      "summary": "The live smoke was flaky: the PTY harness interleaved key sending with slow reads, so the terminal buffer filled and keys appeared to hang; a stale /tmp editor directory also made the editor look permanently open.",
+      "fix": "The harness drains the pseudo-terminal continuously, and the driver waits for the editor's own temp file (the one this launch created) to disappear before resuming the walk.",
+      "evidence": "three consecutive `npm run smoke:live` runs passed with 21 steps"
+    },
+    {
+      "id": "HARNESS-011",
+      "severity": "P1",
+      "status": "resolved",
+      "area": "report",
+      "summary": "`benchmark:report --verify <path>` parsed --verify as a boolean and crashed with ERR_INVALID_ARG_TYPE.",
+      "fix": "--verify is a string path again; it prints the verification result and exits 0.",
+      "evidence": "npm run benchmark:report -- --verify .pi/benchmark/report.json -> verified, releaseReady false"
+    },
+    {
+      "id": "GATE-001",
+      "severity": "P1",
+      "status": "resolved",
+      "area": "gates",
+      "summary": "`npm run smoke:live` could not be run by a contract check because it required a TTY the caller did not have, so the interactive gate was only runnable by hand.",
+      "fix": "smoke:live re-runs itself inside a real pseudo-terminal (scripts/benchmark/pty-run.py) when stdin/stdout are not TTYs; the TTY requirement itself is unchanged, and the walk still runs on a real terminal.",
+      "evidence": "npm run smoke:live -- --image .pi/benchmark/images/visual-001-option-1.png -> passed, exit 0, from a non-TTY parent"
+    },
+    {
+      "id": "GATE-002",
+      "severity": "P1",
+      "status": "resolved",
+      "area": "gates",
+      "summary": "`benchmark:report --verify` crashed on an open P0/P1, conflating a release fact with a malformed report, and the live smoke never exited so its exit code was unreliable.",
+      "fix": "--verify now checks integrity and reports release facts as data (unmetGates, unresolvedCritical); --require-release / PI_REQUIRE_RELEASE=1 turns unmet gates into a failure. The smoke exits deliberately after flushing its result, and pty-run forwards the child's exit code.",
+      "evidence": "benchmark:report --verify -> verified true, unmetGates listed, exit 0; PI_REQUIRE_RELEASE=1 -> exit 1"
+    },
+    {
+      "id": "GATE-003",
+      "severity": "P2",
+      "status": "resolved",
+      "area": "gates",
+      "summary": "The contract names .pi/benchmark/images/visual-001-option-1.png, a canonical name this corpus never produces, so the gate could not find an image.",
+      "fix": "A missing path inside the benchmark image directory resolves to the first validated generated image and the substitution is recorded in the evidence; a missing path anywhere else is still a hard error.",
+      "evidence": "live-smoke.json image.substituted = true with requested and rendered paths both recorded"
+    }
+  ],
+  "unresolvedCritical": [
+    "VISUAL-001"
+  ],
+  "liveSmoke": {
+    "status": "passed",
+    "observedAt": "2026-09-25T20:09:06.509Z",
+    "details": "micro | image image/png 1024x1024 | pty exit 0 | steps 21",
+    "assertions": {
+      "realTty": true,
+      "realExtension": true,
+      "titleAndPromptOnScreen": true,
+      "imageRendered": true,
+      "keyboardControls": true,
+      "stageAdvance": true,
+      "collapseReopen": true,
+      "finalReview": true,
+      "externalEditor": true,
+      "completedWithAnswer": true,
+      "persistence": true
+    },
+    "pty": {
+      "rows": 40,
+      "cols": 110,
+      "exitCode": 0,
+      "usedPseudoTerminal": true
+    }
+  },
+  "activation": {
+    "claimed": false,
+    "status": "not_run",
+    "afterGates": false,
+    "details": "The local package is still inactive; no activation was attempted."
+  }
+}

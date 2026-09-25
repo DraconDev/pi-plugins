@@ -1,0 +1,188 @@
+{
+  "kind": "benchmark-live-smoke",
+  "status": "passed",
+  "observedAt": "2026-09-25T20:16:24.447Z",
+  "details": "micro | image image/png 1024x1024 | pty exit 0 | steps 21",
+  "preconditions": {
+    "image": "/home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft/.pi/benchmark/images/agnes-agnes-image-2-5-flash-1790354380146-3dbe540e-b8c4-4d72-9b68-f5b0d641f105.png",
+    "editor": "micro",
+    "tty": true,
+    "mimeType": "image/png",
+    "width": 1024,
+    "height": 1024
+  },
+  "assertions": {
+    "realTty": true,
+    "realExtension": true,
+    "titleAndPromptOnScreen": true,
+    "imageRendered": true,
+    "keyboardControls": true,
+    "stageAdvance": true,
+    "collapseReopen": true,
+    "finalReview": true,
+    "externalEditor": true,
+    "completedWithAnswer": true,
+    "persistence": true
+  },
+  "steps": [
+    {
+      "step": "load",
+      "extension": "/home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft/extensions/visual-review.ts",
+      "tool": "ask_user_question"
+    },
+    {
+      "step": "keybindings",
+      "externalEditorKeys": [
+        "ctrl+g"
+      ],
+      "keybindingsSource": "pi-tui defaults"
+    },
+    {
+      "step": "overlay",
+      "focused": true,
+      "hidden": false
+    },
+    {
+      "step": "image-probe",
+      "totalLines": 29,
+      "imageLineIndex": 9,
+      "previewLines": 1,
+      "altLines": 0,
+      "loadedEntry": {
+        "hasImage": true,
+        "error": null,
+        "keys": [
+          "image"
+        ]
+      },
+      "nestedCaps": "kitty",
+      "directCaps": "kitty"
+    },
+    {
+      "step": "render",
+      "bytes": 4238124,
+      "columns": 110,
+      "capabilities": [
+        {
+          "images": "kitty",
+          "trueColor": true,
+          "hyperlinks": false
+        },
+        {
+          "images": "kitty",
+          "trueColor": true,
+          "hyperlinks": false
+        },
+        {
+          "images": "kitty",
+          "trueColor": true,
+          "hyperlinks": false
+        }
+      ],
+      "imageProtocol": [
+        "kitty",
+        "kitty",
+        "kitty"
+      ]
+    },
+    {
+      "step": "image",
+      "imageProtocol": "kitty",
+      "imagePayloadBytes": 4202783,
+      "imageOnTerminal": true
+    },
+    {
+      "step": "row",
+      "label": "second-option",
+      "row": "Dense treatment",
+      "moves": 1
+    },
+    {
+      "step": "stage-advance",
+      "row": "Nothing else"
+    },
+    {
+      "step": "collapse",
+      "hiddenFrames": 2
+    },
+    {
+      "step": "reopen",
+      "visible": true,
+      "row": "Nothing else"
+    },
+    {
+      "step": "row",
+      "label": "follow-up-option",
+      "row": "Nothing else",
+      "moves": 0
+    },
+    {
+      "step": "final-review",
+      "row": "Approve review"
+    },
+    {
+      "step": "row",
+      "label": "edit-answers-row",
+      "row": "Edit answers",
+      "moves": 2
+    },
+    {
+      "step": "back-to-stage-one",
+      "row": "Airy treatment"
+    },
+    {
+      "step": "row",
+      "label": "other-row",
+      "row": "Type something.",
+      "moves": 2
+    },
+    {
+      "step": "custom-input",
+      "key": "ctrl+g"
+    },
+    {
+      "step": "editor",
+      "launched": true,
+      "key": "ctrl+g"
+    },
+    {
+      "step": "editor-closed",
+      "editorLaunched": true,
+      "editorProcessExited": true
+    },
+    {
+      "step": "tui-resumed",
+      "inputModeRestored": true
+    },
+    {
+      "step": "row",
+      "label": "approve-row",
+      "row": "Approve review",
+      "moves": 2
+    },
+    {
+      "step": "complete",
+      "status": "completed",
+      "answers": [
+        "direction",
+        "followup"
+      ],
+      "hiddenFrames": 5,
+      "keys": 17,
+      "editorLaunched": true,
+      "persistedEntries": 1
+    }
+  ],
+  "errors": {},
+  "pty": {
+    "rows": 40,
+    "cols": 110,
+    "exitCode": 0,
+    "usedPseudoTerminal": true
+  },
+  "image": {
+    "requested": "/home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft/.pi/benchmark/images/visual-001-option-1.png",
+    "rendered": "/home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft/.pi/benchmark/images/agnes-agnes-image-2-5-flash-1790354380146-3dbe540e-b8c4-4d72-9b68-f5b0d641f105.png",
+    "substituted": true
+  }
+}
