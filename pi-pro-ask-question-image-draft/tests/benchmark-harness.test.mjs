@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import { absoluteScore, blindLabels, compareCorpus, runLocal } from "../scripts/benchmark/compare.mjs";
@@ -261,3 +264,49 @@ describe("harness honesty: images and the aggregate report", () => {
     assert.equal(report.gates.liveSmoke, false);
   });
 });
+
+describe("harness honesty: contract command surfaces", () => {
+  it("plans three image prompts per visual scenario, deduplicated by prompt hash", async () => {
+    const { optionPrompt, planImages, promptHash } = await import("../scripts/benchmark/images.mjs");
+    const corpus = generateCorpus({ count: 1000, seed: 20260925 });
+    const visual = corpus.scenarios.filter((scenario) => scenario.stratum === "visual");
+    const planned = planImages(corpus, { limit: 600 });
+    assert.equal(planned.length, 600);
+    assert.equal(planned.length, visual.length * 3);
+    assert.equal(new Set(planned.map((item) => item.hash)).size, planned.length);
+    for (const item of planned) assert.equal(item.hash, promptHash(item.prompt));
+  });
+
+  it("refuses to plan more images than the 600-image budget", async () => {
+    const { planImages } = await import("../scripts/benchmark/images.mjs");
+    const corpus = generateCorpus({ count: 1000, seed: 20260925 });
+    assert.throws(() => planImages(corpus, { limit: 100 }), /--max is 100/);
+  });
+
+  it("regenerating the fixture corpus cannot silently destroy an imported corpus", async () => {
+    const { main } = await import("../scripts/benchmark/corpus.mjs");
+    const path = await mkdtemp(join(tmpdir(), "corpus-guard-"));
+    const target = join(path, "corpus.json");
+    const imported = generateCorpus({ count: 10, seed: 2 });
+    imported.provenance = { generator: "space-bunny-alpha" };
+    await writeFile(target, JSON.stringify(imported));
+    // The plain contract command re-validates the corpus that is already there.
+    const revalidated = await capture(() => main(["--count", "10", "--seed", "2", "--out", target]));
+    assert.match(revalidated, /"action":"revalidated"/);
+    assert.match(revalidated, /space-bunny-alpha/);
+    const onDisk = JSON.parse(await readFile(target, "utf8"));
+    assert.equal(onDisk.scenarios[0].id, imported.scenarios[0].id);
+    // An explicit --replace really does regenerate.
+    const replaced = await capture(() => main(["--count", "10", "--seed", "2", "--out", target, "--replace"]));
+    assert.match(replaced, /"action":"generated"/);
+    assert.equal(JSON.parse(await readFile(target, "utf8")).provenance?.generator, undefined);
+  });
+});
+
+async function capture(run) {
+  const original = process.stdout.write;
+  let output = "";
+  process.stdout.write = (chunk) => { output += String(chunk); return true; };
+  try { await run(); } finally { process.stdout.write = original; }
+  return output;
+}
