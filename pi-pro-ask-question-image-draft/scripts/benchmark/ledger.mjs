@@ -10,6 +10,7 @@
  * is read from the artifacts of the run being reported.
  */
 import { existsSync, readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { BenchmarkError, parseArgs, readJson, SCHEMA_VERSION, writeJson } from "./common.mjs";
@@ -231,18 +232,28 @@ function readFileSyncSafe(path) {
 
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv, { judged: "string", report: "string", out: "string", tests: "string" });
-  const report = await readJson(args.report ?? ".pi/benchmark/report.json", "report_missing");
+  // The ledger is written *before* the report it will be embedded in, so the
+  // visual verdict is read from the judging artifact rather than from a report
+  // that still carries the previous ledger. Reading the report here made the
+  // first ledger after a passing run keep the old open defect.
+  const judgedFile = await readOptionalJson(args.judged ?? ".pi/benchmark/judge.json");
+  const judged = (judgedFile?.summary ?? judgedFile ?? (await readOptionalJson(args.report ?? ".pi/benchmark/report.json"))?.images?.judging ?? null);
+  const report = (await readOptionalJson(args.report ?? ".pi/benchmark/report.json")) ?? {};
   const ledger = buildDefectLedger({
-    judged: report.images?.judging ?? null,
+    judged,
     comparison: report.comparison ?? null,
     images: report.images ?? null,
     liveSmoke: report.liveSmoke ?? null,
     regressionFile: args.tests ?? REGRESSION_FILE,
   });
-  verifyDefectLedger(ledger.defects, { judged: report.images?.judging ?? null, cases: report.comparison, testsDir: "tests" });
+  verifyDefectLedger(ledger.defects, { judged, cases: report.comparison ?? null, testsDir: "tests" });
   const out = await writeJson(args.out ?? ".pi/benchmark/defects.json", ledger);
   const open = ledger.defects.filter((defect) => defect.status === "open");
   process.stdout.write(`${JSON.stringify({ out, defects: ledger.defects.length, resolved: ledger.defects.length - open.length, open: open.map((defect) => defect.id) })}\n`);
+}
+
+async function readOptionalJson(path) {
+  try { return JSON.parse(await readFile(resolve(path), "utf8")); } catch { return null; }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
