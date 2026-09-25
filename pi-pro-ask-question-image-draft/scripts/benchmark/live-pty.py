@@ -58,6 +58,10 @@ def encode(token: str) -> bytes:
         return token[len("literal:"):].encode()
     if token.startswith("ctrl+") and len(token) == 6:
         return CONTROL.get(token[-1].lower(), token.encode())
+    if token == "escape":
+        # Two ESC bytes defeat a terminal input buffer that waits to see
+        # whether a lone ESC starts an escape sequence.
+        return b"\x1b\x1b"
     if token in SPECIAL:
         return SPECIAL[token]
     return token.encode()

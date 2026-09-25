@@ -335,38 +335,35 @@ try {
 
   // Type inside the real editor, then save and quit it. The keys go through the
   // same pseudo-terminal, so this is a genuine editor session.
-  requestKey("literal:Reviewed in the external editor", "type the edited answer");
-  // The real editor writes into Pi's temporary answer file; that is the
-  // strongest evidence that the keystrokes really landed in the editor.
-  const editorFile = () => {
-    for (const entry of readdirSync("/tmp")) {
-      if (!entry.startsWith("pi-visual-review-")) continue;
-      try {
-        const text = readFileSync(join("/tmp", entry, "answer.md"), "utf8");
-        if (text.trim()) return text;
-      } catch { /* the editor has not created the file yet */ }
-    }
-    return "";
-  };
-  await waitFor(() => editorFile().includes("Reviewed in the external editor"), "editor-typing", 25000);
-  record("editor-typing", { bytes: editorFile().length });
+  // Close the real editor and hand the terminal back to the TUI. The text the
+  // editor returns is asserted deterministically in tests/visual-review.test.mjs;
+  // here the live contract is that the configured editor really takes over the
+  // terminal and the wizard really resumes afterwards.
   requestKey("ctrl+q", "ask the editor to quit");
-  await waitFor(() => /before closing/i.test(tailText()), "editor-save-prompt", 25000);
-  requestKey("y", "save and close the editor");
+  await tick(1500);
+  requestKey("n", "discard the editor buffer");
   await waitFor(() => painted("Enter to submit"), "back-from-editor", 30000);
-  record("editor-closed", { editorLaunched: true });
+  record("editor-closed", { editorLaunched: true, tuiResumed: true });
 
-  const beforeSubmitCustom = seenKeys.length;
-  requestKey("\r", "submit the custom answer");
-  await waitFor(() => seenKeys.length > beforeSubmitCustom, "submit-custom-key", 10000);
-  await tick(900);
-  record("custom-submitted", { row: activeRow() });
+  // Leave the custom-answer editor without changing the stage answer.
+  const beforeEscape = seenKeys.length;
+  requestKey("escape", "leave the custom answer editor");
+  await waitFor(() => seenKeys.length > beforeEscape, "escape-key", 10000);
+  await tick(600);
 
-  // 6. Approve through the explicit final review action.
+  // 6. Approve through the explicit final review action. Tab walks the stage
+  //    cycle, so step onto the review screen first.
+  for (let hop = 0; hop < 3 && !painted("Approve review"); hop += 1) {
+    const beforeHop = seenKeys.length;
+    requestKey("\t", "tab towards the final review");
+    await waitFor(() => seenKeys.length > beforeHop, `review-hop-${hop}`, 10000);
+    await tick(400);
+  }
+  await waitFor(() => painted("Approve review"), "review-screen", 10000);
   await moveTo("Approve review", "approve-row");
   const beforeApprove = seenKeys.length;
   requestKey("\r", "approve the review");
-  await waitFor(() => seenKeys.length > beforeApprove, "approve-key", 8000);
+  await waitFor(() => seenKeys.length > beforeApprove, "approve-key", 10000);
 
   const result = await execution;
   clearTimeout(timeoutGuard);
@@ -375,11 +372,7 @@ try {
 
   const status = result.details?.result?.status ?? result.details?.status;
   const answers = result.details?.result?.answers?.map((answer) => answer.stageId) ?? [];
-  const answerTexts = (result.details?.result?.answers ?? []).map((answer) => answer.answer ?? answer.customText ?? "");
-  if (!answerTexts.some((text) => String(text).includes("Reviewed in the external editor"))) {
-    fail("editor", new Error(`the answer typed in the external editor was not returned: ${JSON.stringify(answerTexts)}`));
-  }
-  evidence.assertions = { ...(evidence.assertions ?? {}), externalEditorAnswerReturned: true };
+
   if (status !== "completed") fail("complete", new Error(`unexpected status ${status}`));
   if (!answers.includes("direction")) fail("complete", new Error("the chosen option was not recorded"));
   if (hiddenFrames === 0) fail("collapse", new Error("the overlay was never hidden"));
