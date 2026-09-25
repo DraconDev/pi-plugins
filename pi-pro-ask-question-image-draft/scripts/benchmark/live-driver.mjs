@@ -287,11 +287,15 @@ try {
   const beforeFollowUp = seenKeys.length;
   requestKey("\r", "answer the follow-up stage");
   await waitFor(() => seenKeys.length > beforeFollowUp, "follow-up-key", 8000);
-  await tick(500);
-  const beforeTabReview = seenKeys.length;
-  requestKey("\t", "tab to the final review");
-  await waitFor(() => seenKeys.length > beforeTabReview, "review-tab-key", 8000);
-  await waitFor(() => painted("Edit answers") || painted("Approve review"), "final-review", 15000);
+  await tick(700);
+  if (!painted("Approve review")) {
+    // The review is the next stop in the stage cycle when the answer did not
+    // advance there by itself.
+    const beforeTabReview = seenKeys.length;
+    requestKey("\t", "tab to the final review");
+    await waitFor(() => seenKeys.length > beforeTabReview, "review-tab-key", 8000);
+  }
+  await waitFor(() => painted("Approve review"), "final-review", 15000);
   record("final-review", { row: activeRow() });
 
   // 4. Go back to the first stage through the review's "Edit answers" row and
