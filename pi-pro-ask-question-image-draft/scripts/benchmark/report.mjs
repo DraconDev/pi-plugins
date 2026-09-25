@@ -173,10 +173,10 @@ export function verifyAggregateReport(report) {
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv, {
     corpus: "string", results: "string", images: "string", judging: "string",
-    smoke: "string", defects: "string", activation: "string", out: "string", verify: "boolean",
+    smoke: "string", defects: "string", activation: "string", out: "string", verify: "string",
   });
   if (args.verify) {
-    const report = await readJson(args.verify, "report_missing");
+    const report = await readJson(String(args.verify), "report_missing");
     const result = verifyAggregateReport(report);
     process.stdout.write(`${JSON.stringify({ report: resolve(args.verify), ...result })}\n`);
     return;
