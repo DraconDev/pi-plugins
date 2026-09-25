@@ -17,6 +17,7 @@ const beforePath = resolve(process.env.PI_SETTINGS_BEFORE_PATH ?? "/home/dracon/
 const expectedPackage = pluginPath;
 const superseded = "npm:@juicesharp/rpiv-ask-user-question";
 
+async function main() {
 const settings = JSON.parse(await readFile(settingsPath, "utf8"));
 assert.ok(Array.isArray(settings.packages), "settings.packages must be an array");
 
@@ -37,7 +38,7 @@ if (!active) {
     process.stderr.write("verify-activation: the local package is not activated, so the post-activation gate cannot pass.\n");
     process.exitCode = 1;
   }
-  process.exit(0);
+  return;
 }
 
 assert.ok(!settings.packages.includes(superseded), "the superseded package must be absent");
@@ -62,3 +63,6 @@ assert.equal(tool?.description.includes("staged visual review"), true);
 assert.equal(tool?.parameters?.type, "object");
 assert.equal(tool?.executionMode, "sequential");
 process.stdout.write(`${JSON.stringify({ status: "passed", settingsPath, pluginPath, tools, loaderErrors: loaded.errors.length, unrelatedSettingsPreserved: true }, null, 2)}\n`);
+}
+
+await main();
