@@ -36,13 +36,14 @@ export async function liveSmokePreconditions({ image, stdinIsTTY, stdoutIsTTY, e
   return { image: resolve(image), editor, tty: true, ...detected };
 }
 
-function runPty({ image, editor, out, timeout }) {
+function runPty({ image, editor, out, timeout, driverArgs = [] }) {
   return new Promise((resolvePromise) => {
     const child = spawn("python3", [
       resolve(HERE, "live-pty.py"),
       "--driver", resolve(HERE, "live-driver.mjs"),
-      "--out", out,
+      `--out=${out}`,
       "--timeout", String(timeout),
+
     ], { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "", stderr = "";
     child.stdout.on("data", (chunk) => { stdout += chunk; });
@@ -56,7 +57,10 @@ export async function runLiveSmoke({ image, editor, out = ".pi/benchmark/live-sm
     image, stdinIsTTY: Boolean(process.stdin.isTTY), stdoutIsTTY: Boolean(process.stdout.isTTY), editor,
   });
   const driverOut = resolve(".pi/benchmark/live-smoke-evidence.json");
-  const pty = await runPty({ image: preconditions.image, editor: preconditions.editor, out: driverOut, timeout });
+  const pty = await runPty({
+    image: preconditions.image, editor: preconditions.editor, out: driverOut, timeout,
+    driverArgs: [`--image=${preconditions.image}`, `--timeout=${Math.max(30, timeout - 20)}`],
+  });
   let evidence;
   try {
     evidence = JSON.parse(await readFile(driverOut, "utf8"));
