@@ -256,6 +256,15 @@ try {
     try { return plain(readFileSync(screenPath, "utf8")); } catch { return ""; }
   };
   const tailTextPlain = (size = 2000) => plain(transcript.slice(-size));
+  const waitFor = async (predicate, label, ms = 12000) => {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+      if (predicate()) return true;
+      await tick(120);
+    }
+    fail(label, new Error(`timed out waiting for ${label}`));
+    return false;
+  };
   const activeRow = () => {
     for (const line of frame().split("\n").map(plain)) {
       const match = /(?:^|\s)>\s?(\S[^│]{0,48}?)\s{2,}/.exec(line) ?? /(?:^|\s)>\s?(\S.*)$/.exec(line);
@@ -279,16 +288,6 @@ try {
     }
     fail(label, new Error(`never reached the "${rowText}" row; active row is ${activeRow()}`));
   };
-  const waitFor = async (predicate, label, ms = 12000) => {
-    const until = Date.now() + ms;
-    while (Date.now() < until) {
-      if (predicate()) return true;
-      await tick(120);
-    }
-    fail(label, new Error(`timed out waiting for ${label}`));
-    return false;
-  };
-
   // 1. Answer the image-backed stage with the real keyboard.
   await moveTo("Dense treatment", "second-option");
   const beforeSelect = seenKeys.length;
