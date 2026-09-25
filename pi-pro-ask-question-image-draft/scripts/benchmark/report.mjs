@@ -113,7 +113,18 @@ export async function buildAggregateReport({
   const images = recomputeImages(manifest, judging);
   const gates = recomputeGates(comparison, images);
   const smoke = evidenceOf(liveSmoke, "liveSmoke");
-  const ledger = Array.isArray(defects) ? defects : [];
+  // The ledger is a file, not a bare array. Accepting only an array silently
+  // emptied the defect gate, so both shapes are handled explicitly.
+  let ledger = [];
+  if (Array.isArray(defects)) ledger = defects;
+  else if (defects && typeof defects === "object") {
+    if (!Array.isArray(defects.defects)) {
+      throw new BenchmarkError("missing_evidence", "The defect ledger must be an array or an object with a defects array.");
+    }
+    ledger = defects.defects;
+  } else if (defects !== undefined && defects !== null) {
+    throw new BenchmarkError("missing_evidence", "The defect ledger must be an array or an object with a defects array.");
+  }
   const unresolvedCritical = ledger.filter((defect) => (defect.severity === "P0" || defect.severity === "P1") && defect.status !== "resolved");
   const allPassed = Object.values(gates).every(Boolean)
     && smoke.status === "passed"

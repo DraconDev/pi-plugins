@@ -253,6 +253,30 @@ describe("harness honesty: images and the aggregate report", () => {
     assert.equal(verifyAggregateReport(report).activationClaim, "not-claimed");
   });
 
+  it("reads the defect ledger from its file shape instead of silently emptying the gate", async () => {
+    const corpus = generateCorpus({ count: 1000, seed: 20260925 });
+    const results = { kind: "benchmark-comparison", cases: corpus.scenarios.map((s) => ({ id: s.id, pass: true, stableAcrossPasses: true })) };
+    const ledger = { schemaVersion: 1, kind: "benchmark-defect-ledger", defects: [{ id: "BUG-9", severity: "P0", status: "open" }] };
+    const report = await buildAggregateReport({
+      corpus, results, manifest: { images: [], failures: [], planned: 0 },
+      liveSmoke: { status: "passed", observedAt: "2026-09-25T10:00:00Z", details: "real tty" },
+      defects: ledger,
+    });
+    assert.equal(report.defects.length, 1);
+    assert.deepEqual(report.unresolvedCritical, ["BUG-9"]);
+    assert.equal(report.gates.noUnresolvedCriticalDefects, false);
+    assert.equal(report.releaseReady, false);
+    // A malformed ledger is an error, never an empty one.
+    await assert.rejects(
+      buildAggregateReport({
+        corpus, results, manifest: { images: [], failures: [], planned: 0 },
+        liveSmoke: { status: "passed", observedAt: "2026-09-25T10:00:00Z", details: "x" },
+        defects: { kind: "benchmark-defect-ledger" },
+      }),
+      /defect ledger/,
+    );
+  });
+
   it("will not verify a report whose live smoke never ran", async () => {
     const corpus = generateCorpus({ count: 1000, seed: 20260925 });
     const results = { kind: "benchmark-comparison", cases: corpus.scenarios.map((s) => ({ id: s.id, pass: true, stableAcrossPasses: true })) };
