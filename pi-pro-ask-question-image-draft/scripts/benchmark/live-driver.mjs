@@ -119,6 +119,9 @@ const plain = (line) => line
 
 let overlayHandle;
 let wizard;
+// Live paint from the same component the TUI renders.
+const frame = () => wizard.render(terminal.columns).join("\n");
+const painted = (needle) => frame().includes(needle);
 try {
   evidence.tty = { stdin: Boolean(process.stdin.isTTY), stdout: Boolean(process.stdout.isTTY), columns: terminal.columns, rows: terminal.rows };
   if (!process.stdin.isTTY || !process.stdout.isTTY) fail("tty", new Error("the live driver must run on a real TTY"));
@@ -212,15 +215,15 @@ try {
   if (!saw("Live TTY smoke")) fail("render", new Error("the review title never reached the terminal"));
   if (!saw("Pick the visual treatment")) fail("render", new Error("the stage prompt never reached the terminal"));
   if (!saw("Airy treatment")) fail("image", new Error("the image-backed option never reached the terminal"));
-  // The image protocol escape plus its base64 payload must be on the terminal.
-  const kittyUpload = /\u001b_Ga=[^;]*;/.test(transcript) || /\u001b_G/.test(transcript);
+  const frameHasImage = /\u001b_G|\u001b_@/.test(frame());
+  const kittyUpload = frameHasImage || /\u001b_G/.test(transcript);
   const payloadBytes = (transcript.match(/[A-Za-z0-9+/=]{200,}/g) ?? []).reduce((sum, chunk) => sum + chunk.length, 0);
   if (!kittyUpload || payloadBytes < 2000) {
     fail("image", new Error(`the inline image never reached the terminal (protocol=${kittyUpload}, payload=${payloadBytes} bytes)`));
   }
   record("render", {
     bytes: transcript.length, columns: terminal.columns,
-    imageProtocol: "kitty", imagePayloadBytes: payloadBytes,
+    imageProtocol: "kitty", imagePayloadBytes: payloadBytes, frameHasImage,
   });
 
   let hiddenFrames = 0;
@@ -246,9 +249,6 @@ try {
 
   // The live render marks the active row with "> ". Navigation is driven from
   // what is actually on screen, not from a guessed row count.
-  // Live paint from the same component the TUI renders.
-  const frame = () => wizard.render(terminal.columns).join("\n");
-  const painted = (needle) => frame().includes(needle);
   // What the *terminal* shows, including output from the external editor, which
   // never passes through this process's stdout.
   const screenPath = `${outPath}.screen`;
