@@ -21,22 +21,16 @@ import { buildAggregateReport, recomputeGates, verifyAggregateReport, verifyDefe
 import { resolveSmokeImage } from "../scripts/benchmark/smoke-live.mjs";
 import { verifyEvidence } from "../scripts/benchmark/publish.mjs";
 
-const FIXTURE_CORPUS = {
-  schemaVersion: 1,
-  kind: "benchmark-corpus",
-  seed: 7,
-  count: 2,
-  strata: { ordinary: 1, visual: 1, adversarial: 0 },
-  scenarios: [
-    {
-      id: "t-1", stratum: "ordinary", classification: "legacy-single", comparisonScope: "local-only", inputValid: true,
-      canonicalInput: { questions: [{ question: "Pick one", header: "Pick", options: [{ key: "a", label: "Alpha", description: "First" }, { key: "b", label: "Beta", description: "Second" }] }] },
-      expected: { outcome: "completed", oracle: "exact", classification: "answer-captured", answers: [{ questionIndex: 0, kind: "option", answer: "Beta" }] },
-      terminalConstraints: { requiresRealTTY: false, requiresConfiguredEditor: false, maxStages: 4, explicitApproval: true },
-      visualPrompt: { required: false, prompt: null, comparisonRubric: [] },
-    },
-    {
-      id: "v-1", stratum: "visual", classification: "visual-draft", comparisonScope: "local-only", inputValid: true,
+const ORDINARY_SCENARIO = {
+  id: "t-1", stratum: "ordinary", classification: "legacy-single", comparisonScope: "local-only", inputValid: true,
+  canonicalInput: { questions: [{ question: "Pick one", header: "Pick", options: [{ key: "a", label: "Alpha", description: "First" }, { key: "b", label: "Beta", description: "Second" }] }] },
+  expected: { outcome: "completed", oracle: "exact", classification: "answer-captured", answers: [{ questionIndex: 0, kind: "option", answer: "Beta" }] },
+  terminalConstraints: { requiresRealTTY: false, requiresConfiguredEditor: false, maxStages: 4, explicitApproval: true },
+  visualPrompt: { required: false, prompt: null, comparisonRubric: [] },
+};
+
+const VISUAL_SCENARIO = {
+  id: "v-1", stratum: "visual", classification: "visual-draft", comparisonScope: "local-only", inputValid: true,
       visualPrompt: { required: true, prompt: "Choose how the error notice is shown.", comparisonRubric: [] },
       canonicalInput: {
         reviewId: "v-1", title: "Recovery Banner",
@@ -50,13 +44,18 @@ const FIXTURE_CORPUS = {
           allowOther: true, allowRevision: true, required: true,
         }],
       },
-      expected: { outcome: "completed", oracle: "terminal-only", classification: "source-terminal-only", answers: [] },
-      terminalConstraints: { requiresRealTTY: true, requiresConfiguredEditor: false, maxStages: 6, explicitApproval: true },
-    },
-  ],
+  expected: { outcome: "completed", oracle: "terminal-only", classification: "source-terminal-only", answers: [] },
+  terminalConstraints: { requiresRealTTY: true, requiresConfiguredEditor: false, maxStages: 6, explicitApproval: true },
 };
 
-function manifestFor(corpus, { id = "v-1", keys = ["a", "b", "c"] } = {}) {
+/** A small schema-valid corpus with one real visual scenario in it. */
+function smallCorpus(count = 5) {
+  const corpus = generateCorpus({ count, seed: 7 });
+  const scenarios = corpus.scenarios.map((scenario) => (scenario.stratum === "visual" ? { ...VISUAL_SCENARIO } : scenario));
+  return { ...corpus, scenarios };
+}
+
+function manifestFor(_corpus, { id = "v-1", keys = ["a", "b", "c"] } = {}) {
   const images = keys.map((key, index) => {
     const prompt = `prompt ${id} ${key}`;
     return {
@@ -65,14 +64,14 @@ function manifestFor(corpus, { id = "v-1", keys = ["a", "b", "c"] } = {}) {
       provider: "agnes", model: "agnes-image-2.5-flash", mimeType: "image/png", width: 1, height: 1, byteCount: 1,
     };
   });
-  return { schemaVersion: 1, kind: "benchmark-image-manifest", provider: "agnes", planned: images.length, images, failures: [], corpusId: corpus.seed };
+  return { schemaVersion: 1, kind: "benchmark-image-manifest", provider: "agnes", planned: images.length, images, failures: [] };
 }
 
 describe("ledger: judging defects", () => {
   it("JUDGE-002: the judged arm letters follow the seeded blinding, so a candidate win is never recorded as a reference win", async () => {
     for (const id of ["v-1", "v-2", "v-3", "v-4"]) {
-      const scenario = { ...FIXTURE_CORPUS.scenarios[1], id };
-      const item = await buildCase(scenario, manifestFor(scenario), { seed: 7 });
+      const scenario = { ...VISUAL_SCENARIO, id };
+      const item = await buildCase(scenario, manifestFor(FIXTURE_CORPUS, { id }), { seed: 7 });
       const labels = blindLabels(7, id);
       // The prompt must describe the image arm with the letter the label map
       // calls the candidate; a hard-coded "A" inverted half of all cases.
@@ -140,7 +139,7 @@ describe("ledger: judging defects", () => {
 
 describe("ledger: visual decision-utility defects", () => {
   it("VISUAL-002: the image prompt names a drawable surface and the treatment, and never leaks the option label", () => {
-    const scenario = FIXTURE_CORPUS.scenarios[1];
+    const scenario = VISUAL_SCENARIO;
     for (const option of scenario.canonicalInput.stages[0].options) {
       const prompt = imageOptionPrompt(scenario, option);
       assert.match(prompt, /flat UI mockup/);
@@ -168,6 +167,7 @@ describe("ledger: visual decision-utility defects", () => {
   it("VISUAL-001: the visual gate is computed from judged cases and is never satisfied by ties or misses", async () => {
     const judged = (wins) => ({ summary: { judgedCases: 200, decidedCases: 200, candidateWins: wins, candidateWinRate: wins / 200, wilson95LowerBound: (wins / 200) - 0.05, ties: 0, undecided: 0, judgeErrors: 0, severeImageFailures: 0, severeImageFailureRate: 0 } });
     const manifest = manifestFor(FIXTURE_CORPUS);
+    const FIXTURE_CORPUS = smallCorpus();
     const report = await buildAggregateReport({
       corpus: FIXTURE_CORPUS,
       results: { kind: "benchmark-comparison", cases: FIXTURE_CORPUS.scenarios.map((scenario) => ({ id: scenario.id, pass: true })) },
