@@ -100,7 +100,7 @@ function localUi(scenario, review) {
   }
   let stageIndex = 0;
   let pendingCustom;
-  let revisionFeedback = "Rework this stage for the next round.";
+  const revisionFeedback = scenario.expected.revision?.feedback ?? "Rework this stage for the next round.";
   const selectedMulti = new Set();
   return {
     signal: new AbortController().signal,
@@ -215,10 +215,33 @@ export function absoluteScore(scenario, local) {
   if (!local.accepted) return { pass: false, reason: `validation-rejected: ${local.validation}` };
   const result = local.result;
   if (!result || result.status !== expectedOutcome) return { pass: false, reason: `expected ${expectedOutcome}, received ${result?.status ?? "none"}` };
+  // A revision must carry the requested change, otherwise the round is lost.
+  if (expectedOutcome === "revision") {
+    const revision = result.revision;
+    const wanted = scenario.expected.revision;
+    if (!revision) return { pass: false, reason: "revision status without a revision payload" };
+    if (wanted) {
+      if (revision.stageId !== wanted.stageId) return { pass: false, reason: `revision stage ${revision.stageId} != ${wanted.stageId}` };
+      if (cap(revision.feedback) !== cap(wanted.feedback)) return { pass: false, reason: "revision feedback does not match the recorded request" };
+      if (revision.requestedRound !== wanted.requestedRound) return { pass: false, reason: `revision round ${revision.requestedRound} != ${wanted.requestedRound}` };
+    }
+  }
   const expected = expectedAnswers(scenario);
   const actual = localAnswers(scenario, local);
+  if (scenario.expected.oracle === "terminal-only") {
+    // The source recorded no answer action, so only the terminal contract and an
+    // explicit approval are asserted. The report counts these separately.
+    const recorded = expectedOutcome === "completed" ? actual.length > 0 : true;
+    return recorded
+      ? { pass: true, reason: "terminal-only-match" }
+      : { pass: false, reason: "terminal-only completed without a recorded answer" };
+  }
   const pass = stableStringify(actual) === stableStringify(expected);
   return { pass, reason: pass ? "absolute-local-match" : `answer-mismatch expected=${stableStringify(expected)} actual=${stableStringify(actual)}` };
+}
+
+function cap(value) {
+  return typeof value === "string" ? value.replace(/\r\n/g, "\n").replace(/\r/g, "").trim() : value;
 }
 
 function runReference(scenarios, { timeoutMs = 120_000 } = {}) {
@@ -255,7 +278,9 @@ function scoreReference(scenario, reference, localAbsolute) {
   const details = result.details ?? {};
   const actual = normalizedAnswers(details.answers);
   const expected = expectedAnswers(scenario);
-  const answersMatch = stableStringify(actual) === stableStringify(expected);
+  const answersMatch = expectedAnswers(scenario).length === 0
+    ? (actual.length === 0 || scenario.expected.oracle === "terminal-only")
+    : stableStringify(actual) === stableStringify(expected);
   const referenceValidation = details.error ? "rejected" : "accepted";
   // RPiV reports `cancelled`; it has no approve/reject/revision status field.
   const referenceStatus = details.cancelled ? "cancelled" : (details.answers?.length ? "completed" : "none");
@@ -326,6 +351,7 @@ export async function compareCorpus(corpus, { passes = 2, blind = false, seed = 
       .filter(Boolean) ?? [];
     return {
       id: scenario.id, stratum: scenario.stratum, scope: scenario.comparisonScope, classification: scenario.classification,
+      oracle: scenario.expected.oracle ?? "exact",
       passesExecuted: passes, stableAcrossPasses: stable, ...score,
       validation: first.validation, rejectedBeforeUi: first.rejectedBeforeUi,
       imagesBound: imageBindings.length, blindLabels: labels,
@@ -333,6 +359,8 @@ export async function compareCorpus(corpus, { passes = 2, blind = false, seed = 
   });
 
   const successes = cases.filter((item) => item.pass).length;
+  const terminalOnly = cases.filter((item) => item.oracle === "terminal-only").length;
+  const terminalOnlyPassed = cases.filter((item) => item.oracle === "terminal-only" && item.pass).length;
   const sharedCases = cases.filter((item) => item.scope === "shared");
   const localOnlyCases = cases.filter((item) => item.scope === "local-only");
   const byStratum = Object.fromEntries(["ordinary", "visual", "adversarial"].map((stratum) => {
@@ -356,6 +384,8 @@ export async function compareCorpus(corpus, { passes = 2, blind = false, seed = 
       deterministicAccuracy: successes / cases.length,
       wilson95LowerBound: wilsonLowerBound(successes, cases.length),
       unstableCases: unstable.length,
+      exactOracle: { total: cases.length - terminalOnly, passed: cases.filter((item) => item.oracle === "exact" && item.pass).length },
+      terminalOnly: { total: terminalOnly, passed: terminalOnlyPassed },
       shared: { total: sharedCases.length, passed: sharedCases.filter((item) => item.pass).length, referenceLosses: referenceLosses.length },
       localOnlyAbsolute: { total: localOnlyCases.length, passed: localOnlyCases.filter((item) => item.pass).length },
       byStratum,

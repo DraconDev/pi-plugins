@@ -72,7 +72,7 @@ function ordinaryScenario(id, index, variant, seed) {
     classification: multi ? "legacy-multi" : custom ? "legacy-custom" : "legacy-single",
     comparisonScope: index % 5 === 0 ? "local-only" : "shared",
     canonicalInput: { questions: questions.map(({ expected: _expected, ...question }) => question) },
-    expected: { outcome: "completed", classification: "answer-captured", answers: questions.map((question, questionIndex) => ({ questionIndex, ...question.expected })) },
+    expected: { outcome: "completed", oracle: "exact", classification: "answer-captured", answers: questions.map((question, questionIndex) => ({ questionIndex, ...question.expected })) },
     terminalConstraints: { requiresRealTTY: false, requiresConfiguredEditor: false, maxStages: 4, explicitApproval: true },
     visualPrompt: { required: false, prompt: null, comparisonRubric: [] },
   };
@@ -99,7 +99,7 @@ function visualScenario(id, index) {
         allowRevision: true, required: true,
       }],
     },
-    expected: { outcome: "completed", classification: "visual-choice", answers: [{ stageId: "direction", kind: "option", answer: options[0].label }] },
+    expected: { outcome: "completed", oracle: "exact", classification: "visual-choice", answers: [{ stageId: "direction", kind: "option", answer: options[0].label }] },
     terminalConstraints: { requiresRealTTY: true, requiresConfiguredEditor: false, maxStages: 6, explicitApproval: true },
     visualPrompt: {
       required: true,
@@ -132,7 +132,7 @@ function adversarialScenario(id, index) {
     classification: unicode ? "unicode-boundary" : "format-boundary",
     comparisonScope: shared ? "shared" : "local-only",
     canonicalInput: input,
-    expected: { outcome: "completed", classification: "boundary-answer", answers: [{ questionIndex: 0, ...answer }] },
+    expected: { outcome: "completed", oracle: "exact", classification: "boundary-answer", answers: [{ questionIndex: 0, ...answer }] },
     terminalConstraints: { requiresRealTTY: false, requiresConfiguredEditor: index % 3 === 0, maxStages: 6, explicitApproval: true },
     visualPrompt: { required: false, prompt: null, comparisonRubric: [] },
   };
@@ -166,6 +166,28 @@ function validateExpectedAnswer(answer, label) {
   if (answer.kind === "multi" && (!Array.isArray(answer.selected) || !answer.selected.length || answer.selected.some((item) => typeof item !== "string"))) {
     throw new BenchmarkError("invalid_shape", `${label}.selected must be a non-empty string array.`);
   }
+}
+
+function validateExpectedBlock(expected, label) {
+  requireRecord(expected, label);
+  requireString(expected.outcome, `${label}.outcome`);
+  if (!TERMINAL_STATUSES.has(expected.outcome)) throw new BenchmarkError("invalid_shape", `${label}.outcome ${expected.outcome} is not a terminal status.`);
+  requireString(expected.classification, `${label}.classification`);
+  if (expected.oracle !== "exact" && expected.oracle !== "terminal-only") {
+    throw new BenchmarkError("invalid_shape", `${label}.oracle must be exact or terminal-only.`);
+  }
+  if (expected.outcome === "invalid" && expected.oracle !== "exact") throw new BenchmarkError("invalid_shape", `${label} invalid scenarios must use the exact oracle.`);
+  if (!Array.isArray(expected.answers)) throw new BenchmarkError("invalid_shape", `${label}.answers must be an array.`);
+  expected.answers.forEach((answer, answerIndex) => validateExpectedAnswer(answer, `${label}.answers[${answerIndex}]`));
+  if (expected.outcome === "revision") {
+    const revision = requireRecord(expected.revision, `${label}.revision`);
+    requireString(revision.stageId, `${label}.revision.stageId`);
+    requireString(revision.feedback, `${label}.revision.feedback`);
+    if (!Number.isInteger(revision.requestedRound) || revision.requestedRound < 2) throw new BenchmarkError("invalid_shape", `${label}.revision.requestedRound must be an integer >= 2.`);
+  } else if (expected.revision !== undefined) {
+    throw new BenchmarkError("invalid_shape", `${label}.revision is only valid for a revision outcome.`);
+  }
+  return expected;
 }
 
 function validateTerminalConstraints(value, label) {
@@ -234,17 +256,21 @@ export function validateCorpus(value) {
     const canonical = stableStringify(normalizedInput ?? scenario.canonicalInput);
     if (canonicalInputs.has(canonical)) throw new BenchmarkError("duplicate_scenario", `Duplicate canonical input at ${scenario.id}.`);
     canonicalInputs.add(canonical);
-    const expected = requireRecord(scenario.expected, `${label}.expected`);
-    requireString(expected.outcome, `${label}.expected.outcome`);
-    if (!TERMINAL_STATUSES.has(expected.outcome)) throw new BenchmarkError("invalid_shape", `${label}.expected.outcome ${expected.outcome} is not a terminal status.`);
-    requireString(expected.classification, `${label}.expected.classification`);
-    if (!Array.isArray(expected.answers)) throw new BenchmarkError("invalid_shape", `${label}.expected.answers must be an array.`);
-    expected.answers.forEach((answer, answerIndex) => validateExpectedAnswer(answer, `${label}.expected.answers[${answerIndex}]`));
+    const expected = validateExpectedBlock(scenario.expected, `${label}.expected`);
     if (inputValid && expected.outcome === "invalid") {
       throw new BenchmarkError("invalid_shape", `${label} expects a rejection but marks its input valid.`);
     }
     if (!inputValid && scenario.comparisonScope !== "local-only") {
       throw new BenchmarkError("invalid_scope", `${label} invalid input must be local-only.`);
+    }
+    if (!inputValid && scenario.expected.oracle !== "exact") {
+      throw new BenchmarkError("invalid_shape", `${label} negative scenarios must use the exact oracle.`);
+    }
+    if (expected.outcome === "revision") {
+      const stageIds = new Set((scenario.canonicalInput.stages ?? []).map((stage) => stage.id));
+      if (scenario.canonicalInput.stages && !stageIds.has(expected.revision.stageId)) {
+        throw new BenchmarkError("invalid_shape", `${label}.expected.revision.stageId is not a stage in the review.`);
+      }
     }
     validateTerminalConstraints(scenario.terminalConstraints, `${label}.terminalConstraints`);
     validateVisualPrompt(scenario.visualPrompt, `${label}.visualPrompt`);
