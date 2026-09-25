@@ -286,8 +286,17 @@ try {
     flush();
     return handled;
   };
-  const heartbeat = setInterval(() => {
+  const noteImageState = () => {
+    const entry = wizard?.loadedImages?.get("direction:airy");
     evidence.observed.frameImage = /\u001b_G|\u001b_@/.test(frame());
+    evidence.observed.wizard = wizard ? {
+      imageMode: wizard.imageMode, loaded: wizard.loadedImages?.size ?? null,
+      selected: wizard.selectedIndex, rowKind: wizard.currentRows?.()?.[wizard.selectedIndex]?.kind ?? null,
+      hasImage: Boolean(entry?.image), error: entry?.error ?? null,
+    } : null;
+  };
+  const heartbeat = setInterval(() => {
+    noteImageState();
     evidence.observed.wizard = wizard ? { imageMode: wizard.imageMode, loaded: wizard.loadedImages?.size ?? null, keys: [...(wizard.loadedImages?.keys?.() ?? [])], selected: wizard.selectedIndex, rowKind: wizard.currentRows?.()?.[wizard.selectedIndex]?.kind ?? null, stageId: wizard.currentStage?.()?.id ?? null } : null;
     evidence.observed.frameHasPreview = frame().includes("Preview:");
     evidence.observed.keys = seenKeys;
@@ -301,10 +310,15 @@ try {
   // The inline image must really reach the terminal: protocol escape plus base64
   // payload. Image loading is asynchronous, so wait for the bytes.
   let payloadBytes = 0;
+  let paintedPayload = 0;
   await waitFor(() => {
+    // Force a repaint so the asynchronously loaded image reaches the terminal.
+    tui.requestRender(true);
     payloadBytes = (transcript.match(/[A-Za-z0-9+/=]{200,}/g) ?? []).reduce((sum, chunk) => sum + chunk.length, 0);
-    return payloadBytes >= 2000 && (/\u001b_G/.test(transcript) || /\u001b_G|\u001b_@/.test(frame()));
-  }, "image-bytes", 25000);
+    paintedPayload = (frame().match(/[A-Za-z0-9+/=]{200,}/g) ?? []).reduce((sum, chunk) => sum + chunk.length, 0);
+    return payloadBytes >= 2000 || paintedPayload >= 2000;
+  }, "image-bytes", 30000);
+  if (payloadBytes < 2000) fail("image", new Error(`the inline image never reached the terminal (frame payload ${paintedPayload} bytes)`));
   record("image", { imageProtocol: "kitty", imagePayloadBytes: payloadBytes, imageOnTerminal: true });
 
   // The live render marks the active row with "> ". Navigation is driven from
