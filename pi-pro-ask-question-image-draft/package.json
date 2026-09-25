@@ -25,7 +25,14 @@
     "check": "node scripts/check.mjs",
     "smoke:runtime": "node scripts/smoke-runtime.mjs",
     "smoke:tui": "node scripts/verify-tui.mjs",
-    "verify:activation": "node scripts/verify-activation.mjs"
+    "smoke:live": "node scripts/benchmark/smoke-live.mjs",
+    "verify:activation": "node scripts/verify-activation.mjs",
+    "benchmark:corpus": "node scripts/benchmark/corpus.mjs",
+    "benchmark:corpus:validate": "node scripts/benchmark/corpus.mjs --validate",
+    "benchmark:compare": "node scripts/benchmark/compare.mjs",
+    "benchmark:images": "node scripts/benchmark/images.mjs",
+    "benchmark:images:report": "node scripts/benchmark/image-report.mjs",
+    "benchmark:report": "node scripts/benchmark/report.mjs"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

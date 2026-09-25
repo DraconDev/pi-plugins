@@ -85,6 +85,34 @@ Cancellation and rejection return their own result envelopes. If TUI/RPC interac
 
 Image previews are inline when the terminal supports them and otherwise use a safe path/URL/alt/preview text fallback. A failed or loading image never prevents answering the review. Explicit generation happens before the review opens, so the user sees the generated artifact in the same decision flow.
 
+## Benchmark infrastructure
+
+Benchmark artifacts are generated at caller-supplied paths and are intentionally not checked in. The canonical corpus is deterministic for a count/seed pair and uses a 70%/20%/10% ordinary, visual, and adversarial split (700/200/100 by default):
+
+```sh
+npm run benchmark:corpus -- --count 1000 --seed 20260925 --out .pi/benchmark/corpus.json
+npm run benchmark:corpus:validate -- --corpus .pi/benchmark/corpus.json
+npm run benchmark:compare -- --blind --passes 2 --out .pi/benchmark/results.json
+```
+
+`scripts/benchmark/SCHEMAS.md` documents every emitted JSON shape. The comparison loads legacy RPiV TypeScript only inside an isolated child through Pi's jiti extension loader. Shared legacy cases compare normalized answers, validation, and envelopes. Staged/visual features are absolute-scored against local source behavior and never counted as RPiV losses. No settings or credential files are written. The optional judge adapter in `scripts/benchmark/judge.mjs` is side-effect free on import; it uses `ModelRuntime` only when explicitly invoked, requires strict JSON, low/medium reasoning, two independent passes, and adjudication metadata for disagreement. `npm test` never uses the network.
+
+Image artifacts must come from an explicitly authorized Agnes run. This implementation pass deliberately disables provider calls: `benchmark:images` without `--manifest` fails with `provider_calls_disabled`, and report generation fails with `manifest_missing` if no real manifest exists. Ingestion validates local PNG/JPEG/GIF/WebP signatures, dimensions, byte counts, provider/model, prompt hashes, duplicates, secrets, and the 600-image ceiling. It never creates empty success placeholders. Supply the same real manifest to both commands to ingest and report it:
+
+```sh
+npm run benchmark:images -- --manifest path/to/images.json --max 600 --out .pi/benchmark/images.json
+npm run benchmark:images:report -- --manifest path/to/images.json --judges path/to/judges.json --out .pi/benchmark/image-report.json
+```
+
+The aggregate verifier requires the 700/200/100 counts, deterministic accuracy and Wilson confidence gate, resolved P0/P1 defects, visual uplift and severe-failure gates, real live-smoke evidence, and activation evidence timestamped after the gates. It refuses activation claims not explicitly evidenced:
+
+```sh
+npm run benchmark:report -- --verify .pi/benchmark/report.json
+npm run smoke:live -- --image path/to/real.png
+```
+
+Live smoke requires real stdin/stdout TTYs, a configured Pi external editor, and a readable signed image. It exits nonzero instead of fabricating a pass when those conditions or an interactive driver are unavailable.
+
 ## Development and verification
 
 From this directory:
