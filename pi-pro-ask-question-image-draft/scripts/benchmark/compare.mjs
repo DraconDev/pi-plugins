@@ -119,6 +119,8 @@ function localUi(scenario, review) {
           stageIndex += 1;
           selectedMulti.clear();
           if (!stage.required) return SKIP_LABEL;
+          // No recorded action: drive a legal interaction so the terminal
+          // contract can still be observed.
           return stage.options[0].label;
         }
         if (answer.kind === "custom") {
@@ -230,11 +232,14 @@ export function absoluteScore(scenario, local) {
   const actual = localAnswers(scenario, local);
   if (scenario.expected.oracle === "terminal-only") {
     // The source recorded no answer action, so only the terminal contract and an
-    // explicit approval are asserted. The report counts these separately.
-    const recorded = expectedOutcome === "completed" ? actual.length > 0 : true;
+    // explicit approval are asserted. A review whose stages are all optional may
+    // legitimately complete with no answers; a required stage must record one.
+    const stages = scenario.canonicalInput.stages ?? [{ id: "question-1", required: true }];
+    const requiresAnswer = stages.some((stage) => stage.required !== false);
+    const recorded = expectedOutcome === "completed" && requiresAnswer ? actual.length > 0 : true;
     return recorded
       ? { pass: true, reason: "terminal-only-match" }
-      : { pass: false, reason: "terminal-only completed without a recorded answer" };
+      : { pass: false, reason: "terminal-only completed without a recorded answer for a required stage" };
   }
   const pass = stableStringify(actual) === stableStringify(expected);
   return { pass, reason: pass ? "absolute-local-match" : `answer-mismatch expected=${stableStringify(expected)} actual=${stableStringify(actual)}` };
