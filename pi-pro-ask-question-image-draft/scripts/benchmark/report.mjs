@@ -12,6 +12,7 @@ import { resolve } from "node:path";
 
 import { assertNoCredentials, BenchmarkError, parseArgs, readJson, SCHEMA_VERSION, wilsonLowerBound, writeJson } from "./common.mjs";
 import { validateCorpus } from "./corpus.mjs";
+import { IMAGE_BUDGET } from "./images.mjs";
 
 const STRATA = ["ordinary", "visual", "adversarial"];
 /** Every scenario and every result must end in one of these. */
@@ -108,7 +109,28 @@ export function recomputeImages(manifest, judging) {
   };
 }
 
-export function recomputeGates(comparison, images) {
+export function recomputeResources({ manifest, judging, results }) {
+  // The objective's resource bound is stated, not assumed: at most 600 image
+  // generations, and exactly one execution per requested pass per case.
+  const requested = results?.passes?.requested ?? 1;
+  const executed = results?.passes?.executedPerCase ?? null;
+  const images = manifest?.images?.length ?? 0;
+  const judgeCalls = (judging?.results ?? []).reduce((sum, item) => sum + (item.passModes?.length ?? 0), 0);
+  return {
+    imageGenerations: images,
+    imageBudget: IMAGE_BUDGET,
+    passesRequested: requested,
+    executionsPerCase: executed,
+    localExecutions: executed == null ? null : executed * (results?.cases?.length ?? 0),
+    referenceAdapter: results?.reference?.adapter ?? null,
+    sharedReferenceCases: results?.reference?.sharedCases ?? null,
+    judgeModelCalls: judgeCalls,
+    judgeCases: (judging?.results ?? []).length,
+    bound: images <= IMAGE_BUDGET && (executed == null || executed === requested),
+  };
+}
+
+export function recomputeGates(comparison, images, resources) {
   return {
     accuracy: comparison.deterministicAccuracy >= GATES.deterministicAccuracy,
     confidenceBound: comparison.wilson95LowerBound >= GATES.wilsonLowerBound,
@@ -117,6 +139,7 @@ export function recomputeGates(comparison, images) {
     visualConfidence: images.gates.confidenceBound,
     severeFailures: images.gates.severeFailures,
     imageBudget: images.gates.imageBudget,
+    resourceBounds: resources ? resources.bound : true,
   };
 }
 
@@ -126,7 +149,8 @@ export async function buildAggregateReport({
   validateCorpus(corpus);
   const comparison = recomputeComparison(corpus, results);
   const images = recomputeImages(manifest, judging);
-  const gates = recomputeGates(comparison, images);
+  const resources = recomputeResources({ manifest, judging, results });
+  const gates = recomputeGates(comparison, images, resources);
   const smoke = evidenceOf(liveSmoke, "liveSmoke");
   // The ledger is a file, not a bare array. Accepting only an array silently
   // emptied the defect gate, so both shapes are handled explicitly.
@@ -158,6 +182,7 @@ export async function buildAggregateReport({
     corpus: { count: corpus.count, seed: corpus.seed, strata: corpus.strata, provenance: corpus.provenance ?? null },
     comparison,
     images: { ...images, judging: judging?.summary ?? null },
+    resources,
     gates: gateSummary,
     releaseReady: allPassed,
     defects: ledger,
