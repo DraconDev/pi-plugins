@@ -12,25 +12,58 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { BenchmarkError, parseArgs, readJson, writeJson } from "./common.mjs";
+import { PROVISIONABLE_EDITORS, resolveEditorCommand, whichExecutable } from "./editor.mjs";
 import { DEFAULT_IMAGE_DIR, detectImage } from "./images.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 
+/**
+ * Resolve the editor the gate will prove.
+ *
+ * Resolution follows Pi's own order and records which source answered, so the
+ * evidence names the editor Pi would really launch. There is no bespoke
+ * override variable: a recorded run that passed must be the run the next
+ * auditor reproduces. When the resolved editor is not installed the gate
+ * provisions one it can actually run and says so, because "nano is missing" is
+ * a property of the machine, not a verdict about the package.
+ */
 export async function resolveEditor() {
-  const override = process.env.PI_BENCHMARK_EDITOR?.trim();
-  if (override) return override;
+  let settingsEditor;
   try {
     const { SettingsManager } = await import("@earendil-works/pi-coding-agent");
-    return SettingsManager.create(process.cwd(), undefined, { projectTrusted: true }).getExternalEditorCommand()?.trim() ?? "";
+    settingsEditor = SettingsManager.create(process.cwd(), undefined, { projectTrusted: true })
+      .getSettings?.()?.externalEditor
+      ?? SettingsManager.create(process.cwd(), undefined, { projectTrusted: true }).getExternalEditorCommand();
+    // getExternalEditorCommand() already folds in $VISUAL/$EDITOR and the Pi
+    // default, so the *source* is recovered separately for the record.
+    settingsEditor = SettingsManager.create(process.cwd(), undefined, { projectTrusted: true }).getSettings?.()?.externalEditor;
   } catch {
-    return "";
+    settingsEditor = undefined;
   }
+  const resolved = resolveEditorCommand({
+    settingsEditor,
+    visual: process.env.VISUAL,
+    editor: process.env.EDITOR,
+  });
+  if (resolved.runnable) return { ...resolved, provisioned: null };
+  const candidate = PROVISIONABLE_EDITORS.map((name) => ({ name, executable: whichExecutable(name) })).find((item) => item.executable);
+  if (!candidate) {
+    throw new BenchmarkError("editor_unavailable", `Pi resolves the external editor to "${resolved.command}" (${resolved.source}) and none of ${PROVISIONABLE_EDITORS.join(", ")} is installed, so the editor handoff cannot be proven on this machine.`);
+  }
+  return {
+    source: resolved.source,
+    command: candidate.name,
+    executable: candidate.executable,
+    runnable: true,
+    provisioned: `Pi resolved "${resolved.command}" from ${resolved.source} and that binary is not installed; the gate provisioned "${candidate.name}" instead.`,
+  };
 }
 
 export async function liveSmokePreconditions({ image, stdinIsTTY, stdoutIsTTY, editor }) {
   if (!image) throw new Error("--image <path> is required.");
   if (!stdinIsTTY || !stdoutIsTTY) throw new Error("Live smoke requires a real interactive TTY on stdin and stdout.");
-  if (typeof editor !== "string" || !editor.trim()) throw new Error("Live smoke requires Pi's configured external editor; none is configured.");
+  if (typeof editor !== "string" || !editor.trim()) throw new Error("Live smoke requires an external editor to be resolvable.");
+  if (!whichExecutable(editor)) throw new Error(`Resolved external editor "${editor}" is not an executable on PATH.`);
   await access(resolve(image), constants.R_OK);
   const detected = detectImage(await readFile(resolve(image)));
   return { image: resolve(image), editor, tty: true, ...detected };
@@ -53,7 +86,7 @@ function runPty({ out, timeout, driverArgs = [] }) {
   });
 }
 
-export async function runLiveSmoke({ image, editor, out = ".pi/benchmark/live-smoke.json", timeout = 90 } = {}) {
+export async function runLiveSmoke({ image, editor, editorSource = "unknown", out = ".pi/benchmark/live-smoke.json", timeout = 90 } = {}) {
   const preconditions = await liveSmokePreconditions({
     image, stdinIsTTY: Boolean(process.stdin.isTTY), stdoutIsTTY: Boolean(process.stdout.isTTY), editor,
   });
@@ -66,7 +99,7 @@ export async function runLiveSmoke({ image, editor, out = ".pi/benchmark/live-sm
   try {
     evidence = JSON.parse(await readFile(driverOut, "utf8"));
   } catch (error) {
-    evidence = { status: "failed", steps: [], errors: [{ step: "read-evidence", error: String(error) }] };
+    evidence = { status: "failed", steps: [], errors: { "read-evidence": String(error) } };
   }
   const passed = pty.code === 0 && evidence.status === "passed" && evidence.assertions?.externalEditor === true
     && evidence.assertions?.collapseReopen === true && evidence.assertions?.finalReview === true
@@ -76,7 +109,7 @@ export async function runLiveSmoke({ image, editor, out = ".pi/benchmark/live-sm
     status: passed ? "passed" : "failed",
     observedAt: new Date().toISOString(),
     details: [
-      preconditions.editor,
+      `${preconditions.editor} (${editorSource})`,
       `image ${preconditions.mimeType} ${preconditions.width}x${preconditions.height}`,
       `pty exit ${pty.code}`,
       `steps ${evidence.steps?.length ?? 0}`,
@@ -84,9 +117,10 @@ export async function runLiveSmoke({ image, editor, out = ".pi/benchmark/live-sm
       pty.stderr.trim().slice(0, 400),
     ].filter(Boolean).join(" | "),
     preconditions,
+    editor: { command: preconditions.editor, source: editorSource, resolved: evidence.observed?.editor ?? null },
     assertions: evidence.assertions ?? null,
     steps: evidence.steps ?? [],
-    errors: evidence.errors ?? [],
+    errors: evidence.errors ?? {},
     pty: evidence.pty ?? { exitCode: pty.code, driverOutput: pty.stdout.trim().slice(0, 400) },
   };
   await writeJson(out, record);
@@ -95,30 +129,26 @@ export async function runLiveSmoke({ image, editor, out = ".pi/benchmark/live-sm
 
 
 /**
- * Resolve the image the smoke should render.
+ * Resolve the image the smoke must render.
  *
- * A missing path inside the benchmark image directory is resolved against the
- * generated manifest and the substitution is recorded in the evidence, so a
- * contract check that names a canonical file still renders a real generated
- * image. A missing path anywhere else is a hard error.
+ * A contract check that names a canonical file renders exactly that file. A
+ * missing path is a hard failure: silently substituting some other generated
+ * image would let a pass describe a file nobody asked about.
  */
 export async function resolveSmokeImage(requested, { root = process.cwd() } = {}) {
-  if (requested) {
-    const candidate = resolve(requested);
-    try {
-      await access(candidate, constants.R_OK);
-      return { path: candidate, substituted: false };
-    } catch {
-      const insideImageDir = candidate.startsWith(`${resolve(root, DEFAULT_IMAGE_DIR)}/`);
-      if (!insideImageDir) throw new BenchmarkError("image_missing", `No readable image at ${candidate}.`);
-    }
+  if (!requested) {
+    const manifest = await readJson(".pi/benchmark/image-manifest.json", "manifest_missing");
+    const first = manifest.images?.[0];
+    if (!first) throw new BenchmarkError("image_missing", "No generated benchmark image is available for the live smoke.");
+    return { path: resolve(first.path), substituted: false, requested: null };
   }
-  const manifest = await readJson(".pi/benchmark/image-manifest.json", "manifest_missing");
-  const first = manifest.images?.find((image) => {
-    try { return true; } catch { return false; }
-  });
-  if (!first) throw new BenchmarkError("image_missing", "No generated benchmark image is available for the live smoke.");
-  return { path: resolve(first.path), substituted: Boolean(requested), requested: requested ? resolve(requested) : null };
+  const candidate = resolve(requested);
+  try {
+    await access(candidate, constants.R_OK);
+  } catch {
+    throw new BenchmarkError("image_missing", `No readable image at ${candidate}. Generate it with \`npm run benchmark:images -- --max 600\` or pass a path that exists.`);
+  }
+  return { path: candidate, substituted: false, requested: candidate };
 }
 
 /**
@@ -143,11 +173,16 @@ async function main(argv = process.argv.slice(2)) {
     return;
   }
   const editor = await resolveEditor();
+  // The extension resolves the editor itself through Pi, so a provisioned
+  // editor is injected the way Pi itself reads one: $VISUAL, which sits above
+  // $EDITOR and Pi's default in Pi's own resolution order.
+  if (editor.provisioned) process.env.VISUAL = editor.command;
   const image = await resolveSmokeImage(args.image);
-  const record = await runLiveSmoke({ image: image.path, editor, out: args.out, timeout: args.timeout ?? 90 });
+  const record = await runLiveSmoke({ image: image.path, editor: editor.command, editorSource: editor.provisioned ? `provisioned (${editor.source} -> ${editor.command})` : editor.source, out: args.out, timeout: args.timeout ?? 90 });
   record.image = { requested: image.requested ?? image.path, rendered: image.path, substituted: image.substituted };
+  record.editor = { ...record.editor, provisioned: editor.provisioned, resolved: editor.resolved };
   await writeJson(args.out ?? ".pi/benchmark/live-smoke.json", record);
-  await writeStdout(`${JSON.stringify({ status: record.status, details: record.details, image: record.image })}\n`);
+  await writeStdout(`${JSON.stringify({ status: record.status, details: record.details, image: record.image, editor: record.editor })}\n`);
   // Settings and the child PTY keep handles open; exit deliberately once the
   // result line is flushed so the command's exit code is trustworthy.
   process.exit(record.status === "passed" ? 0 : 1);
