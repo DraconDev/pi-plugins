@@ -186,7 +186,9 @@ export async function runGeneration(corpus, {
   const cache = (await readCacheFile(cachePath)) ?? { schemaVersion: SCHEMA_VERSION, kind: "benchmark-image-manifest", images: [], failures: [] };
   const byHash = new Map((cache.images ?? []).map((image) => [image.hash, image]));
   const images = [...(cache.images ?? [])];
-  const failures = [...(cache.failures ?? [])];
+  // A failure record is superseded once that option is generated successfully,
+  // so the ledger never reports a stale failure next to a real image.
+  let failures = [...(cache.failures ?? [])];
   let generated = 0;
   let cached = 0;
 
@@ -224,6 +226,7 @@ export async function runGeneration(corpus, {
       };
       images.push(entry);
       byHash.set(item.hash, entry);
+      failures = failures.filter((failure) => failure.optionId !== item.optionId);
       generated += 1;
       log({ event: "generated", optionId: item.optionId, width: detected.width, height: detected.height, total: generated + cached });
       await writeJson(cachePath, { schemaVersion: SCHEMA_VERSION, kind: "benchmark-image-manifest", provider: "agnes", planned: planned.length, images, failures });
