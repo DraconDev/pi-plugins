@@ -11,7 +11,7 @@
  * Expected key walk (sent by live-pty.py): down, enter, Ctrl+], Ctrl+], up,
  * enter, e, (editor quit), enter.
  */
-import { readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -416,20 +416,22 @@ try {
 
   // Type inside the real editor, then save and quit it. The keys go through the
   // same pseudo-terminal, so this is a genuine editor session.
-  // Close the real editor and hand the terminal back to the TUI. The text the
-  // editor returns is asserted deterministically in tests/visual-review.test.mjs;
-  // here the live contract is that the configured editor really takes over the
-  // terminal and the wizard really resumes afterwards.
+  // Close the real editor and hand the terminal back to the TUI. The frame
+  // already says "Enter to submit" while the editor owns the terminal, so the
+  // reliable signal that the editor has exited is Pi's own temp answer file
+  // being removed after the editor process returns.
+  const editorTempFile = () => readdirSync("/tmp").some((entry) => entry.startsWith("pi-visual-review-")
+    && existsSync(join("/tmp", entry, "answer.md")));
   requestKey("ctrl+q", "ask the editor to quit");
-  await tick(1500);
-  requestKey("n", "discard the editor buffer");
-  await waitFor(() => painted("Enter to submit"), "back-from-editor", 30000);
-  record("editor-closed", { editorLaunched: true, tuiResumed: true });
+  await waitFor(() => !editorTempFile(), "editor-exited", 40000);
+  record("editor-closed", { editorLaunched: true, editorProcessExited: true });
+  await waitFor(() => painted("Enter to submit"), "back-from-editor", 20000);
+  record("tui-resumed", { inputModeRestored: true });
 
   // Leave the custom-answer editor without changing the stage answer.
   const beforeEscape = seenKeys.length;
   requestKey("escape", "leave the custom answer editor");
-  await waitFor(() => seenKeys.length > beforeEscape, "escape-key", 25000);
+  await waitFor(() => seenKeys.length > beforeEscape, "escape-key", 40000);
   await tick(600);
 
   // 6. Approve through the explicit final review action. Tab walks the stage
