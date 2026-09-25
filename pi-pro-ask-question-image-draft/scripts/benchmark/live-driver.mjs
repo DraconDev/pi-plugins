@@ -11,8 +11,8 @@
  * Expected key walk (sent by live-pty.py): down, enter, Ctrl+], Ctrl+], up,
  * enter, e, (editor quit), enter.
  */
-import { renameSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ProcessTerminal, setKeybindings, TuiMainScreen } from "@earendil-works/pi-tui";
@@ -71,6 +71,10 @@ const terminal = new ProcessTerminal();
 const tui = new TuiMainScreen(terminal);
 const originalWrite = terminal.write.bind(terminal);
 terminal.write = (data) => { transcript += data; return originalWrite(data); };
+// The external editor handoff writes straight to stdout, so mirror that too:
+// the assertions below must read what the terminal actually received.
+const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+process.stdout.write = (chunk, ...rest) => { transcript += String(chunk); return originalStdoutWrite(chunk, ...rest); };
 const saw = (needle) => transcript.includes(needle);
 
 const theme = {
@@ -101,6 +105,12 @@ const reviewInput = {
     },
   ],
 };
+
+// Strip SGR, OSC-8 hyperlink, and cursor sequences before reading the screen.
+const plain = (line) => line
+  .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+  .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
+  .replace(/\x1b[@-Z\\-_]/g, "");
 
 let overlayHandle;
 let wizard;
@@ -228,11 +238,13 @@ try {
   // Live paint from the same component the TUI renders.
   const frame = () => wizard.render(terminal.columns).join("\n");
   const painted = (needle) => frame().includes(needle);
-  // Strip SGR, OSC-8 hyperlink, and cursor sequences before reading the marker.
-  const plain = (line) => line
-    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
-    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
-    .replace(/\x1b[@-Z\\-_]/g, "");
+  // What the *terminal* shows, including output from the external editor, which
+  // never passes through this process's stdout.
+  const screenPath = `${outPath}.screen`;
+  const tailText = () => {
+    try { return plain(readFileSync(screenPath, "utf8")); } catch { return ""; }
+  };
+  const tailTextPlain = (size = 2000) => plain(transcript.slice(-size));
   const activeRow = () => {
     for (const line of frame().split("\n").map(plain)) {
       const match = /(?:^|\s)>\s?(\S[^│]{0,48}?)\s{2,}/.exec(line) ?? /(?:^|\s)>\s?(\S.*)$/.exec(line);
@@ -321,14 +333,33 @@ try {
   await waitFor(() => /Launching external editor/.test(transcript), "editor-launch", 25000);
   record("editor", { launched: true, key: externalKey });
 
-  // The harness quits the editor; the answer typed there is then submitted.
-  await waitFor(() => painted("Enter to submit"), "back-from-editor", 25000);
+  // Type inside the real editor, then save and quit it. The keys go through the
+  // same pseudo-terminal, so this is a genuine editor session.
   requestKey("literal:Reviewed in the external editor", "type the edited answer");
-  await tick(600);
+  // The real editor writes into Pi's temporary answer file; that is the
+  // strongest evidence that the keystrokes really landed in the editor.
+  const editorFile = () => {
+    for (const entry of readdirSync("/tmp")) {
+      if (!entry.startsWith("pi-visual-review-")) continue;
+      try {
+        const text = readFileSync(join("/tmp", entry, "answer.md"), "utf8");
+        if (text.trim()) return text;
+      } catch { /* the editor has not created the file yet */ }
+    }
+    return "";
+  };
+  await waitFor(() => editorFile().includes("Reviewed in the external editor"), "editor-typing", 25000);
+  record("editor-typing", { bytes: editorFile().length });
+  requestKey("ctrl+q", "ask the editor to quit");
+  await waitFor(() => /before closing/i.test(tailText()), "editor-save-prompt", 25000);
+  requestKey("y", "save and close the editor");
+  await waitFor(() => painted("Enter to submit"), "back-from-editor", 30000);
+  record("editor-closed", { editorLaunched: true });
+
   const beforeSubmitCustom = seenKeys.length;
   requestKey("\r", "submit the custom answer");
-  await waitFor(() => seenKeys.length > beforeSubmitCustom, "submit-custom-key", 8000);
-  await tick(700);
+  await waitFor(() => seenKeys.length > beforeSubmitCustom, "submit-custom-key", 10000);
+  await tick(900);
   record("custom-submitted", { row: activeRow() });
 
   // 6. Approve through the explicit final review action.
@@ -344,6 +375,11 @@ try {
 
   const status = result.details?.result?.status ?? result.details?.status;
   const answers = result.details?.result?.answers?.map((answer) => answer.stageId) ?? [];
+  const answerTexts = (result.details?.result?.answers ?? []).map((answer) => answer.answer ?? answer.customText ?? "");
+  if (!answerTexts.some((text) => String(text).includes("Reviewed in the external editor"))) {
+    fail("editor", new Error(`the answer typed in the external editor was not returned: ${JSON.stringify(answerTexts)}`));
+  }
+  evidence.assertions = { ...(evidence.assertions ?? {}), externalEditorAnswerReturned: true };
   if (status !== "completed") fail("complete", new Error(`unexpected status ${status}`));
   if (!answers.includes("direction")) fail("complete", new Error("the chosen option was not recorded"));
   if (hiddenFrames === 0) fail("collapse", new Error("the overlay was never hidden"));

@@ -40,6 +40,8 @@ SPECIAL = {
 
 
 CONTROL = {chr(code): bytes([code]) for code in list(range(1, 27)) + [127]}
+# ctrl+<letter> -> the matching control byte
+CONTROL.update({chr(ord("a") + offset): bytes([offset + 1]) for offset in range(26)})
 for _name, _byte in list(SPECIAL.items()):
     CONTROL[_name] = _byte
 CONTROL["escape"] = b"\x1b"
@@ -102,12 +104,17 @@ def main() -> int:
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", args.rows, args.cols, 0, 0))
 
     transcript = bytearray()
+    # The driver cannot see what the *editor* painted (it writes straight to the
+    # terminal fd), so the harness mirrors the terminal's own bytes here.
+    screen_path = args.out + ".screen"
+
+    def mirror_screen() -> None:
+        with open(screen_path, "w") as handle:
+            handle.write(bytes(transcript[-8000:]).decode("utf8", "replace"))
+
     deadline = time.time() + args.timeout
     sent_keys = set()
     harness_log = []
-    editor_active = False
-    editor_finished_at = None
-    editor_escape_sent = False
 
     while time.time() < deadline:
         readable, _, _ = select.select([fd], [], [], 0.15)
@@ -119,6 +126,7 @@ def main() -> int:
             if not chunk:
                 break
             transcript += chunk
+            mirror_screen()
         if os.path.exists(args.out):
             try:
                 evidence = json.load(open(args.out))
@@ -126,14 +134,8 @@ def main() -> int:
                 evidence = {}
             if evidence.get("status") in {"passed", "failed"}:
                 break
-        # Drive the real editor: quit it and return control to the TUI.
-        if editor_active and not editor_escape_sent and b"micro" in bytes(transcript[-2000:]).lower():
-            time.sleep(1.2)
-            os.write(fd, SPECIAL["ctrl+q"])
-            time.sleep(0.4)
-            os.write(fd, SPECIAL["enter"])
-            editor_escape_sent = True
-            editor_finished_at = time.time()
+        # Send the keys the driver asked for. Ids make each keypress exactly-once
+        # even though both processes rewrite the queue file.
         if os.path.exists(keys_file):
             try:
                 queue = json.load(open(keys_file)).get("queued", [])
@@ -179,6 +181,7 @@ def main() -> int:
     evidence = json.load(open(args.out))
     evidence["pty"] = {"rows": args.rows, "cols": args.cols, "exitCode": code, "usedPseudoTerminal": True}
     evidence["harnessLog"] = harness_log
+    evidence["transcriptTail"] = bytes(transcript[-3000:]).decode("utf8", "replace")
     with open(args.out, "w") as handle:
         json.dump(evidence, handle, indent=2)
     sys.stdout.write(json.dumps({
