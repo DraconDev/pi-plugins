@@ -273,8 +273,10 @@ export function treatmentDirective(option) {
 
 const STYLE = [
   "Style: clean flat vector wireframe, straight-on orthographic view filling the whole frame, plain white background, thin dark outlines, one accent colour plus status colours, no gradients, no 3D, no drop shadows, no perspective, no device bezel, no hands, no photography, no watermark, no poster headline, no marketing copy.",
-  "Legibility: at most about a dozen large elements, strong contrast, one obvious focal point, and spacing that survives being scaled down to 40x20 terminal characters.",
-  "Tiny neutral placeholder words may appear inside the interface chrome; the layout, grouping, colour and emphasis are what must read at a glance.",
+  "Fill the frame: every region contains interface elements such as rows, panels, cells, bars or buttons, top to bottom and edge to edge. No large blank areas and no empty panel bodies.",
+  "Never write the name of this option, the product name, or any title or caption text anywhere in the image.",
+  "Legibility: strong contrast, one obvious focal point, and structure that survives being scaled down to 40x20 terminal characters.",
+  "Short neutral placeholder words may appear inside the interface chrome only; the layout, grouping, colour and emphasis are what must read at a glance.",
 ].join(" ");
 
 /**
@@ -284,15 +286,18 @@ const STYLE = [
 export function optionPrompt(scenario, option) {
   const concept = String(scenario?.visualPrompt?.prompt ?? "").trim();
   if (!concept) throw new Error(`${scenario?.id} has no visual prompt.`);
-  const { kind, subject } = surfaceSubject(scenario);
+  const { subject } = surfaceSubject(scenario);
   const { directive, source } = treatmentDirective(option);
   const description = String(option?.description ?? "").trim();
+  // The option's own name is deliberately absent: the judged comparison is
+  // blinded, and a model that captions its image with the option label would
+  // leak the treatment identity straight into the judge's view.
   return [
-    `A single ${subject} drawn as a flat UI mockup, showing the "${option.label}" treatment.`,
-    `In this treatment the layout is: ${directive}.`,
-    description ? `Design intent behind this option: ${description}` : "",
+    `A single ${subject} drawn as a flat UI mockup, straight-on, filling the whole frame.`,
+    `In this screen the layout is: ${directive}.`,
+    description ? `Design intent behind this layout: ${description}` : "",
     `It must support this decision: ${concept}`,
-    `The three options of this decision differ only in arrangement, so make the arrangement unmistakable.`,
+    "The three candidate treatments for this decision differ only in arrangement, so the arrangement must be unmistakable.",
     STYLE,
     source === "description" ? "Treat the quoted description as the layout to draw." : "",
   ].filter(Boolean).join(" ");

@@ -6,6 +6,9 @@ import { resolve } from "node:path";
 import { generateReviewImages } from "../../src/image-generator.ts";
 import { normalizeReview } from "../../src/schema.ts";
 import { assertNoCredentials, BenchmarkError, parseArgs, parsePositiveLimit, readJson, SCHEMA_VERSION, writeJson } from "./common.mjs";
+import { optionPrompt } from "./image-prompt.mjs";
+
+export { optionPrompt } from "./image-prompt.mjs";
 
 export const DEFAULT_MANIFEST = ".pi/benchmark/images.json";
 export const DEFAULT_CACHE = ".pi/benchmark/image-manifest.json";
@@ -120,31 +123,6 @@ export async function buildImageReport({ manifest, judgeResults, max = 600, root
   return report;
 }
 
-/**
- * Image prompt for one visual option.
- *
- * Inspection of the first generation run showed the decisive failure mode:
- * asked for a "mockup", the image model produced chrome-shaped layouts filled
- * with invented pseudo-text ("EcbatrcLe", "S?2,24"). Those glyphs are
- * unreadable at terminal size, so the image carried no decision information and
- * the blinded win rate collapsed. The prompt therefore forbids rendered text
- * entirely and asks for the *structure* the decision depends on - layout,
- * grouping, emphasis, density - which is what a terminal viewer can actually
- * read. Text belongs in the option label, which is drawn by the TUI.
- */
-export function optionPrompt(scenario, option) {
-  const concept = scenario.visualPrompt?.prompt?.trim();
-  if (!concept) throw new BenchmarkError("missing_prompt", `${scenario.id} has no visual prompt.`);
-  return [
-    "Abstract information-visualisation plate for a terminal user-interface decision.",
-    "ABSOLUTELY NO TEXT of any kind: no words, no letters, no numbers, no digits, no captions, no labels, no logos, no UI chrome text. Only shapes, blocks, bars, lines, and colour.",
-    `Decision being supported: ${concept}`,
-    `Layout treatment: ${option.label}.`,
-    option.description ? `Structural intent: ${option.description}` : "",
-    "Flat vector style, plain background, high contrast, large simple shapes that stay readable when scaled down to 40x20 characters. No photography, no 3D, no gradients, no texture noise.",
-  ].filter(Boolean).join(" ");
-}
-
 /** Three options per visual scenario, deduped by prompt hash. */
 export function planImages(corpus, { strata = ["visual"], limit = IMAGE_BUDGET, scenarioLimit = Infinity } = {}) {
   const planned = [];
@@ -194,7 +172,7 @@ async function cacheHit(entry) {
  * typed code and never retried silently.
  */
 export async function runGeneration(corpus, {
-  max = IMAGE_BUDGET, out = DEFAULT_IMAGE_DIR, cachePath = DEFAULT_CACHE, log = () => {}, scenarioLimit = Infinity,
+  max = IMAGE_BUDGET, out = DEFAULT_IMAGE_DIR, cachePath = DEFAULT_CACHE, log = () => {}, scenarioLimit = Infinity, concurrency = 4,
 } = {}) {
   const planned = planImages(corpus, { limit: max, scenarioLimit });
   const cache = (await readCacheFile(cachePath)) ?? { schemaVersion: SCHEMA_VERSION, kind: "benchmark-image-manifest", images: [], failures: [] };
@@ -205,55 +183,67 @@ export async function runGeneration(corpus, {
   let failures = [...(cache.failures ?? [])];
   let generated = 0;
   let cached = 0;
+  let cursor = 0;
 
-  for (const item of planned) {
-    const existing = byHash.get(item.hash);
-    if (existing && await cacheHit(existing)) { cached += 1; continue; }
-    if (generated + failures.length >= max) {
-      failures.push({ optionId: item.optionId, scenarioId: item.scenarioId, code: "generation_limit", message: "Skipped: the 600-image benchmark budget is spent.", at: new Date().toISOString() });
-      continue;
+  const flush = () => writeJson(cachePath, { schemaVersion: SCHEMA_VERSION, kind: "benchmark-image-manifest", provider: "agnes", planned: planned.length, images, failures });
+
+  const worker = async () => {
+    while (cursor < planned.length) {
+      const item = planned[cursor];
+      cursor += 1;
+      const existing = byHash.get(item.hash);
+      if (existing && await cacheHit(existing)) { cached += 1; continue; }
+      // The budget is spent by *successful* generations, and the check plus the
+      // increment is synchronous, so bounded concurrency cannot overshoot it.
+      if (generated + failures.length >= max) {
+        failures.push({ optionId: item.optionId, scenarioId: item.scenarioId, code: "generation_limit", message: "Skipped: the 600-image benchmark budget is spent.", at: new Date().toISOString() });
+        continue;
+      }
+      const review = normalizeReview({
+        reviewId: item.scenarioId, round: 1, stages: [{
+          id: item.stageId, kind: "draft", header: item.stageId, prompt: item.prompt,
+          options: [
+            { id: item.optionKey, label: item.optionLabel, description: item.prompt, generate: { prompt: item.prompt, provider: "agnes" } },
+            // The schema requires a real choice; this filler is never generated
+            // and only exists so the single-option request validates.
+            { id: `${item.optionKey}-filler`, label: "Unchanged baseline", description: "Baseline treatment without a generated image." },
+          ],
+          allowOther: false, allowRevision: false, required: true,
+        }],
+      }, 1);
+      try {
+        const result = await generateReviewImages(review, { cwd: process.cwd(), outputDir: resolve(out), timeoutMs: 180_000 });
+        const image = result.images[0];
+        if (!image) throw new BenchmarkError("no_image_returned", "The provider returned no image for this option.");
+        const bytes = await readFile(image.path);
+        const detected = detectImage(bytes);
+        const entry = {
+          id: item.optionId, optionIds: [item.optionId], scenarioId: item.scenarioId, stratum: item.stratum,
+          prompt: item.prompt, hash: item.hash, path: image.path,
+          provider: "agnes", model: image.model,
+          mimeType: detected.mimeType, width: detected.width, height: detected.height, byteCount: bytes.length,
+          generatedAt: new Date().toISOString(),
+        };
+        images.push(entry);
+        byHash.set(item.hash, entry);
+        failures = failures.filter((failure) => failure.optionId !== item.optionId);
+        generated += 1;
+        log({ event: "generated", optionId: item.optionId, width: detected.width, height: detected.height, total: generated + cached });
+        await flush();
+      } catch (error) {
+        const failure = {
+          optionId: item.optionId, scenarioId: item.scenarioId, code: error?.code ?? "request_failed",
+          message: error instanceof Error ? error.message : String(error), at: new Date().toISOString(),
+        };
+        failures.push(failure);
+        log({ event: "failed", ...failure });
+        await flush();
+      }
     }
-    const review = normalizeReview({
-      reviewId: item.scenarioId, round: 1, stages: [{
-        id: item.stageId, kind: "draft", header: item.stageId, prompt: item.prompt,
-        options: [
-          { id: item.optionKey, label: item.optionLabel, description: item.prompt, generate: { prompt: item.prompt, provider: "agnes" } },
-          // The schema requires a real choice; this filler is never generated
-          // and only exists so the single-option request validates.
-          { id: `${item.optionKey}-filler`, label: "Unchanged baseline", description: "Baseline treatment without a generated image." },
-        ],
-        allowOther: false, allowRevision: false, required: true,
-      }],
-    }, 1);
-    try {
-      const result = await generateReviewImages(review, { cwd: process.cwd(), outputDir: resolve(out), timeoutMs: 180_000 });
-      const image = result.images[0];
-      if (!image) throw new BenchmarkError("no_image_returned", "The provider returned no image for this option.");
-      const bytes = await readFile(image.path);
-      const detected = detectImage(bytes);
-      const entry = {
-        id: item.optionId, optionIds: [item.optionId], scenarioId: item.scenarioId, stratum: item.stratum,
-        prompt: item.prompt, hash: item.hash, path: image.path,
-        provider: "agnes", model: image.model,
-        mimeType: detected.mimeType, width: detected.width, height: detected.height, byteCount: bytes.length,
-        generatedAt: new Date().toISOString(),
-      };
-      images.push(entry);
-      byHash.set(item.hash, entry);
-      failures = failures.filter((failure) => failure.optionId !== item.optionId);
-      generated += 1;
-      log({ event: "generated", optionId: item.optionId, width: detected.width, height: detected.height, total: generated + cached });
-      await writeJson(cachePath, { schemaVersion: SCHEMA_VERSION, kind: "benchmark-image-manifest", provider: "agnes", planned: planned.length, images, failures });
-    } catch (error) {
-      const failure = {
-        optionId: item.optionId, scenarioId: item.scenarioId, code: error?.code ?? "request_failed",
-        message: error instanceof Error ? error.message : String(error), at: new Date().toISOString(),
-      };
-      failures.push(failure);
-      log({ event: "failed", ...failure });
-      await writeJson(cachePath, { schemaVersion: SCHEMA_VERSION, kind: "benchmark-image-manifest", provider: "agnes", planned: planned.length, images, failures });
-    }
-  }
+  };
+
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, planned.length || 1)) }, worker));
+
   const manifest = { schemaVersion: SCHEMA_VERSION, kind: "benchmark-image-manifest", provider: "agnes", planned: planned.length, images, failures };
   assertNoCredentials(manifest);
   await writeJson(cachePath, manifest);
@@ -268,7 +258,7 @@ export async function runGeneration(corpus, {
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv, {
     corpus: "string", manifest: "string", out: "string", cache: "string", max: "number",
-    scenarios: "number", quiet: "boolean", "ingest-only": "boolean",
+    scenarios: "number", quiet: "boolean", "ingest-only": "boolean", concurrency: "number",
   });
   const max = parsePositiveLimit(args.max, IMAGE_BUDGET);
   const out = args.out ?? DEFAULT_MANIFEST;
@@ -289,6 +279,7 @@ export async function main(argv = process.argv.slice(2)) {
     out: args.out?.endsWith(".json") ? DEFAULT_IMAGE_DIR : (args.out ?? DEFAULT_IMAGE_DIR),
     cachePath,
     scenarioLimit: args.scenarios ?? Infinity,
+    concurrency: args.concurrency ?? 4,
     log: args.quiet ? () => {} : (event) => process.stderr.write(`${JSON.stringify(event)}\n`),
   });
   const report = await ingestImageManifest(manifest, { max });
