@@ -65,6 +65,9 @@ export function recomputeComparison(corpus, results) {
     deterministicAccuracy: passed / cases.length,
     wilson95LowerBound: wilsonLowerBound(passed, cases.length),
     unstableCases: unstable,
+    // Every scenario, with the terminal outcome its execution actually reached,
+    // so the per-case result is auditable from the report alone.
+    cases,
     exactOracle: { total: cases.filter((item) => item.oracle === "exact").length, passed: cases.filter((item) => item.oracle === "exact" && item.pass).length },
     terminalOnly: { total: cases.filter((item) => item.oracle === "terminal-only").length, passed: cases.filter((item) => item.oracle === "terminal-only" && item.pass).length },
     byStratum: Object.fromEntries(STRATA.map((stratum) => {

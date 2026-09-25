@@ -1,15 +1,20 @@
 {
   "kind": "benchmark-live-smoke",
   "status": "passed",
-  "observedAt": "2026-09-25T20:16:24.447Z",
-  "details": "micro | image image/png 1024x1024 | pty exit 0 | steps 21",
+  "observedAt": "2026-09-25T23:24:46.220Z",
+  "details": "micro (provisioned (EDITOR -> micro)) | image image/png 1024x1024 | pty exit 0 | steps 21",
   "preconditions": {
-    "image": "/home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft/.pi/benchmark/images/agnes-agnes-image-2-5-flash-1790354380146-3dbe540e-b8c4-4d72-9b68-f5b0d641f105.png",
+    "image": "/home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft/.pi/benchmark/images/visual-001-option-1.png",
     "editor": "micro",
     "tty": true,
     "mimeType": "image/png",
     "width": 1024,
     "height": 1024
+  },
+  "editor": {
+    "command": "micro",
+    "source": "provisioned (EDITOR -> micro)",
+    "provisioned": "Pi resolved \"vi\" from EDITOR and that binary is not installed; the gate provisioned \"micro\" instead."
   },
   "assertions": {
     "realTty": true,
@@ -35,7 +40,17 @@
       "externalEditorKeys": [
         "ctrl+g"
       ],
-      "keybindingsSource": "pi-tui defaults"
+      "keybindingsSource": "pi-tui defaults",
+      "editor": {
+        "command": "micro",
+        "source": "VISUAL",
+        "runnable": true
+      },
+      "editorQuitKeys": [
+        "ctrl+q"
+      ],
+      "editorQuitKnown": true,
+      "editorSavesOnPrompt": true
     },
     {
       "step": "overlay",
@@ -60,7 +75,7 @@
     },
     {
       "step": "render",
-      "bytes": 4238124,
+      "bytes": 3350188,
       "columns": 110,
       "capabilities": [
         {
@@ -88,7 +103,7 @@
     {
       "step": "image",
       "imageProtocol": "kitty",
-      "imagePayloadBytes": 4202783,
+      "imagePayloadBytes": 3316960,
       "imageOnTerminal": true
     },
     {
@@ -143,12 +158,17 @@
     {
       "step": "editor",
       "launched": true,
-      "key": "ctrl+g"
+      "key": "ctrl+g",
+      "command": "micro",
+      "quitKeys": [
+        "ctrl+q"
+      ]
     },
     {
       "step": "editor-closed",
       "editorLaunched": true,
-      "editorProcessExited": true
+      "editorProcessExited": true,
+      "command": "micro"
     },
     {
       "step": "tui-resumed",
@@ -182,7 +202,7 @@
   },
   "image": {
     "requested": "/home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft/.pi/benchmark/images/visual-001-option-1.png",
-    "rendered": "/home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft/.pi/benchmark/images/agnes-agnes-image-2-5-flash-1790354380146-3dbe540e-b8c4-4d72-9b68-f5b0d641f105.png",
-    "substituted": true
+    "rendered": "/home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft/.pi/benchmark/images/visual-001-option-1.png",
+    "substituted": false
   }
 }

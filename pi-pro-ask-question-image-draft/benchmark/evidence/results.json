@@ -18,6 +18,13 @@
     "sharedCases": 333,
     "referenceRejections": 0,
     "envelopeMatchRate": 0.8408408408408409,
+    "envelopeMismatches": 53,
+    "envelopeMismatchByClassification": {
+      "image": 36,
+      "legacy": 2,
+      "text": 15
+    },
+    "envelopeGate": false,
     "losses": [],
     "candidateFailures": []
   },
@@ -2122,6 +2129,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Compare the available visual references and select the treatment for onboarding in mobile application.\"=\"stacked panel\". selected preview: Image reference: `dataUri=",
+        "local": "User has answered your questions: \"Compare the available visual references and select the treatment for onboarding in mobile application.\"=\"stacked panel\". You can now continue with the user's answers"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -2159,6 +2171,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Review the supplied image reference and decide which presentation best fits dashboard chart for data visualization.\"=\"inline strip\". selected preview: Image referenc",
+        "local": "User has answered your questions: \"Review the supplied image reference and decide which presentation best fits dashboard chart for data visualization.\"=\"inline strip\". You can now continue with the us"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -2217,6 +2234,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -2296,6 +2314,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Review the supplied image reference and decide which presentation best fits deployment status for developer tools.\"=\"cancel review\". selected preview: Image referenc",
+        "local": "User has answered your questions: \"Review the supplied image reference and decide which presentation best fits deployment status for developer tools.\"=\"cancel review\". You can now continue with the us"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -2333,6 +2356,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"For ecommerce catalog product gallery, choose the option to carry forward from the visual references.\"=\"archive copy\". selected preview: Image reference: `path=./art",
+        "local": "User has answered your questions: \"For ecommerce catalog product gallery, choose the option to carry forward from the visual references.\"=\"archive copy\". You can now continue with the user's answers i"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -2370,6 +2398,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Make a deterministic selection for the architecture diagram screen in technical documentation, using the image or its text fallback.\"=\"open enlarged\". selected previ",
+        "local": "User has answered your questions: \"Make a deterministic selection for the architecture diagram screen in technical documentation, using the image or its text fallback.\"=\"open enlarged\". You can now co"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -2428,6 +2461,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -2507,6 +2541,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Make a deterministic selection for the floor-plan preview screen in real estate, using the image or its text fallback.\"=\"soft edges\". selected preview: Image referen",
+        "local": "User has answered your questions: \"Make a deterministic selection for the floor-plan preview screen in real estate, using the image or its text fallback.\"=\"soft edges\". You can now continue with the u"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -2565,6 +2604,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Compare the available visual references and select the treatment for menu board in food service.\"=\"image first\". selected preview: Image reference: `path=./artifacts",
+        "local": "User has answered your questions: \"Compare the available visual references and select the treatment for menu board in food service.\"=\"image first\". You can now continue with the user's answers in mind"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -2623,6 +2667,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -2702,6 +2747,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Compare the available visual references and select the treatment for waveform editor in music production.\"=\"continue without image\". selected preview: Image referenc",
+        "local": "User has answered your questions: \"Compare the available visual references and select the treatment for waveform editor in music production.\"=\"continue without image\". You can now continue with the us"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -2739,6 +2789,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Review the supplied image reference and decide which presentation best fits donation impact for nonprofit program.\"=\"split panel\". selected preview: Image reference:",
+        "local": "User has answered your questions: \"Review the supplied image reference and decide which presentation best fits donation impact for nonprofit program.\"=\"split panel\". You can now continue with the user"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -2776,6 +2831,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"For agriculture field notes, choose the option to carry forward from the visual references.\"=\"top banner\". selected preview: Image reference: `path=./missing/image-a",
+        "local": "User has answered your questions: \"For agriculture field notes, choose the option to carry forward from the visual references.\"=\"top banner\". You can now continue with the user's answers in mind."
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -2897,6 +2957,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"For sports analytics match heatmap, choose the option to carry forward from the visual references.\"=\"use fallback\". selected preview: Image reference: `path=./artifa",
+        "local": "User has answered your questions: \"For sports analytics match heatmap, choose the option to carry forward from the visual references.\"=\"use fallback\". You can now continue with the user's answers in m"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -2934,6 +2999,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Make a deterministic selection for the lab safety card screen in science education, using the image or its text fallback.\"=\"reject treatment\". selected preview: Imag",
+        "local": "User has answered your questions: \"Make a deterministic selection for the lab safety card screen in science education, using the image or its text fallback.\"=\"reject treatment\". You can now continue w"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -3013,6 +3083,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -3113,6 +3184,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Compare the available visual references and select the treatment for core sample log in geology education.\"=\"minimal chrome\". selected preview: Image reference: `pat",
+        "local": "User has answered your questions: \"Compare the available visual references and select the treatment for core sample log in geology education.\"=\"minimal chrome\". You can now continue with the user's an"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -3150,6 +3226,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Review the supplied image reference and decide which presentation best fits emissions dashboard for climate science.\"=\"compact type\". selected preview: Image referen",
+        "local": "User has answered your questions: \"Review the supplied image reference and decide which presentation best fits emissions dashboard for climate science.\"=\"compact type\". You can now continue with the u"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -3208,6 +3289,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -3287,6 +3369,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Review the supplied image reference and decide which presentation best fits failure cluster for software testing.\"=\"text alternative\". selected preview: Image refere",
+        "local": "User has answered your questions: \"Review the supplied image reference and decide which presentation best fits failure cluster for software testing.\"=\"text alternative\". You can now continue with the "
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -3324,6 +3411,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"For network operations topology diagram, choose the option to carry forward from the visual references.\"=\"wide canvas\". selected preview: Image reference: `path=./mi",
+        "local": "User has answered your questions: \"For network operations topology diagram, choose the option to carry forward from the visual references.\"=\"wide canvas\". You can now continue with the user's answers "
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -3361,6 +3453,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Make a deterministic selection for the article layout screen in content design, using the image or its text fallback.\"=\"side rail\". selected preview: Image reference",
+        "local": "User has answered your questions: \"Make a deterministic selection for the article layout screen in content design, using the image or its text fallback.\"=\"side rail\". You can now continue with the use"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -3419,6 +3516,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -3498,6 +3596,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Make a deterministic selection for the meal planner screen in nutrition, using the image or its text fallback.\"=\"revise treatment\". selected preview: Image reference",
+        "local": "User has answered your questions: \"Make a deterministic selection for the meal planner screen in nutrition, using the image or its text fallback.\"=\"revise treatment\". You can now continue with the use"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -3556,6 +3659,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Compare the available visual references and select the treatment for rhythm worksheet in music education.\"=\"refresh preview\". selected preview: Image reference: `pat",
+        "local": "User has answered your questions: \"Compare the available visual references and select the treatment for rhythm worksheet in music education.\"=\"refresh preview\". You can now continue with the user's an"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -3614,6 +3722,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -3693,6 +3802,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Compare the available visual references and select the treatment for bike lane map in transport planning.\"=\"quiet card\". selected preview: Image reference: `path=./a",
+        "local": "User has answered your questions: \"Compare the available visual references and select the treatment for bike lane map in transport planning.\"=\"quiet card\". You can now continue with the user's answers"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -3730,6 +3844,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Review the supplied image reference and decide which presentation best fits resource map for emergency response.\"=\"bold edges\". selected preview: Image reference: `d",
+        "local": "User has answered your questions: \"Review the supplied image reference and decide which presentation best fits resource map for emergency response.\"=\"bold edges\". You can now continue with the user's "
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -3767,6 +3886,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"For community gardening plot map, choose the option to carry forward from the visual references.\"=\"large type\". selected preview: Image reference: `dataUri=data:imag",
+        "local": "User has answered your questions: \"For community gardening plot map, choose the option to carry forward from the visual references.\"=\"large type\". You can now continue with the user's answers in mind."
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -3888,6 +4012,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"For quality assurance checklist board, choose the option to carry forward from the visual references.\"=\"single preview\". selected preview: Image reference: `path=./m",
+        "local": "User has answered your questions: \"For quality assurance checklist board, choose the option to carry forward from the visual references.\"=\"single preview\". You can now continue with the user's answers"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -3925,6 +4054,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Make a deterministic selection for the territory map screen in sales operations, using the image or its text fallback.\"=\"compact grid\". selected preview: Image refer",
+        "local": "User has answered your questions: \"Make a deterministic selection for the territory map screen in sales operations, using the image or its text fallback.\"=\"compact grid\". You can now continue with the"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -4004,6 +4138,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -4104,6 +4239,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Compare the available visual references and select the treatment for field dashboard in farming operations.\"=\"cancel review\". selected preview: Image reference: `pat",
+        "local": "User has answered your questions: \"Compare the available visual references and select the treatment for field dashboard in farming operations.\"=\"cancel review\". You can now continue with the user's an"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -4141,6 +4281,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Review the supplied image reference and decide which presentation best fits shift board for labor scheduling.\"=\"archive copy\". selected preview: Image reference: `pa",
+        "local": "User has answered your questions: \"Review the supplied image reference and decide which presentation best fits shift board for labor scheduling.\"=\"archive copy\". You can now continue with the user's a"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -4199,6 +4344,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -4278,6 +4424,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Review the supplied image reference and decide which presentation best fits journey diagram for service design.\"=\"focus card\". selected preview: Image reference: `da",
+        "local": "User has answered your questions: \"Review the supplied image reference and decide which presentation best fits journey diagram for service design.\"=\"focus card\". You can now continue with the user's a"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -4315,6 +4466,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"For training program scenario card, choose the option to carry forward from the visual references.\"=\"soft edges\". selected preview: Image reference: `url=https://cdn",
+        "local": "User has answered your questions: \"For training program scenario card, choose the option to carry forward from the visual references.\"=\"soft edges\". You can now continue with the user's answers in min"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -4352,6 +4508,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Make a deterministic selection for the hazard map screen in safety inspection, using the image or its text fallback.\"=\"dense detail\". selected preview: Image referen",
+        "local": "User has answered your questions: \"Make a deterministic selection for the hazard map screen in safety inspection, using the image or its text fallback.\"=\"dense detail\". You can now continue with the u"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -4410,6 +4571,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -4489,6 +4651,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Make a deterministic selection for the request tracker screen in public records, using the image or its text fallback.\"=\"compare side by side\". selected preview: Ima",
+        "local": "User has answered your questions: \"Make a deterministic selection for the request tracker screen in public records, using the image or its text fallback.\"=\"compare side by side\". You can now continue "
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -4547,6 +4714,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Compare the available visual references and select the treatment for lesson card in customer education.\"=\"split panel\". selected preview: Image reference: `url=https",
+        "local": "User has answered your questions: \"Compare the available visual references and select the treatment for lesson card in customer education.\"=\"split panel\". You can now continue with the user's answers "
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -4605,6 +4777,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -4684,6 +4857,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Compare the available visual references and select the treatment for crossing study in transport safety.\"=\"text first\". selected preview: Image reference: `path=./mi",
+        "local": "User has answered your questions: \"Compare the available visual references and select the treatment for crossing study in transport safety.\"=\"text first\". You can now continue with the user's answers "
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -4721,6 +4899,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Review the supplied image reference and decide which presentation best fits office floorplan for remote work.\"=\"use fallback\". selected preview: Image reference: `pa",
+        "local": "User has answered your questions: \"Review the supplied image reference and decide which presentation best fits office floorplan for remote work.\"=\"use fallback\". You can now continue with the user's a"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -4758,6 +4941,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"For education technology lesson dashboard, choose the option to carry forward from the visual references.\"=\"reject treatment\". selected preview: Image reference: `da",
+        "local": "User has answered your questions: \"For education technology lesson dashboard, choose the option to carry forward from the visual references.\"=\"reject treatment\". You can now continue with the user's a"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -4879,6 +5067,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"For cloud operations service map, choose the option to carry forward from the visual references.\"=\"inline strip\". selected preview: Image reference: `url=https://cdn",
+        "local": "User has answered your questions: \"For cloud operations service map, choose the option to carry forward from the visual references.\"=\"inline strip\". You can now continue with the user's answers in min"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -4916,6 +5109,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Make a deterministic selection for the keyboard diagram screen in web accessibility, using the image or its text fallback.\"=\"clear frame\". selected preview: Image re",
+        "local": "User has answered your questions: \"Make a deterministic selection for the keyboard diagram screen in web accessibility, using the image or its text fallback.\"=\"clear frame\". You can now continue with "
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -4953,6 +5151,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -4990,6 +5189,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -5027,6 +5227,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Which changes should the next version of the agreement include? Choose every one that applies. Our service agreement is 4,200 words long. It covers what the account ",
+        "local": "User has answered your questions: \"Which changes should the next version of the agreement include? Choose every one that applies. Our service agreement is 4,200 words long. It covers what the account "
+      },
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": true,
@@ -5064,6 +5269,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -5122,6 +5328,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -5180,6 +5387,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -5217,6 +5425,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -5254,6 +5463,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -5291,6 +5501,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": true,
@@ -5328,6 +5539,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -5386,6 +5598,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"When a form is sent with one missing box, the page says: Error 4027: invalid data supplied by user. The reader has no idea which box is wrong, and the error appears ",
+        "local": "User has answered your questions: \"When a form is sent with one missing box, the page says: Error 4027: invalid data supplied by user. The reader has no idea which box is wrong, and the error appears "
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -5423,6 +5640,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -5460,6 +5678,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -5497,6 +5716,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -5534,6 +5754,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -5592,6 +5813,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -5629,6 +5851,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": true,
@@ -5666,6 +5889,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -5703,6 +5927,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -5740,6 +5965,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -5777,6 +6003,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -5898,6 +6125,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -5935,6 +6163,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -5972,6 +6201,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -6030,6 +6260,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6067,6 +6298,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6104,6 +6336,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6141,6 +6374,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6178,6 +6412,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6236,6 +6471,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6273,6 +6509,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6310,6 +6547,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6347,6 +6585,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6384,6 +6623,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6442,6 +6682,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6479,6 +6720,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6516,6 +6758,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6553,6 +6796,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6590,6 +6834,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6627,6 +6872,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6664,6 +6910,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6722,6 +6969,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6759,6 +7007,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6796,6 +7045,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6833,6 +7083,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6891,6 +7142,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -6928,6 +7180,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7006,6 +7259,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7043,6 +7297,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7080,6 +7335,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7117,6 +7373,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7175,6 +7432,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7212,6 +7470,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7249,6 +7508,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7286,6 +7546,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7344,6 +7605,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7381,6 +7643,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7418,6 +7681,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7455,6 +7719,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7513,6 +7778,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7550,6 +7816,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7608,6 +7875,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7645,6 +7913,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7682,6 +7951,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7761,6 +8031,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7798,6 +8069,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7856,6 +8128,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7914,6 +8187,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -7972,6 +8246,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -8009,6 +8284,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -8046,6 +8322,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -8104,6 +8381,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -8141,6 +8419,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -8199,6 +8478,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -8236,6 +8516,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -8273,6 +8554,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -8310,6 +8592,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -8368,6 +8651,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": true,
@@ -8426,6 +8710,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -8463,6 +8748,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -8500,6 +8786,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -8558,6 +8845,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -8616,6 +8904,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -8653,6 +8942,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -8690,6 +8980,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -8748,6 +9039,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -8806,6 +9098,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -8864,6 +9157,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -8901,6 +9195,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -8938,6 +9233,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -8996,6 +9292,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -9054,6 +9351,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -9091,6 +9389,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -9128,6 +9427,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -9186,6 +9486,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -9223,6 +9524,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -9281,6 +9583,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -9318,6 +9621,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -9355,6 +9659,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -9392,6 +9697,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -9429,6 +9735,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -9487,6 +9794,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -9524,6 +9832,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -9561,6 +9870,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -9598,6 +9908,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -9635,6 +9946,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -9672,6 +9984,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -9730,6 +10043,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -9767,6 +10081,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -9825,6 +10140,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -9862,6 +10178,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -9899,6 +10216,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -9936,6 +10254,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -9973,6 +10292,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -10010,6 +10330,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10047,6 +10368,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10084,6 +10406,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10121,6 +10444,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10158,6 +10482,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10216,6 +10541,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -10253,6 +10579,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10290,6 +10617,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10348,6 +10676,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10385,6 +10714,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10422,6 +10752,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10459,6 +10790,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10496,6 +10828,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10554,6 +10887,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -10591,6 +10925,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10628,6 +10963,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10665,6 +11001,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10702,6 +11039,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10739,6 +11077,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10776,6 +11115,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10813,6 +11153,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10850,6 +11191,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -10887,6 +11229,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10924,6 +11267,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10961,6 +11305,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -10998,6 +11343,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -11035,6 +11381,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -11072,6 +11419,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -11109,6 +11457,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -11146,6 +11495,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -11183,6 +11533,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -11220,6 +11571,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -11278,6 +11630,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -11315,6 +11668,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -11352,6 +11706,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -11389,6 +11744,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -11426,6 +11782,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -11463,6 +11820,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -11500,6 +11858,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -11537,6 +11896,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -11574,6 +11934,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -11611,6 +11972,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -11648,6 +12010,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -11706,6 +12069,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -11785,6 +12149,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -11864,6 +12229,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -11901,6 +12267,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -11980,6 +12347,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -12038,6 +12406,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -12159,6 +12528,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -12427,6 +12797,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -12653,6 +13024,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"A policy team has approved deletion after seven years, but the optional rationale memo about one legacy archive is not drafted. Legal has already approved the rule, ",
+        "local": "User has answered your questions: \"A policy team has approved deletion after seven years, but the optional rationale memo about one legacy archive is not drafted. Legal has already approved the rule, "
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -12711,6 +13087,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"An accessibility audit has severity, affected component, and remediation owner recorded. A long optional annotation about color contrast could improve later analysis",
+        "local": "User has answered your questions: \"An accessibility audit has severity, affected component, and remediation owner recorded. A long optional annotation about color contrast could improve later analysis"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -12748,6 +13129,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"A release has passed all required gates, but an optional internal communication note about a non-user-facing logging change is unfinished. The note can be written by",
+        "local": "User has answered your questions: \"A release has passed all required gates, but an optional internal communication note about a non-user-facing logging change is unfinished. The note can be written by"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -12785,6 +13171,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"A cost estimate confirms the approved budget envelope, while an optional breakdown by unused reservation is not yet calculated. The calculation requires a separate e",
+        "local": "User has answered your questions: \"A cost estimate confirms the approved budget envelope, while an optional breakdown by unused reservation is not yet calculated. The calculation requires a separate e"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -12843,6 +13234,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"The threat review has an owner, disposition, and due date for every finding. An optional prose note summarizing one low-severity control is blank, and the security b",
+        "local": "User has answered your questions: \"The threat review has an owner, disposition, and due date for every finding. An optional prose note summarizing one low-severity control is blank, and the security b"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -12880,6 +13276,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Column-level lineage is already captured in machine-readable metadata. A long optional narrative about one deprecated source remains unwritten and can be added durin",
+        "local": "User has answered your questions: \"Column-level lineage is already captured in machine-readable metadata. A long optional narrative about one deprecated source remains unwritten and can be added durin"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -12917,6 +13318,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"All direct dependencies have owners, versions, and licenses, while an optional note comparing two transitive packages is blank. The package scan will add the compari",
+        "local": "User has answered your questions: \"All direct dependencies have owners, versions, and licenses, while an optional note comparing two transitive packages is blank. The package scan will add the compari"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -12954,6 +13360,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"The benchmark report has pass rates, percentiles, sample sizes, hardware identifiers, and comparison thresholds recorded. An optional appendix containing raw timing ",
+        "local": "User has answered your questions: \"The benchmark report has pass rates, percentiles, sample sizes, hardware identifiers, and comparison thresholds recorded. An optional appendix containing raw timing "
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -13012,6 +13423,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"A rollback runbook names scripts, owners, expected duration, and data checks. An optional note describing what was observed during the last partial rehearsal is miss",
+        "local": "User has answered your questions: \"A rollback runbook names scripts, owners, expected duration, and data checks. An optional note describing what was observed during the last partial rehearsal is miss"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -13049,6 +13465,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"A new field has a type, owner, classification, nullability rule, and example value in the structured dictionary. An optional glossary paragraph explaining historical",
+        "local": "User has answered your questions: \"A new field has a type, owner, classification, nullability rule, and example value in the structured dictionary. An optional glossary paragraph explaining historical"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -13086,6 +13507,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"The integration contract defines endpoints, authentication mechanism name, rate limits, errors, and retry rules without exposing any secret value. An optional JavaSc",
+        "local": "User has answered your questions: \"The integration contract defines endpoints, authentication mechanism name, rate limits, errors, and retry rules without exposing any secret value. An optional JavaSc"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -13123,6 +13549,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"A sustainability report has measured energy, water, and transport figures approved by the operations controller. An optional narrative about a supplier estimate rema",
+        "local": "User has answered your questions: \"A sustainability report has measured energy, water, and transport figures approved by the operations controller. An optional narrative about a supplier estimate rema"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -13181,6 +13612,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"The role matrix records every added and removed permission, affected group, approver, and expiration. An optional prose explanation of one inherited permission is bl",
+        "local": "User has answered your questions: \"The role matrix records every added and removed permission, affected group, approver, and expiration. An optional prose explanation of one inherited permission is bl"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -13218,6 +13654,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"The incident record includes a commander, technical lead, communications lead, and handoff times. An optional note explaining why the communications lead changed mid",
+        "local": "User has answered your questions: \"The incident record includes a commander, technical lead, communications lead, and handoff times. An optional note explaining why the communications lead changed mid"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -13255,6 +13696,11 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": false,
+      "envelopeDifference": {
+        "line": 1,
+        "reference": "User has answered your questions: \"Contributing engineers have recorded impact, contributing factors, detection gaps, and corrective-action owners. An optional minute-by-minute narrative is still bein",
+        "local": "User has answered your questions: \"Contributing engineers have recorded impact, contributing factors, detection gaps, and corrective-action owners. An optional minute-by-minute narrative is still bein"
+      },
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -13334,6 +13780,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -13413,6 +13860,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": true,
@@ -13492,6 +13940,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -13550,6 +13999,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -13629,6 +14079,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -13708,6 +14159,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "cancelled",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -14228,6 +14680,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -14265,6 +14718,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -14302,6 +14756,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -14339,6 +14794,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -14376,6 +14832,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -14413,6 +14870,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -14450,6 +14908,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -14487,6 +14946,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -14524,6 +14984,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -14561,6 +15022,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -14598,6 +15060,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -14635,6 +15098,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -14672,6 +15136,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -14709,6 +15174,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -14746,6 +15212,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -14783,6 +15250,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -14820,6 +15288,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -14857,6 +15326,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -14894,6 +15364,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -14931,6 +15402,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -14968,6 +15440,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15005,6 +15478,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15042,6 +15516,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15079,6 +15554,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -15116,6 +15592,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15153,6 +15630,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15190,6 +15668,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15227,6 +15706,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15264,6 +15744,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15301,6 +15782,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -15338,6 +15820,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15375,6 +15858,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15412,6 +15896,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15449,6 +15934,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15486,6 +15972,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15523,6 +16010,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15560,6 +16048,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -15597,6 +16086,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15634,6 +16124,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15671,6 +16162,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15708,6 +16200,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15745,6 +16238,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15782,6 +16276,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -15819,6 +16314,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15856,6 +16352,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15893,6 +16390,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -15930,6 +16428,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -15967,6 +16466,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -16004,6 +16504,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16041,6 +16542,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -16078,6 +16580,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16115,6 +16618,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16152,6 +16656,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16189,6 +16694,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16226,6 +16732,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16263,6 +16770,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16300,6 +16808,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -16337,6 +16846,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16374,6 +16884,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16411,6 +16922,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16448,6 +16960,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16485,6 +16998,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16522,6 +17036,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -16559,6 +17074,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16596,6 +17112,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16633,6 +17150,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16670,6 +17188,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16707,6 +17226,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16744,6 +17264,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -16781,6 +17302,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16818,6 +17340,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16855,6 +17378,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16892,6 +17416,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -16929,6 +17454,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -16966,6 +17492,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -17003,6 +17530,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -17040,6 +17568,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -17077,6 +17606,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -17114,6 +17644,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -17151,6 +17682,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -17188,6 +17720,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -17225,6 +17758,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -17262,6 +17796,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -17299,6 +17834,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -17336,6 +17872,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -17373,6 +17910,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -17410,6 +17948,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -17447,6 +17986,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -17484,6 +18024,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -17521,6 +18062,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -17558,6 +18100,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -17595,6 +18138,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -17632,6 +18176,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -17669,6 +18214,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -17706,6 +18252,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -17743,6 +18290,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -17780,6 +18328,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -17817,6 +18366,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": false,
         "previews": false,
@@ -17854,6 +18404,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
@@ -17891,6 +18442,7 @@
       "referenceValidation": "accepted",
       "referenceStatus": "completed",
       "envelopeMatch": true,
+      "envelopeDifference": null,
       "referenceCapabilities": {
         "multiSelect": true,
         "previews": false,
