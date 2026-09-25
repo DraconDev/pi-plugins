@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { copyFile, link, mkdir, readFile, stat } from "node:fs/promises";
+import { copyFile, link, mkdir, readFile, rename, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { generateReviewImages } from "../../src/image-generator.ts";
@@ -185,7 +185,14 @@ export async function runGeneration(corpus, {
   let cached = 0;
   let cursor = 0;
 
-  const flush = () => writeJson(cachePath, { schemaVersion: SCHEMA_VERSION, kind: "benchmark-image-manifest", provider: "agnes", planned: planned.length, images, failures });
+/** Atomic cache write: a reader (or a second process) never sees a half file. */
+async function flush() {
+  const manifest = { schemaVersion: SCHEMA_VERSION, kind: "benchmark-image-manifest", provider: "agnes", planned: planned.length, images, failures };
+  assertNoCredentials(manifest);
+  const temporary = `${cachePath}.tmp`;
+  await writeJson(temporary, manifest);
+  await rename(temporary, cachePath);
+}
 
   const worker = async () => {
     while (cursor < planned.length) {
@@ -246,7 +253,7 @@ export async function runGeneration(corpus, {
 
   const manifest = { schemaVersion: SCHEMA_VERSION, kind: "benchmark-image-manifest", provider: "agnes", planned: planned.length, images, failures };
   assertNoCredentials(manifest);
-  await writeJson(cachePath, manifest);
+  await flush();
   return { manifest, generated, cached, failures: failures.length, planned: planned.length };
 }
 
