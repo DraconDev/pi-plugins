@@ -351,12 +351,15 @@ try {
       }
       const before = seenKeys.filter((key) => key.includes("[B")).length;
       requestKey("\u001b[B", `${label}: move down`);
-      await waitFor(() => seenKeys.filter((key) => key.includes("[B")).length > before, `${label}-down-${attempt}`, 6000);
+      // The terminal is still flushing megabytes of inline image data, so key
+      // delivery is asserted generously rather than on a tight timer.
+      await waitFor(() => seenKeys.filter((key) => key.includes("[B")).length > before, `${label}-down-${attempt}`, 25000);
       await tick(200);
     }
     fail(label, new Error(`never reached the "${rowText}" row; active row is ${activeRow()}`));
   };
   // 1. Answer the image-backed stage with the real keyboard.
+  await tick(1500);
   await moveTo("Dense treatment", "second-option");
   const beforeSelect = seenKeys.length;
   requestKey("\r", "select the treatment");
