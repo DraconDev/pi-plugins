@@ -15,7 +15,7 @@ import { readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { ProcessTerminal, setCapabilities, setKeybindings, TuiMainScreen } from "@earendil-works/pi-tui";
+import { getCapabilities, ProcessTerminal, setCapabilities, setKeybindings, TuiMainScreen } from "@earendil-works/pi-tui";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "../..");
@@ -71,7 +71,20 @@ let transcript = "";
 // capability is pinned to the Kitty protocol. This exercises the real inline
 // image path and lets the smoke assert that image bytes really reached the
 // terminal, instead of silently accepting a text placeholder.
-setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+/**
+ * The extension is loaded through jiti, which resolves `@earendil-works/pi-tui`
+ * to the copy nested under the coding agent. A pseudo-terminal cannot answer the
+ * image-protocol probe, so the capability is pinned on *every* copy in play.
+ * This is the same inline-image code path a real terminal would take, and the
+ * smoke below asserts the image bytes actually reach the terminal.
+ */
+const CAPABILITY_OVERRIDE = { images: "kitty", trueColor: true, hyperlinks: false };
+const tuiModules = [await import("@earendil-works/pi-tui")];
+try {
+  tuiModules.push(await import("/home/dracon/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist/index.js"));
+} catch { /* the nested copy is optional */ }
+for (const module of tuiModules) module.setCapabilities(CAPABILITY_OVERRIDE);
+const pinCapabilities = () => { for (const module of tuiModules) module.setCapabilities(CAPABILITY_OVERRIDE); };
 const terminal = new ProcessTerminal();
 const tui = new TuiMainScreen(terminal);
 const originalWrite = terminal.write.bind(terminal);
@@ -224,7 +237,8 @@ try {
   if (!saw("Live TTY smoke")) fail("render", new Error("the review title never reached the terminal"));
   if (!saw("Pick the visual treatment")) fail("render", new Error("the stage prompt never reached the terminal"));
   if (!saw("Airy treatment")) fail("image", new Error("the image-backed option never reached the terminal"));
-  record("render", { bytes: transcript.length, columns: terminal.columns, imageProtocol: "kitty" });
+  const caps = tuiModules.map((module) => module.getCapabilities());
+  record("render", { bytes: transcript.length, columns: terminal.columns, capabilities: caps, imageProtocol: caps.map((item) => item.images) });
 
   let hiddenFrames = 0;
   const watcher = setInterval(() => { if (overlayHandle?.isHidden()) hiddenFrames += 1; }, 60);
@@ -240,6 +254,7 @@ try {
   };
   const heartbeat = setInterval(() => {
     evidence.observed.frameImage = /\u001b_G|\u001b_@/.test(frame());
+    evidence.observed.wizard = wizard ? { imageMode: wizard.imageMode, loaded: wizard.loadedImages?.size ?? null, keys: [...(wizard.loadedImages?.keys?.() ?? [])], selected: wizard.selectedIndex, rowKind: wizard.currentRows?.()?.[wizard.selectedIndex]?.kind ?? null, stageId: wizard.currentStage?.()?.id ?? null } : null;
     evidence.observed.frameHasPreview = frame().includes("Preview:");
     evidence.observed.keys = seenKeys;
     evidence.observed.overlay = overlayHandle ? { focused: overlayHandle.isFocused(), hidden: overlayHandle.isHidden() } : null;
