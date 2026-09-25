@@ -420,17 +420,20 @@ try {
   // already says "Enter to submit" while the editor owns the terminal, so the
   // reliable signal that the editor has exited is Pi's own temp answer file
   // being removed after the editor process returns.
-  const editorTempFile = () => readdirSync("/tmp").some((entry) => entry.startsWith("pi-visual-review-")
-    && existsSync(join("/tmp", entry, "answer.md")));
+  // Only the directory this launch created matters: stale directories from
+  // earlier runs must not make the editor look permanently open.
+  const editorDirsBefore = new Set(readdirSync("/tmp").filter((entry) => entry.startsWith("pi-visual-review-")));
+  const liveEditorDir = () => readdirSync("/tmp").find((entry) => entry.startsWith("pi-visual-review-")
+    && !editorDirsBefore.has(entry) && existsSync(join("/tmp", entry, "answer.md")));
   requestKey("ctrl+q", "ask the editor to quit");
   // The editor may ask to save its buffer; answer the prompt the way a user
   // would, then wait for the editor process itself to return.
-  await waitFor(() => /before closing|save changes/i.test(tailText()) || !editorTempFile(), "editor-save-prompt", 30000);
-  if (editorTempFile()) {
+  await waitFor(() => /before closing|save changes/i.test(tailText()) || !liveEditorDir(), "editor-save-prompt", 30000);
+  if (liveEditorDir()) {
     requestKey("n", "discard the editor buffer");
-    await tick(500);
+    await tick(800);
   }
-  await waitFor(() => !editorTempFile(), "editor-exited", 40000);
+  await waitFor(() => !liveEditorDir(), "editor-exited", 40000);
   record("editor-closed", { editorLaunched: true, editorProcessExited: true });
   await waitFor(() => painted("Enter to submit"), "back-from-editor", 20000);
   record("tui-resumed", { inputModeRestored: true });
