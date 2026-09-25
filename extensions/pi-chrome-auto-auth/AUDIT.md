@@ -14,7 +14,7 @@
 |---|---|---|---|
 | **pi-chrome-auto-auth** | **NO** (in-memory only — see section 1) | `pi-chrome` 0.15.46 only persists auth across `/reload`, not across fresh pi processes | **KEEP** — solves the cross-process gap |
 | **pi-auto-review** | **YES** (overlapping) | `pi-review-loop`, `pi-until-done`, `@zephyrdeng/pi-review`, `grok-build-pi` | **KEEP** — only one with TODO.md-driven convergence + auto-fix loop; closest vendor (`pi-review-loop`) is read-only / no convergence guard |
-| **pi-global-context-limit** | **PARTIAL** | `pi-lean-ctx`, `context-mode`, `@ooples/token-optimizer-mcp` | **KEEP** — different problem (single cap across providers vs token-saving routing) |
+| **pi-context-compaction-cap** | **PARTIAL** | `pi-lean-ctx`, `context-mode`, `@ooples/token-optimizer-mcp` | **KEEP** — different problem (single cap across providers vs token-saving routing) |
 | **pi-plugin-list-selector-modlist** | **NO** | None found on npm or pi.dev with our exact "named profile, footer chip, drift detection" combination | **KEEP** — unique value |
 | **pi-retry-on-error** | **YES** (overlapping) | `@narumitw/pi-retry` | **KEEP** — different focus (generic transient error retry vs narumitw's empty-detail/websocket-limit/stalled errors) |
 
@@ -99,7 +99,7 @@ If pi-chrome added disk persistence — e.g. wrote auth to `~/.pi/agent/chrome-a
 
 ---
 
-## 3. `pi-global-context-limit` (v1.1.0)
+## 3. `pi-context-compaction-cap` (v1.1.0)
 
 **What it does:** Caps every model's `contextWindow` to a single configurable number via `globalContextLimit` setting. Works across native providers (via in-memory mutation), the `models.json` user store (via `modelOverrides`), and extension-registered providers (auto-scans `pi.registerProvider` calls and writes overrides). Re-applies on `model_select` and `before_provider_request`.
 
@@ -116,7 +116,7 @@ If pi-chrome added disk persistence — e.g. wrote auth to `~/.pi/agent/chrome-a
 - Does not unify cap across providers (their model is "route reads through cache", not "set a single cap")
 - Does not write `modelOverrides` to `models.json`
 - Does not handle extension-registered providers that bypass the user store
-- Does not surface an `/context-limit` runtime override command
+- Does not surface an `/context-compaction-cap` runtime override command
 
 **What they do that we don't:**
 - Token-saving on read traffic (up to 98%)
@@ -181,7 +181,7 @@ From `~/.pi/agent/npm/node_modules/pi-*` (not in our active settings.json packag
 | `pi-review-loop` | `pi-auto-review` (read-only variant) |
 | `@lnilluv/pi-ralph-loop` | ralph-loop trigger for `pi-auto-review.onRalphDone` |
 | `pi-until-done` | alternative loop driver |
-| `pi-continue` | complementary to `pi-global-context-limit` (mid-turn compaction) |
+| `pi-continue` | complementary to `pi-context-compaction-cap` (mid-turn compaction) |
 | `pi-invisible-continue` | alternative loop driver |
 
 Worth a follow-up: enable one of the ralph-loop drivers if `pi-auto-review.onRalphDone` isn't firing as expected. `@lnilluv/pi-ralph-loop` 2.0.0 has mid-turn supervision which is closer to a Ralph-Wiggum loop than a strict goal loop.
@@ -230,7 +230,7 @@ undefined
 |---|---|---|---|
 | Browser automation | `pi-chrome` 0.15.46, `pi-chrome-devtools`, `pi-agent-browser-native`, `pi-shazam`, `pi-readseek`, `grok-build-pi` | `pi-chrome-auto-auth` | Local solves the **cross-process auth persistence** gap; vendor only persists in-memory |
 | Project review loop | `pi-review-loop`, `@zephyrdeng/pi-review`, `pi-until-done`, `grok-build-pi` | `pi-auto-review` | Local is strictly more capable (TODO.md + divergence) |
-| Context window cap | `pi-lean-ctx`, `context-mode`, `@ooples/token-optimizer-mcp` | `pi-global-context-limit` | Complementary, not overlapping |
+| Context window cap | `pi-lean-ctx`, `context-mode`, `@ooples/token-optimizer-mcp` | `pi-context-compaction-cap` | Complementary, not overlapping |
 | Profile / modlist | (none found) | `pi-plugin-list-selector-modlist` | Local is unique |
 | LLM error retry | `@narumitw/pi-retry` | `pi-retry-on-error` | Complementary (different trigger scope) |
 | Goal/loop driver | `pi-goal-list-loop-audit` (us), `pi-goal-x`, `pi-until-done`, `@narumitw/pi-goal`, `pi-dgoal`, `pi-codex-goal`, `@lnilluv/pi-ralph-loop`, `pi-ralph`, `@jc4649/pi-ralph`, `pi-autoresearch` | (none locally) | We already consume `pi-goal-list-loop-audit` |
@@ -245,14 +245,14 @@ undefined
 
 ### Optional follow-up
 2. **Try `@lnilluv/pi-ralph-loop`** as the Ralph-loop driver that triggers `pi-auto-review.onRalphDone` — currently that hook may not fire if no Ralph loop is in play.
-3. **Enable `pi-lean-ctx`** alongside `pi-global-context-limit` for additional token savings on read traffic (orthogonal).
+3. **Enable `pi-lean-ctx`** alongside `pi-context-compaction-cap` for additional token savings on read traffic (orthogonal).
 4. **Decide between `pi-retry-on-error` and `@narumitw/pi-retry`** — if Codex-style websocket-limit errors are common, add narumitw; otherwise ours is sufficient. Could install both for full coverage.
 5. **(Long-term) File a feature request with `pi-chrome`** to add disk persistence for chrome auth (e.g. `~/.pi/agent/chrome-auth.json` or `settings.json` `chromeAuth` field). If accepted, our extension could be removed.
 
 ### Do NOT
 - Do not remove `pi-chrome-auto-auth` — `pi-chrome`'s `/chrome authorize indefinite` only persists in-memory (across `/reload`), not across fresh pi processes (verified empirically).
 - Do not replace `pi-auto-review` with `pi-review-loop` — `pi-review-loop` has no TODO.md convention, no convergence guard, no bounded fix loop, no per-trigger configuration.
-- Do not replace `pi-global-context-limit` with `pi-lean-ctx` — different problem (cap vs save-on-read).
+- Do not replace `pi-context-compaction-cap` with `pi-lean-ctx` — different problem (cap vs save-on-read).
 - Do not replace `pi-plugin-list-selector-modlist` with anything — no vendor alternative exists.
 - Do not remove `pi-retry-on-error` in favor of `@narumitw/pi-retry` — different trigger scope (generic vs specific).
 

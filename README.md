@@ -14,7 +14,7 @@ pi-plugins/
 │   ├── pi-chrome-auto-auth/             auto-authorizes pi-chrome for the session lifetime
 │   ├── pi-plugin-list-selector-modlist/  named profiles for active tools and extension packages
 │   ├── pi-auto-review/                  automated project review — scans, writes TODO.md, auto-fixes
-│   ├── pi-global-context-limit/         caps every model's contextWindow to one configurable limit
+│   ├── pi-context-compaction-cap/       explicit, opt-in Pi model compaction cap
 │   ├── pi-session-retention/             quarantines stale and high-churn loadable Pi sessions
 │   └── pi-retry-on-error/               continuously retries assistant/provider errors with backoff
 └── skills/
@@ -68,23 +68,19 @@ continuous with exponential backoff; optional retry-count and duration limits ar
 - Registered in `packages` as `../../Dev/pi-plugins/extensions/pi-retry-on-error`.
 - See [extensions/pi-retry-on-error/README.md](./extensions/pi-retry-on-error/README.md) for details.
 
-### `extensions/pi-global-context-limit`
+### `extensions/pi-context-compaction-cap`
 
-Caps every model's `contextWindow` to a single configurable limit regardless of provider — native,
-`models-store.json`, or extension-registered via `pi.registerProvider`. Provides a `globalContextLimit`
-setting in `~/.pi/agent/settings.json` and `/context-limit [N|rebuild|clear]` slash commands for
-runtime control.
+An explicit, opt-in Pi model compaction cap. When configured, it caps every model composed through
+Pi's public `ModelRegistry` — native, `models-store.json`, extension-registered, refreshed, or frozen
+— while preserving user-authored model fields. Pi remains the threshold detector, compactor, cut-point
+selector, summarizer, persistence layer, and retry owner.
 
-The tricky bit: pi v0.80.8+ deep-freezes models registered via `models.json` / `models-store.json`,
-AND each extension gets its own `pi` object with its own pre-bind `registerProvider` stub — so a
-monkey-patch on one extension's `pi` never sees another extension's `registerProvider` call. The
-workaround this extension uses is to write `modelOverrides` into `~/.pi/agent/models.json`,
-applied at compose time in `provider-composer.js`. It auto-scans installed extensions under
-`~/.pi/agent/extensions/` and `~/.pi/agent/npm/node_modules/pi-*/` for `pi.registerProvider` calls
-so no manual editing of `models.json` is needed.
+The package is intentionally not installed or enabled. Add
+`../../Dev/pi-plugins/extensions/pi-context-compaction-cap` to `packages` and set
+`globalContextLimit` only when you want it active. Its `/context-compaction-cap [N|rebuild|clear]`
+command manages the explicit cap and restores prior user values.
 
-- Registered in `packages` as `../../Dev/pi-plugins/extensions/pi-global-context-limit`.
-- See [extensions/pi-global-context-limit/README.md](./extensions/pi-global-context-limit/README.md) for details.
+- See [extensions/pi-context-compaction-cap/README.md](./extensions/pi-context-compaction-cap/README.md) for details.
 
 ### `extensions/pi-session-retention`
 

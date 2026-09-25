@@ -33,7 +33,7 @@ const CONTEXT_OUTPUT_CAPS: ReadonlyArray<{ context: number; output: number }> = 
   { context: 524_288, output: 65_536 },
 ];
 
-export interface ContextLimitPaths {
+export interface ContextCompactionCapPaths {
   agentDir: string;
   modelsPath: string;
   modelsStorePath: string;
@@ -94,13 +94,13 @@ export function getAgentDir(): string {
   return process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
 }
 
-export function getContextLimitPaths(agentDir = getAgentDir()): ContextLimitPaths {
+export function getContextCompactionCapPaths(agentDir = getAgentDir()): ContextCompactionCapPaths {
   return {
     agentDir,
     modelsPath: join(agentDir, "models.json"),
     modelsStorePath: join(agentDir, "models-store.json"),
     settingsPath: join(agentDir, "settings.json"),
-    statePath: join(agentDir, "global-context-limit-state.json"),
+    statePath: join(agentDir, "context-compaction-cap-state.json"),
   };
 }
 
@@ -113,7 +113,7 @@ function positiveInteger(value: unknown): number | undefined {
   return Math.floor(value);
 }
 
-export function readGlobalContextLimit(paths = getContextLimitPaths()): number | undefined {
+export function readContextCompactionCap(paths = getContextCompactionCapPaths()): number | undefined {
   if (!existsSync(paths.settingsPath)) return undefined;
   try {
     const settings: unknown = JSON.parse(readFileSync(paths.settingsPath, "utf8"));
@@ -165,7 +165,7 @@ export function buildDesiredOverrides(
   return desired;
 }
 
-function readModelsJson(paths: ContextLimitPaths): { value: ModelsJsonShape; raw?: string } {
+function readModelsJson(paths: ContextCompactionCapPaths): { value: ModelsJsonShape; raw?: string } {
   if (!existsSync(paths.modelsPath)) return { value: { providers: {} } };
   const raw = readFileSync(paths.modelsPath, "utf8");
   const parsed: unknown = JSON.parse(raw);
@@ -184,11 +184,11 @@ function readModelsJson(paths: ContextLimitPaths): { value: ModelsJsonShape; raw
   return { value: parsed as unknown as ModelsJsonShape, raw };
 }
 
-function readState(paths: ContextLimitPaths): ManageStateShape {
+function readState(paths: ContextCompactionCapPaths): ManageStateShape {
   if (!existsSync(paths.statePath)) return { version: STATE_VERSION, entries: {} };
   const parsed: unknown = JSON.parse(readFileSync(paths.statePath, "utf8"));
   if (!isRecord(parsed) || parsed.version !== STATE_VERSION || !isRecord(parsed.entries)) {
-    throw new Error("global-context-limit-state.json is invalid");
+    throw new Error("context-compaction-cap-state.json is invalid");
   }
   return parsed as unknown as ManageStateShape;
 }
@@ -280,7 +280,7 @@ function removeFileIfPresent(path: string): void {
 export function rebuildModelOverrides(
   limit: number,
   registryModels: readonly ModelLike[],
-  paths = getContextLimitPaths(),
+  paths = getContextCompactionCapPaths(),
 ): RebuildResult {
   let models: ModelsJsonShape;
   let rawModels: string | undefined;
@@ -342,7 +342,7 @@ export function rebuildModelOverrides(
   return { scanned: visibleModels.length, written, skipped, changed: true };
 }
 
-export function clearManagedModelOverrides(paths = getContextLimitPaths()): RebuildResult {
+export function clearManagedModelOverrides(paths = getContextCompactionCapPaths()): RebuildResult {
   let models: ModelsJsonShape;
   let rawModels: string | undefined;
   let state: ManageStateShape;
@@ -377,7 +377,7 @@ export function clearManagedModelOverrides(paths = getContextLimitPaths()): Rebu
   return { scanned: Object.keys(state.entries).length, written: restored, skipped: 0, changed: true };
 }
 
-function updateSettingsLimit(limit: number | undefined, paths: ContextLimitPaths): string | undefined {
+function updateSettingsLimit(limit: number | undefined, paths: ContextCompactionCapPaths): string | undefined {
   let settings: JsonRecord = {};
   if (existsSync(paths.settingsPath)) {
     try {
@@ -511,19 +511,19 @@ interface HostContext {
   ui: { notify(message: string, level?: string): void };
 }
 
-export default function globalContextLimitExtension(pi: ExtensionAPI): void {
-  const paths = getContextLimitPaths();
-  let activeLimit = readGlobalContextLimit(paths);
+export default function contextCompactionCapExtension(pi: ExtensionAPI): void {
+  const paths = getContextCompactionCapPaths();
+  let activeLimit = readContextCompactionCap(paths);
   let lastRebuild: RebuildResult | undefined;
 
   const ensureRegistryAndModel = async (ctx: HostContext, persist: boolean): Promise<void> => {
-    activeLimit = readGlobalContextLimit(paths) ?? activeLimit;
+    activeLimit = readContextCompactionCap(paths) ?? activeLimit;
     if (activeLimit === undefined) return;
     const current = ctx.model as ModelLike | undefined;
 
     if (persist) lastRebuild = rebuildModelOverrides(activeLimit, ctx.modelRegistry.getAll(), paths);
     if (lastRebuild?.error) {
-      ctx.ui.notify(`Global context limit could not be applied: ${lastRebuild.error}`, "error");
+      ctx.ui.notify(`Context compaction cap could not be applied: ${lastRebuild.error}`, "error");
       return;
     }
 
@@ -538,20 +538,20 @@ export default function globalContextLimitExtension(pi: ExtensionAPI): void {
     }
   };
 
-  // Always installed: /context-limit can enable the cap after extension load.
+  // Explicitly installed: /context-compaction-cap can enable the cap after extension load.
   pi.on("before_provider_request", async (event, ctx) => {
-    activeLimit = readGlobalContextLimit(paths) ?? activeLimit;
+    activeLimit = readContextCompactionCap(paths) ?? activeLimit;
     if (activeLimit === undefined) return;
     return capProviderPayload(event.payload, ctx.model, activeLimit);
   });
 
   pi.on("session_start", async (_event, ctx) => {
-    activeLimit = readGlobalContextLimit(paths);
+    activeLimit = readContextCompactionCap(paths);
     await ensureRegistryAndModel(ctx as unknown as HostContext, activeLimit !== undefined);
     if (activeLimit !== undefined) {
       const detail = lastRebuild?.error ? ` (${lastRebuild.error})` : "";
       ctx.ui.notify(
-        `Global context limit: ${activeLimit.toLocaleString()} tokens${detail}. Pi's normal compactor remains active.`,
+        `Context compaction cap: ${activeLimit.toLocaleString()} tokens${detail}. Pi's normal compactor remains active.`,
         lastRebuild?.error ? "error" : "info",
       );
     }
@@ -568,19 +568,19 @@ export default function globalContextLimitExtension(pi: ExtensionAPI): void {
     await ensureRegistryAndModel(ctx as unknown as HostContext, true);
   });
 
-  pi.registerCommand("context-limit", {
-    description: "Show, set, rebuild, or clear the global model context limit",
+  pi.registerCommand("context-compaction-cap", {
+    description: "Show, set, rebuild, or clear the Pi model context compaction cap",
     handler: async (args, commandCtx) => {
       const ctx = commandCtx as unknown as HostContext;
       const value = args.trim();
       if (!value) {
-        const current = readGlobalContextLimit(paths);
-        commandCtx.ui.notify(current ? `Global context limit: ${current.toLocaleString()} tokens` : "No global context limit set", "info");
+        const current = readContextCompactionCap(paths);
+        commandCtx.ui.notify(current ? `Context compaction cap: ${current.toLocaleString()} tokens` : "No context compaction cap set", "info");
         return;
       }
 
       if (value === "rebuild" || value === "clear") {
-        activeLimit = readGlobalContextLimit(paths);
+        activeLimit = readContextCompactionCap(paths);
         if (value === "clear") {
           const settingsError = updateSettingsLimit(undefined, paths);
           if (settingsError) {
@@ -592,11 +592,11 @@ export default function globalContextLimitExtension(pi: ExtensionAPI): void {
         if (activeLimit === undefined) {
           const result = clearManagedModelOverrides(paths);
           if (result.error) commandCtx.ui.notify(`Could not clear managed overrides: ${result.error}`, "error");
-          else commandCtx.ui.notify("Global context limit cleared. User-authored model overrides were preserved.", "info");
+          else commandCtx.ui.notify("Context compaction cap cleared. User-authored model overrides were preserved.", "info");
         } else {
           lastRebuild = rebuildModelOverrides(activeLimit, ctx.modelRegistry.getAll(), paths);
           if (lastRebuild.error) commandCtx.ui.notify(`Rebuild failed: ${lastRebuild.error}`, "error");
-          else commandCtx.ui.notify(`Global context limit: ${activeLimit.toLocaleString()}; ${lastRebuild.written} model override(s) updated.`, "info");
+          else commandCtx.ui.notify(`Context compaction cap: ${activeLimit.toLocaleString()}; ${lastRebuild.written} model override(s) updated.`, "info");
         }
         try {
           await ctx.modelRegistry.refresh({ allowNetwork: false });
@@ -627,7 +627,7 @@ export default function globalContextLimitExtension(pi: ExtensionAPI): void {
         return;
       }
       await ensureRegistryAndModel(ctx, false);
-      commandCtx.ui.notify(`Global context limit set to ${limit.toLocaleString()} tokens; ${lastRebuild.written} model override(s) updated.`, "info");
+      commandCtx.ui.notify(`Context compaction cap set to ${limit.toLocaleString()} tokens; ${lastRebuild.written} model override(s) updated.`, "info");
     },
   });
 }

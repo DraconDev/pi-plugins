@@ -6,19 +6,19 @@ import { test } from "node:test";
 
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
-import globalContextLimitExtension, {
+import contextCompactionCapExtension, {
   MIN_EFFECTIVE_OUTPUT_TOKENS,
   buildDesiredOverrides,
   capProviderPayload,
   clearManagedModelOverrides,
-  getContextLimitPaths,
+  getContextCompactionCapPaths,
   modelOverrideFor,
   rebuildModelOverrides,
   type ModelLike,
-} from "../extensions/global-context-limit.ts";
+} from "../extensions/context-compaction-cap.ts";
 
 function tempAgentDir(): string {
-  return mkdtempSync(join(tmpdir(), "global-context-limit-test-"));
+  return mkdtempSync(join(tmpdir(), "context-compaction-cap-test-"));
 }
 
 function readJson(path: string): any {
@@ -64,7 +64,7 @@ test("model overrides cap every visible registry source without mutating frozen 
 test("rebuild composes native, user-store, and extension-registered paths while preserving user config", () => {
   const agentDir = tempAgentDir();
   try {
-    const paths = getContextLimitPaths(agentDir);
+    const paths = getContextCompactionCapPaths(agentDir);
     writeFileSync(paths.settingsPath, JSON.stringify({ globalContextLimit: 200_000 }));
     writeFileSync(paths.modelsStorePath, JSON.stringify({
       providers: {
@@ -183,7 +183,7 @@ test("session_start refreshes a frozen current model and selects the capped repl
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = agentDir;
   try {
-    const paths = getContextLimitPaths(agentDir);
+    const paths = getContextCompactionCapPaths(agentDir);
     writeFileSync(paths.settingsPath, JSON.stringify({ globalContextLimit: 200_000 }));
     const current = Object.freeze(model("extension-registered", "frozen", 1_048_576, 524_288));
     const replacement = model("extension-registered", "frozen", 200_000, 32_768);
@@ -194,7 +194,7 @@ test("session_start refreshes a frozen current model and selects the capped repl
       registerCommand() {},
       async setModel(value: unknown) { selected.push(value); return true; },
     } as any;
-    globalContextLimitExtension(pi);
+    contextCompactionCapExtension(pi);
     const ctx = {
       model: current,
       modelRegistry: {
@@ -220,7 +220,7 @@ test("session_start refreshes a frozen current model and selects the capped repl
 test("Pi ModelRuntime composes native, user-store, and extension-registered models through managed overrides", async () => {
   const agentDir = tempAgentDir();
   try {
-    const paths = getContextLimitPaths(agentDir);
+    const paths = getContextCompactionCapPaths(agentDir);
     writeFileSync(paths.settingsPath, JSON.stringify({ globalContextLimit: 200_000 }));
     writeFileSync(paths.modelsStorePath, JSON.stringify({
       "user-store": { models: [{ ...runtimeModel("large", 400_000, 64_000), provider: "user-store" }] },

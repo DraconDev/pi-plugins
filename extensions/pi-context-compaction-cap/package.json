@@ -1,9 +1,10 @@
 {
-  "name": "pi-global-context-limit",
+  "name": "pi-context-compaction-cap",
   "version": "1.1.0",
-  "description": "Requests Pi compaction at a configurable soft token/percentage boundary without changing model limits",
+  "description": "Durable, explicit Pi compaction cap with usable near-cap output headroom",
   "keywords": [
     "pi-package",
+    "context-compaction",
     "context-limit",
     "context-window",
     "compaction"
@@ -18,7 +19,7 @@
   },
   "pi": {
     "extensions": [
-      "./extensions/global-context-limit.ts"
+      "./extensions/context-compaction-cap.ts"
     ]
   },
   "peerDependencies": {
@@ -32,7 +33,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/dracon/pi-plugins",
-    "directory": "extensions/pi-global-context-limit"
+    "directory": "extensions/pi-context-compaction-cap"
   },
   "author": "Dracon"
 }
