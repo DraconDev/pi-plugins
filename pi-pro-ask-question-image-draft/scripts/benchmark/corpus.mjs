@@ -183,12 +183,13 @@ function validateVisualPrompt(value, label) {
   if (!Array.isArray(value.comparisonRubric) || value.comparisonRubric.some((item) => typeof item !== "string")) throw new BenchmarkError("invalid_shape", `${label}.comparisonRubric must be a string array.`);
 }
 
-function validateCanonicalInput(value, label) {
+function validateCanonicalInput(value, label, allowInvalid = false) {
   requireRecord(value, label);
   let normalized;
   try {
     normalized = normalizeReview(JSON.parse(JSON.stringify(value)), 1);
   } catch (error) {
+    if (allowInvalid) return null;
     throw new BenchmarkError("invalid_shape", `${label} is not a valid review: ${error.message}`, { cause: error });
   }
   for (const stage of normalized.stages) {
@@ -221,8 +222,11 @@ export function validateCorpus(value) {
     if (!STRATA.includes(scenario.stratum) || !["shared", "local-only"].includes(scenario.comparisonScope)) throw new BenchmarkError("invalid_shape", `${label} has an invalid stratum or comparisonScope.`);
     requireString(scenario.classification, `${label}.classification`);
     actual[scenario.stratum] += 1;
-    const normalizedInput = validateCanonicalInput(scenario.canonicalInput, `${label}.canonicalInput`);
-    const canonical = stableStringify(normalizedInput);
+    const inputValid = scenario.inputValid !== false;
+    const normalizedInput = validateCanonicalInput(scenario.canonicalInput, `${label}.canonicalInput`, !inputValid);
+    if (inputValid && !normalizedInput) throw new BenchmarkError("invalid_shape", `${label}.canonicalInput could not be normalized.`);
+    if (!inputValid && scenario.expected.outcome !== "invalid") throw new BenchmarkError("invalid_shape", `${label} marks input invalid but expected outcome is not invalid.`);
+    const canonical = stableStringify(normalizedInput ?? scenario.canonicalInput);
     if (canonicalInputs.has(canonical)) throw new BenchmarkError("duplicate_scenario", `Duplicate canonical input at ${scenario.id}.`);
     canonicalInputs.add(canonical);
     const expected = requireRecord(scenario.expected, `${label}.expected`);
@@ -230,6 +234,9 @@ export function validateCorpus(value) {
     requireString(expected.classification, `${label}.expected.classification`);
     if (!Array.isArray(expected.answers)) throw new BenchmarkError("invalid_shape", `${label}.expected.answers must be an array.`);
     expected.answers.forEach((answer, answerIndex) => validateExpectedAnswer(answer, `${label}.expected.answers[${answerIndex}]`));
+    if (scenario.stratum === "adversarial" && scenario.inputValid === false && scenario.comparisonScope !== "local-only") {
+      throw new BenchmarkError("invalid_scope", `${label} invalid input must be local-only.`);
+    }
     validateTerminalConstraints(scenario.terminalConstraints, `${label}.terminalConstraints`);
     validateVisualPrompt(scenario.visualPrompt, `${label}.visualPrompt`);
     if (scenario.stratum === "visual" && !scenario.visualPrompt.required) throw new BenchmarkError("stratum_mismatch", `${scenario.id} must include visual prompt metadata.`);
