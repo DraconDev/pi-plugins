@@ -44,44 +44,36 @@ function normalizedAnswers(answers) {
     questionIndex: answer.questionIndex,
     kind: answer.kind,
     answer: answer.answer ?? null,
-    ...(answer.selected ? { selected: [...answer.selected] } : {}),
+    // A multi-select answer is a set: order carries no meaning, so both sides
+    // are compared in a canonical order.
+    ...(answer.selected ? { selected: [...answer.selected].sort() } : {}),
     ...(answer.notes ? { notes: answer.notes } : {}),
   }));
 }
 
+/**
+ * Both sides are compared through the tool envelope — the answer list the model
+ * actually receives — so the candidate and RPiV are scored on the same contract
+ * regardless of which internal walk produced them.
+ */
 function expectedAnswers(scenario) {
-  if (scenario.canonicalInput.questions) {
-    return scenario.expected.answers.map((answer) => ({
-      questionIndex: answer.questionIndex,
-      kind: answer.kind,
-      answer: answer.answer ?? null,
-      ...(answer.selected ? { selected: [...answer.selected] } : {}),
-    }));
-  }
-  return scenario.expected.answers.map((answer) => {
-    const stageIndex = scenario.canonicalInput.stages?.findIndex((stage) => stage.id === answer.stageId) ?? -1;
+  return (scenario.expected.answers ?? []).map((answer) => {
+    const questionIndex = scenario.canonicalInput.questions
+      ? answer.questionIndex
+      : scenario.canonicalInput.stages?.findIndex((stage) => stage.id === answer.stageId) ?? -1;
     return {
-      questionIndex: stageIndex,
-      stageId: answer.stageId,
+      questionIndex,
       kind: answer.kind,
       answer: answer.answer ?? null,
-      ...(answer.selected ? { selected: [...answer.selected] } : {}),
+      // A multi-select answer is a set: order carries no meaning, so both sides
+      // are compared in a canonical order.
+      ...(answer.selected ? { selected: [...answer.selected].sort() } : {}),
     };
   });
 }
 
-function localAnswers(scenario, local) {
-  // Legacy `questions` inputs are answered through the portable dialog and are
-  // reported in the tool envelope details; staged reviews carry ReviewResult
-  // answers directly.
-  if (scenario.canonicalInput.questions) return normalizedAnswers(local.response?.details?.answers);
-  return (local.result?.answers ?? []).map((answer) => ({
-    questionIndex: answer.stageIndex,
-    stageId: answer.stageId,
-    kind: answer.kind,
-    answer: answer.answer ?? null,
-    ...(answer.kind === "multi" && answer.optionLabels ? { selected: [...answer.optionLabels] } : {}),
-  }));
+function localAnswers(local) {
+  return normalizedAnswers(local.response?.details?.answers);
 }
 
 /**
@@ -102,10 +94,17 @@ function localUi(scenario, review) {
   let pendingCustom;
   const revisionFeedback = scenario.expected.revision?.feedback ?? "Rework this stage for the next round.";
   const selectedMulti = new Set();
+  let pendingDone = false;
+  const controller = new AbortController();
   return {
-    signal: new AbortController().signal,
+    signal: controller.signal,
+    abort: () => controller.abort(),
     ui: {
       async select(title, choices) {
+        // A runaway dialog must not stall the whole corpus run: the timeout
+        // aborts this controller and every scripted interaction re-checks it.
+        if (controller.signal.aborted) throw new BenchmarkError("local_timeout", "scripted dialog aborted");
+        if (pendingDone) { pendingDone = false; stageIndex += 1; selectedMulti.clear(); return DONE_LABEL; }
         if (stageIndex >= stages.length) {
           if (expectedOutcome === "rejected") return REJECT_LABEL;
           return APPROVE_LABEL;
@@ -116,11 +115,12 @@ function localUi(scenario, review) {
         if (expectedOutcome === "rejected" && stageIndex === stages.length - 1) return REJECT_LABEL;
         if (expectedOutcome === "revision" && stageIndex === stages.length - 1) return REVISION_LABEL;
         if (!answer) {
+          if (!stage.required) { stageIndex += 1; selectedMulti.clear(); return SKIP_LABEL; }
+          // No recorded action: drive one legal interaction so the terminal
+          // contract can still be observed. A multi-select stage also needs an
+          // explicit commit, or the dialog would keep asking.
+          if (stage.multiSelect) { pendingDone = true; return stage.options[0].label; }
           stageIndex += 1;
-          selectedMulti.clear();
-          if (!stage.required) return SKIP_LABEL;
-          // No recorded action: drive a legal interaction so the terminal
-          // contract can still be observed.
           return stage.options[0].label;
         }
         if (answer.kind === "custom") {
@@ -160,12 +160,12 @@ function localUi(scenario, review) {
   };
 }
 
-async function withTimeout(promise, ms, code, message) {
+async function withTimeout(promise, ms, code, message, onTimeout) {
   let timer;
   try {
     return await Promise.race([
       promise,
-      new Promise((_, reject) => { timer = setTimeout(() => reject(new BenchmarkError(code, message)), ms); }),
+      new Promise((_, reject) => { timer = setTimeout(() => { onTimeout?.(); reject(new BenchmarkError(code, message)); }, ms); }),
     ]);
   } finally {
     clearTimeout(timer);
@@ -199,7 +199,13 @@ export async function runLocal(scenario, { reason } = {}) {
   const ui = localUi(scenario, review);
   try {
     const execution = runDialogReview(ui, review);
-    const result = await withTimeout(execution, CASE_TIMEOUT_MS, "local_timeout", `Local scripted execution timed out for ${scenario.id}.`);
+    const result = await withTimeout(
+      execution,
+      CASE_TIMEOUT_MS,
+      "local_timeout",
+      `Local scripted execution timed out for ${scenario.id}.`,
+      () => ui.abort(),
+    );
     return { ok: result.status === expectedOutcome, accepted: true, rejectedBeforeUi: false, validation: "accepted", result, response: buildResponse(result, review) };
   } catch (error) {
     return { ok: false, accepted: true, rejectedBeforeUi: false, validation: error instanceof Error ? error.message : String(error), result: null, response: null };
@@ -229,7 +235,7 @@ export function absoluteScore(scenario, local) {
     }
   }
   const expected = expectedAnswers(scenario);
-  const actual = localAnswers(scenario, local);
+  const actual = localAnswers(local);
   if (scenario.expected.oracle === "terminal-only") {
     // The source recorded no answer action, so only the terminal contract and an
     // explicit approval are asserted. A review whose stages are all optional may
@@ -291,13 +297,17 @@ function scoreReference(scenario, reference, localAbsolute) {
   const referenceStatus = details.cancelled ? "cancelled" : (details.answers?.length ? "completed" : "none");
   const referenceEnvelope = result.content?.[0]?.text;
   const localEnvelope = localAbsolute?.envelope ?? null;
+  const referenceFailed = !answersMatch || referenceValidation !== "accepted" || referenceStatus !== scenario.expected.outcome;
   return {
-    pass: answersMatch && referenceValidation === "accepted" && referenceStatus === scenario.expected.outcome && localAbsolute?.pass === true,
+    pass: !referenceFailed && localAbsolute?.pass === true,
     reason: !answersMatch ? `reference-answer-mismatch ${stableStringify(actual)}`
       : referenceValidation !== "accepted" ? "reference-rejected-shared-input"
         : referenceStatus !== scenario.expected.outcome ? `reference-status-${referenceStatus}`
           : !localAbsolute?.pass ? `candidate-${localAbsolute.reason}` : "shared-match",
-    loss: true,
+    // A loss means the *reference* missed the shared contract. A candidate
+    // failure is reported separately and never charged to RPiV.
+    loss: referenceFailed,
+    candidatePass: localAbsolute?.pass === true,
     referenceOk: true,
     answersMatch,
     referenceValidation,
@@ -340,7 +350,7 @@ export async function compareCorpus(corpus, { passes = 2, blind = false, seed = 
       runs.push(await runLocal(scenario, { pass }));
     }
     const scored = runs.map((local) => absoluteScore(scenario, local));
-    const stableResults = runs.map((local) => stableStringify({ status: local.result?.status ?? null, answers: localAnswers(scenario, local) }));
+    const stableResults = runs.map((local) => stableStringify({ status: local.result?.status ?? null, answers: localAnswers(local) }));
     const stable = stableResults.every((value) => value === stableResults[0]);
     const first = runs[0];
     const localAbsolute = { ...scored[0], pass: scored.every((item) => item.pass) && stable, stableAcrossPasses: stable };
@@ -374,6 +384,7 @@ export async function compareCorpus(corpus, { passes = 2, blind = false, seed = 
   }));
   const unstable = cases.filter((item) => !item.stableAcrossPasses).map((item) => item.id);
   const referenceLosses = sharedCases.filter((item) => item.loss).map((item) => ({ id: item.id, reason: item.reason }));
+  const candidateFailures = sharedCases.filter((item) => !item.candidatePass).map((item) => ({ id: item.id, reason: item.reason }));
   const report = {
     schemaVersion: SCHEMA_VERSION, kind: "benchmark-comparison", seed, blind,
     passes: { requested: passes, executedPerCase: passes, independentPassesExecuted: cases.length * passes },
@@ -383,6 +394,7 @@ export async function compareCorpus(corpus, { passes = 2, blind = false, seed = 
       referenceRejections: sharedCases.filter((item) => item.referenceValidation === "rejected").length,
       envelopeMatchRate: sharedCases.length ? sharedCases.filter((item) => item.envelopeMatch === true).length / sharedCases.length : null,
       losses: referenceLosses,
+      candidateFailures,
     },
     summary: {
       total: cases.length, passed: successes, failed: cases.length - successes,

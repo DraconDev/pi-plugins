@@ -39,11 +39,28 @@ function answerScript(questions, expectedAnswers = []) {
   });
 }
 
+function formatOptionLine(question, index) {
+  return `${index + 1}. ${question.options[index].label} — ${question.options[index].description ?? ""}`;
+}
+
+function optionLineFor(question, label) {
+  const index = question.options.findIndex((option) => option.label === label);
+  return index >= 0 ? formatOptionLine(question, index) : undefined;
+}
+
+/**
+ * RPiV's RPC contract: a single-select question is one `ui.select` over
+ * "N. label — description" rows plus a trailing "Type something." row; a custom
+ * answer is that row followed by `ui.input`; a multi-select question is one
+ * `ui.input` taking comma-separated 1-based indices. Dismissing any dialog
+ * (`undefined`) declines the questionnaire. The mock follows that protocol
+ * exactly, so previews, multi-select, and custom answers are actually
+ * exercised instead of being silently degraded.
+ */
 function mockContext(input, script, capabilities) {
   const questions = input.questions;
   let questionIndex = 0;
   const controller = new AbortController();
-  const inMulti = new Set();
   return {
     context: {
       hasUI: true,
@@ -53,43 +70,45 @@ function mockContext(input, script, capabilities) {
       isProjectTrusted: () => true,
       ui: {
         async select(title, choices) {
+          if (script.expectedOutcome === "cancelled") return undefined;
+          const question = questions[questionIndex];
           const answer = script[questionIndex];
-          if (!answer) return undefined;
-          if (title && /visual review|approve these answers/i.test(title)) {
-            if (script.expectedOutcome === "rejected") return choices[choices.length - 1];
-            return choices[choices.length - 1];
-          }
+          if (!question || !answer) return undefined;
+          if (question.options.some((option) => option.preview)) capabilities.previews = true;
           if (answer.kind === "custom") {
-            const customChoice = choices.findIndex((choice) => /type something|enter a custom|free-?form/i.test(String(choice)));
-            return customChoice >= 0 ? choices[customChoice] : undefined;
+            // The host-owned "Type something." row is always last.
+            return choices[question.options.length] ?? choices[choices.length - 1];
           }
-          if (answer.kind === "multi" || questions[questionIndex]?.multiSelect) {
-            const wanted = answer.selected ?? [];
-            const already = wanted.filter((label) => inMulti.has(label));
-            if (already.length < wanted.length) {
-              const next = wanted.find((label) => !inMulti.has(label));
-              inMulti.add(next);
-              return choices[optionKeyOf(questions[questionIndex], questions[questionIndex].options.findIndex((o) => o.label === next))];
-            }
-            capabilities.multiSelect = true;
-            inMulti.clear();
-            questionIndex += 1;
-            const done = choices.findIndex((choice) => /done|confirm|submit|continue/i.test(String(choice)));
-            return done >= 0 ? choices[done] : choices[choices.length - 1];
-          }
-          const index = answer.optionIndex;
-          if (index === undefined || index < 0) return undefined;
+          const line = optionLineFor(question, answer.answer ?? answer.selected?.[0]);
+          if (!line) return undefined;
           questionIndex += 1;
-          return choices[index];
+          return line;
         },
         async input() {
-          const answer = script.find((item) => item.questionIndex === questionIndex - 1 && item.kind === "custom");
-          return answer?.custom;
+          if (script.expectedOutcome === "cancelled") return undefined;
+          const question = questions[questionIndex];
+          const answer = script[questionIndex];
+          if (!question || !answer) return undefined;
+          if (answer.kind === "custom") {
+            questionIndex += 1;
+            return answer.answer;
+          }
+          if (answer.kind === "multi" || question.multiSelect) {
+            capabilities.multiSelect = true;
+            const selected = answer.selected ?? [];
+            const indices = selected
+              .map((label) => question.options.findIndex((option) => option.label === label) + 1)
+              .filter((index) => index >= 1);
+            questionIndex += 1;
+            return indices.join(",");
+          }
+          return undefined;
         },
         async confirm() { return true; },
         notify() {},
       },
     },
+    advanceAfterCustom: true,
   };
 }
 
