@@ -39,11 +39,25 @@ SPECIAL = {
 }
 
 
+CONTROL = {chr(code): bytes([code]) for code in list(range(1, 27)) + [127]}
+for _name, _byte in list(SPECIAL.items()):
+    CONTROL[_name] = _byte
+CONTROL["escape"] = b"\x1b"
+CONTROL["enter"] = b"\r"
+CONTROL["space"] = b" "
+
+
 def encode(token: str) -> bytes:
-    if token in SPECIAL:
-        return SPECIAL[token]
+    """Keybinding ids ("ctrl+g") become real control bytes, names become their
+    escape sequence, and anything else is typed literally."""
+    if token in CONTROL:
+        return CONTROL[token]
     if token.startswith("literal:"):
         return token[len("literal:"):].encode()
+    if token.startswith("ctrl+") and len(token) == 6:
+        return CONTROL.get(token[-1].lower(), token.encode())
+    if token in SPECIAL:
+        return SPECIAL[token]
     return token.encode()
 
 
