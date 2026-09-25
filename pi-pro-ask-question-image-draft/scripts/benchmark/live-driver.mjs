@@ -423,6 +423,13 @@ try {
   const editorTempFile = () => readdirSync("/tmp").some((entry) => entry.startsWith("pi-visual-review-")
     && existsSync(join("/tmp", entry, "answer.md")));
   requestKey("ctrl+q", "ask the editor to quit");
+  // The editor may ask to save its buffer; answer the prompt the way a user
+  // would, then wait for the editor process itself to return.
+  await waitFor(() => /before closing|save changes/i.test(tailText()) || !editorTempFile(), "editor-save-prompt", 30000);
+  if (editorTempFile()) {
+    requestKey("n", "discard the editor buffer");
+    await tick(500);
+  }
   await waitFor(() => !editorTempFile(), "editor-exited", 40000);
   record("editor-closed", { editorLaunched: true, editorProcessExited: true });
   await waitFor(() => painted("Enter to submit"), "back-from-editor", 20000);
