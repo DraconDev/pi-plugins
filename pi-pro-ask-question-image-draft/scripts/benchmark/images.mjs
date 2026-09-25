@@ -120,14 +120,28 @@ export async function buildImageReport({ manifest, judgeResults, max = 600, root
   return report;
 }
 
+/**
+ * Image prompt for one visual option.
+ *
+ * Inspection of the first generation run showed the decisive failure mode:
+ * asked for a "mockup", the image model produced chrome-shaped layouts filled
+ * with invented pseudo-text ("EcbatrcLe", "S?2,24"). Those glyphs are
+ * unreadable at terminal size, so the image carried no decision information and
+ * the blinded win rate collapsed. The prompt therefore forbids rendered text
+ * entirely and asks for the *structure* the decision depends on - layout,
+ * grouping, emphasis, density - which is what a terminal viewer can actually
+ * read. Text belongs in the option label, which is drawn by the TUI.
+ */
 export function optionPrompt(scenario, option) {
   const concept = scenario.visualPrompt?.prompt?.trim();
   if (!concept) throw new BenchmarkError("missing_prompt", `${scenario.id} has no visual prompt.`);
   return [
-    concept,
-    `Treatment: ${option.label}.`,
-    option.description ? `Direction: ${option.description}` : "",
-    "Terminal-safe product mockup, high contrast, no photographic noise, legible at 80x24 characters.",
+    "Abstract information-visualisation plate for a terminal user-interface decision.",
+    "ABSOLUTELY NO TEXT of any kind: no words, no letters, no numbers, no digits, no captions, no labels, no logos, no UI chrome text. Only shapes, blocks, bars, lines, and colour.",
+    `Decision being supported: ${concept}`,
+    `Layout treatment: ${option.label}.`,
+    option.description ? `Structural intent: ${option.description}` : "",
+    "Flat vector style, plain background, high contrast, large simple shapes that stay readable when scaled down to 40x20 characters. No photography, no 3D, no gradients, no texture noise.",
   ].filter(Boolean).join(" ");
 }
 
