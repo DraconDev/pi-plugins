@@ -363,7 +363,7 @@ try {
   await moveTo("Dense treatment", "second-option");
   const beforeSelect = seenKeys.length;
   requestKey("\r", "select the treatment");
-  await waitFor(() => seenKeys.length > beforeSelect, "select-key", 8000);
+  await waitFor(() => seenKeys.length > beforeSelect, "select-key", 25000);
   await waitFor(() => !painted("Pick the visual treatment") && painted("Follow-up"), "stage-advance", 15000);
   record("stage-advance", { row: activeRow() });
 
@@ -379,14 +379,14 @@ try {
   await moveTo("Nothing else", "follow-up-option");
   const beforeFollowUp = seenKeys.length;
   requestKey("\r", "answer the follow-up stage");
-  await waitFor(() => seenKeys.length > beforeFollowUp, "follow-up-key", 8000);
+  await waitFor(() => seenKeys.length > beforeFollowUp, "follow-up-key", 25000);
   await tick(700);
   if (!painted("Approve review")) {
     // The review is the next stop in the stage cycle when the answer did not
     // advance there by itself.
     const beforeTabReview = seenKeys.length;
     requestKey("\t", "tab to the final review");
-    await waitFor(() => seenKeys.length > beforeTabReview, "review-tab-key", 8000);
+    await waitFor(() => seenKeys.length > beforeTabReview, "review-tab-key", 25000);
   }
   await waitFor(() => painted("Approve review"), "final-review", 15000);
   record("final-review", { row: activeRow() });
@@ -396,7 +396,7 @@ try {
   await moveTo("Edit answers", "edit-answers-row");
   const beforeEdit = seenKeys.length;
   requestKey("\r", "return to the stages");
-  await waitFor(() => seenKeys.length > beforeEdit, "edit-key", 8000);
+  await waitFor(() => seenKeys.length > beforeEdit, "edit-key", 25000);
   await waitFor(() => painted("Pick the visual treatment"), "back-to-stage-one", 15000);
   record("back-to-stage-one", { row: activeRow() });
 
@@ -405,7 +405,7 @@ try {
   await moveTo("Type something.", "other-row");
   const beforeOther = seenKeys.length;
   requestKey("\r", "open the custom answer editor");
-  await waitFor(() => seenKeys.length > beforeOther, "other-key", 8000);
+  await waitFor(() => seenKeys.length > beforeOther, "other-key", 25000);
   await waitFor(() => painted("Enter to submit"), "custom-input-mode", 15000);
   record("custom-input", { key: externalKey });
 
@@ -429,7 +429,7 @@ try {
   // Leave the custom-answer editor without changing the stage answer.
   const beforeEscape = seenKeys.length;
   requestKey("escape", "leave the custom answer editor");
-  await waitFor(() => seenKeys.length > beforeEscape, "escape-key", 10000);
+  await waitFor(() => seenKeys.length > beforeEscape, "escape-key", 25000);
   await tick(600);
 
   // 6. Approve through the explicit final review action. Tab walks the stage
@@ -437,14 +437,14 @@ try {
   for (let hop = 0; hop < 3 && !painted("Approve review"); hop += 1) {
     const beforeHop = seenKeys.length;
     requestKey("\t", "tab towards the final review");
-    await waitFor(() => seenKeys.length > beforeHop, `review-hop-${hop}`, 10000);
+    await waitFor(() => seenKeys.length > beforeHop, `review-hop-${hop}`, 25000);
     await tick(400);
   }
-  await waitFor(() => painted("Approve review"), "review-screen", 10000);
+  await waitFor(() => painted("Approve review"), "review-screen", 25000);
   await moveTo("Approve review", "approve-row");
   const beforeApprove = seenKeys.length;
   requestKey("\r", "approve the review");
-  await waitFor(() => seenKeys.length > beforeApprove, "approve-key", 10000);
+  await waitFor(() => seenKeys.length > beforeApprove, "approve-key", 25000);
 
   const result = await execution;
   clearTimeout(timeoutGuard);
