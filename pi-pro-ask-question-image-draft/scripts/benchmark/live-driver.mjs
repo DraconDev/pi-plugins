@@ -15,7 +15,7 @@ import { readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { ProcessTerminal, setKeybindings, TuiMainScreen } from "@earendil-works/pi-tui";
+import { ProcessTerminal, setCapabilities, setKeybindings, TuiMainScreen } from "@earendil-works/pi-tui";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "../..");
@@ -67,6 +67,11 @@ const fail = (step, error) => {
 };
 
 let transcript = "";
+// A pseudo-terminal cannot answer the terminal's image-protocol probe, so the
+// capability is pinned to the Kitty protocol. This exercises the real inline
+// image path and lets the smoke assert that image bytes really reached the
+// terminal, instead of silently accepting a text placeholder.
+setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
 const terminal = new ProcessTerminal();
 const tui = new TuiMainScreen(terminal);
 const originalWrite = terminal.write.bind(terminal);
@@ -207,9 +212,15 @@ try {
   if (!saw("Live TTY smoke")) fail("render", new Error("the review title never reached the terminal"));
   if (!saw("Pick the visual treatment")) fail("render", new Error("the stage prompt never reached the terminal"));
   if (!saw("Airy treatment")) fail("image", new Error("the image-backed option never reached the terminal"));
+  // The image protocol escape plus its base64 payload must be on the terminal.
+  const kittyUpload = /\u001b_Ga=[^;]*;/.test(transcript) || /\u001b_G/.test(transcript);
+  const payloadBytes = (transcript.match(/[A-Za-z0-9+/=]{200,}/g) ?? []).reduce((sum, chunk) => sum + chunk.length, 0);
+  if (!kittyUpload || payloadBytes < 2000) {
+    fail("image", new Error(`the inline image never reached the terminal (protocol=${kittyUpload}, payload=${payloadBytes} bytes)`));
+  }
   record("render", {
     bytes: transcript.length, columns: terminal.columns,
-    imageProtocol: /base64|kitty|iTerm|sixel|\u001b_G|\u001b_@/i.test(transcript),
+    imageProtocol: "kitty", imagePayloadBytes: payloadBytes,
   });
 
   let hiddenFrames = 0;

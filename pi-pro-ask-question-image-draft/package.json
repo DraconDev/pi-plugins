@@ -33,7 +33,8 @@
     "benchmark:images": "node scripts/benchmark/images.mjs",
     "benchmark:images:report": "node scripts/benchmark/image-report.mjs",
     "benchmark:report": "node scripts/benchmark/report.mjs",
-    "benchmark:images:generate": "node scripts/benchmark/generate-images.mjs"
+    "benchmark:images:generate": "node scripts/benchmark/generate-images.mjs",
+    "benchmark:judge": "node scripts/benchmark/judge.mjs"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

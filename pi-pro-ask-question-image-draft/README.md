@@ -87,31 +87,56 @@ Image previews are inline when the terminal supports them and otherwise use a sa
 
 ## Benchmark infrastructure
 
-Benchmark artifacts are generated at caller-supplied paths and are intentionally not checked in. The canonical corpus is deterministic for a count/seed pair and uses a 70%/20%/10% ordinary, visual, and adversarial split (700/200/100 by default):
+Benchmark artifacts are written to caller-supplied paths and are intentionally not
+checked in. The corpus is a 1000-scenario 70%/20%/10% ordinary/visual/adversarial
+split (700/200/100) with a 70/200/100-style budget guard on generated images.
 
 ```sh
+# Deterministic fixture corpus, or re-validate an externally assembled one
 npm run benchmark:corpus -- --count 1000 --seed 20260925 --out .pi/benchmark/corpus.json
+npm run benchmark:corpus -- --import path/to/assembled-corpus.json --out .pi/benchmark/corpus.json
 npm run benchmark:corpus:validate -- --corpus .pi/benchmark/corpus.json
-npm run benchmark:compare -- --blind --passes 2 --out .pi/benchmark/results.json
-```
 
-`scripts/benchmark/SCHEMAS.md` documents every emitted JSON shape. The comparison loads legacy RPiV TypeScript only inside an isolated child through Pi's jiti extension loader. Shared legacy cases compare normalized answers, validation, and envelopes. Staged/visual features are absolute-scored against local source behavior and never counted as RPiV losses. No settings or credential files are written. The optional judge adapter in `scripts/benchmark/judge.mjs` is side-effect free on import; it uses `ModelRuntime` only when explicitly invoked, requires strict JSON, low/medium reasoning, two independent passes, and adjudication metadata for disagreement. `npm test` never uses the network.
+# Two real executions per case, head-to-head against RPiV on shared capability
+npm run benchmark:compare -- --passes 2 --images .pi/benchmark/image-manifest.json --out .pi/benchmark/results.json
 
-Image artifacts must come from an explicitly authorized Agnes run. This implementation pass deliberately disables provider calls: `benchmark:images` without `--manifest` fails with `provider_calls_disabled`, and report generation fails with `manifest_missing` if no real manifest exists. Ingestion validates local PNG/JPEG/GIF/WebP signatures, dimensions, byte counts, provider/model, prompt hashes, duplicates, secrets, and the 600-image ceiling. It never creates empty success placeholders. Supply the same real manifest to both commands to ingest and report it:
+# At most 600 cached Agnes images for the visual stratum
+npm run benchmark:images:generate -- --max 600 --out .pi/benchmark/images
 
-```sh
-npm run benchmark:images -- --manifest path/to/images.json --max 600 --out .pi/benchmark/images.json
-npm run benchmark:images:report -- --manifest path/to/images.json --judges path/to/judges.json --out .pi/benchmark/image-report.json
-```
+# Blinded judging: two independent passes, wins only on agreement
+npm run benchmark:judge -- --limit 200 --out .pi/benchmark/judge.json
 
-The aggregate verifier requires the 700/200/100 counts, deterministic accuracy and Wilson confidence gate, resolved P0/P1 defects, visual uplift and severe-failure gates, real live-smoke evidence, and activation evidence timestamped after the gates. It refuses activation claims not explicitly evidenced:
-
-```sh
+# Recomputed aggregate report and release gate
+npm run benchmark:report
 npm run benchmark:report -- --verify .pi/benchmark/report.json
-npm run smoke:live -- --image path/to/real.png
 ```
 
-Live smoke requires real stdin/stdout TTYs, a configured Pi external editor, and a readable signed image. It exits nonzero instead of fabricating a pass when those conditions or an interactive driver are unavailable.
+`scripts/benchmark/SCHEMAS.md` documents every emitted JSON shape and every gate
+threshold. The properties that matter for an audit:
+
+- **Nothing is trusted.** `--passes N` executes the corpus N times and requires
+  identical results; the aggregate report recomputes accuracy, visual uplift, and
+  every gate from the artifacts on disk instead of reading a summary.
+- **The oracle is explicit.** A scenario either asserts exact recorded answers or
+  is marked `terminal-only` when the source recorded no answer action. The report
+  counts both instead of blending them into one number.
+- **Shared scope is honest.** RPiV is compared only on legacy question reviews it
+  actually implements, driven through its real RPC dialog protocol (option rows,
+  the `Type something.` row, comma-separated multi-select, dismissal). A candidate
+  failure is reported separately and is never charged to the reference.
+- **Negatives are real.** A scenario marked `inputValid: false` passes only when
+  the tool actually rejects it before any UI interaction.
+- **The image budget is bounded.** Generation is cached by prompt hash, capped at
+  600 successes, and every failure is recorded instead of silently retried.
+- **Live evidence is live.** `npm run smoke:live` loads the real extension through
+  Pi's own loader, renders it on a real pi-tui screen inside a pseudo-terminal,
+  drives it with real keypresses through the documented controls, launches Pi's
+  configured external editor, and asserts each step against the bytes the terminal
+  received. Without a TTY, a readable generated image, or a configured editor it
+  exits nonzero rather than fabricating a pass.
+- **No secrets, no settings writes.** The benchmark never reads or writes Pi
+  settings or auth storage, and every emitted artifact is scanned for
+  credential-shaped keys and values. `npm test` never uses the network.
 
 ## Development and verification
 
