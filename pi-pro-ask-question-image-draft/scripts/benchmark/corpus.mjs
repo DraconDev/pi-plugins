@@ -290,6 +290,28 @@ export function normalizeCorpus(value) {
   return structuredClone(value);
 }
 
+/**
+ * The durable corpus that ships with the repository.
+ *
+ * The benchmark is only auditable if an auditor can regenerate the same
+ * 1,000 scenarios from the checkout. The Space Bunny Alpha corpus was assembled
+ * from model-written shards, so it cannot be re-derived from a seed; it is
+ * therefore committed under `benchmark/corpus/` and re-emitted here through the
+ * same validation gate. Without this, `benchmark:corpus --out <fresh path>`
+ * produced a synthetic `Path 0001 decision 1` fixture with no provenance, which
+ * is not the corpus any result was measured against.
+ */
+export const DURABLE_CORPUS_PATH = "benchmark/corpus/space-bunny-alpha.json";
+
+export async function loadDurableCorpus({ path = DURABLE_CORPUS_PATH, count, seed } = {}) {
+  const value = await readOptionalJson(path);
+  if (!value) return null;
+  if (typeof count === "number" && value.count !== count) return null;
+  if (typeof seed === "number" && value.seed !== seed) return null;
+  if (!value.provenance?.generator) return null;
+  return normalizeCorpus(value);
+}
+
 async function readOptionalJson(path) {
   try { return JSON.parse(await (await import("node:fs/promises")).readFile(resolve(path), "utf8")); } catch { return null; }
 }
@@ -297,7 +319,7 @@ async function readOptionalJson(path) {
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv, {
     count: "number", seed: "number", out: "string", corpus: "string",
-    validate: "boolean", import: "string", replace: "boolean",
+    validate: "boolean", import: "string", replace: "boolean", source: "string", "durable": "string",
   });
   if (args.validate) {
     const path = args.corpus ?? args.out ?? ".pi/benchmark/corpus.json";
@@ -332,9 +354,30 @@ export async function main(argv = process.argv.slice(2)) {
     })}\n`);
     return;
   }
-  const corpus = generateCorpus({ count: parseCount(args.count), seed: parseSeed(args.seed) });
+  const requestedSource = args.source ?? "durable";
+  if (!["durable", "fixture"].includes(requestedSource)) {
+    throw new BenchmarkError("invalid_source", "--source must be durable or fixture.");
+  }
+  const count = parseCount(args.count);
+  const seed = parseSeed(args.seed);
+  if (requestedSource === "durable") {
+    const durable = await loadDurableCorpus({ path: args.durable ?? DURABLE_CORPUS_PATH, count, seed });
+    if (durable) {
+      const out = await writeJson(target, durable);
+      process.stdout.write(`${JSON.stringify({
+        out: resolve(out), count: durable.count, strata: durable.strata, seed: durable.seed,
+        source: durable.provenance.generator, provenance: durable.provenance, action: "reproduced-from-repository",
+      })}\n`);
+      return;
+    }
+  }
+  const corpus = generateCorpus({ count, seed });
   const out = await writeJson(target, corpus);
-  process.stdout.write(`${JSON.stringify({ out: resolve(out), count: corpus.count, strata: corpus.strata, seed: corpus.seed, action: "generated" })}\n`);
+  process.stdout.write(`${JSON.stringify({
+    out: resolve(out), count: corpus.count, strata: corpus.strata, seed: corpus.seed,
+    source: "deterministic-fixture", action: "generated",
+    note: requestedSource === "durable" ? `No durable corpus at ${args.durable ?? DURABLE_CORPUS_PATH} matches count/seed; the deterministic fixture was generated instead.` : undefined,
+  })}\n`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

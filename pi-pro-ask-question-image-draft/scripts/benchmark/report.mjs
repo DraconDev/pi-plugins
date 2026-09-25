@@ -7,12 +7,15 @@
  * defect ledger, activation evidence. Nothing is taken on trust from a
  * self-reported summary, and a gate can only pass when its evidence exists.
  */
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { assertNoCredentials, BenchmarkError, parseArgs, readJson, SCHEMA_VERSION, wilsonLowerBound, writeJson } from "./common.mjs";
 import { validateCorpus } from "./corpus.mjs";
 
 const STRATA = ["ordinary", "visual", "adversarial"];
+/** Every scenario and every result must end in one of these. */
+const TERMINAL_STATUSES = new Set(["completed", "rejected", "cancelled", "revision", "fallback", "invalid"]);
 export const GATES = Object.freeze({
   deterministicAccuracy: 1,
   wilsonLowerBound: 0.95,
@@ -42,7 +45,16 @@ export function recomputeComparison(corpus, results) {
   }
   const cases = corpus.scenarios.map((scenario) => {
     const result = byId.get(scenario.id);
-    return { id: scenario.id, stratum: scenario.stratum, pass: result.pass === true, reason: result.reason ?? null, oracle: scenario.expected.oracle ?? "exact" };
+    return {
+      id: scenario.id,
+      stratum: scenario.stratum,
+      pass: result.pass === true,
+      reason: result.reason ?? null,
+      oracle: scenario.expected.oracle ?? "exact",
+      // The terminal outcome the execution actually reached, kept per case so
+      // the report can prove every scenario ended somewhere real.
+      terminalOutcome: result.terminalOutcome ?? (result.pass ? scenario.expected.outcome : null),
+    };
   });
   const passed = cases.filter((item) => item.pass).length;
   const unstable = (results.cases ?? []).filter((item) => item.stableAcrossPasses === false).map((item) => item.id);
@@ -106,7 +118,7 @@ export function recomputeGates(comparison, images) {
 }
 
 export async function buildAggregateReport({
-  corpus, results, manifest, judging, liveSmoke, defects, activation, observedAt = new Date().toISOString(),
+  corpus, results, manifest, judging, liveSmoke, defects, activation, sources = null, observedAt = new Date().toISOString(),
 }) {
   validateCorpus(corpus);
   const comparison = recomputeComparison(corpus, results);
@@ -139,9 +151,10 @@ export async function buildAggregateReport({
     schemaVersion: SCHEMA_VERSION,
     kind: "benchmark-aggregate-report",
     observedAt,
+    sources: sources ?? null,
     corpus: { count: corpus.count, seed: corpus.seed, strata: corpus.strata, provenance: corpus.provenance ?? null },
     comparison,
-    images,
+    images: { ...images, judging: judging?.summary ?? null },
     gates: gateSummary,
     releaseReady: allPassed,
     defects: ledger,
@@ -153,8 +166,78 @@ export async function buildAggregateReport({
   return report;
 }
 
+/**
+ * Evidence an independent auditor can check without rerunning anything.
+ *
+ * A defect ledger that merely asserts "fixed" is prose. Every resolved P0/P1
+ * must name the test that would fail if the root cause came back, the named
+ * test must exist, and any measured claim the ledger makes must match the
+ * numbers recomputed from the artifacts. Drift between the ledger and the run
+ * is a defect, not a formatting nit.
+ */
+export function verifyDefectLedger(ledger, { cases = null, judged = null, testsDir = "tests" } = {}) {
+  const problems = [];
+  for (const defect of ledger) {
+    const critical = defect.severity === "P0" || defect.severity === "P1";
+    if (critical && defect.status === "resolved" && !defect.regressionTest) {
+      problems.push(`defect:${defect.id}: resolved critical defect without a regressionTest reference`);
+    }
+    if (defect.status === "resolved" && defect.regressionTest && !regressionTestExists(defect.regressionTest, testsDir)) {
+      problems.push(`defect:${defect.id}: regressionTest "${defect.regressionTest}" does not exist in ${testsDir}/`);
+    }
+    if (defect.claim?.judgedCases != null && judged?.judgedCases != null && defect.claim.judgedCases !== judged.judgedCases) {
+      problems.push(`defect:${defect.id}: claim.judgedCases ${defect.claim.judgedCases} != measured ${judged.judgedCases}`);
+    }
+    if (defect.claim?.candidateWins != null && judged?.candidateWins != null && defect.claim.candidateWins !== judged.candidateWins) {
+      problems.push(`defect:${defect.id}: claim.candidateWins ${defect.claim.candidateWins} != measured ${judged.candidateWins}`);
+    }
+    if (defect.claim?.candidateWinRate != null && judged?.candidateWinRate != null && Math.abs(defect.claim.candidateWinRate - judged.candidateWinRate) > 1e-9) {
+      problems.push(`defect:${defect.id}: claim.candidateWinRate ${defect.claim.candidateWinRate} != measured ${judged.candidateWinRate}`);
+    }
+    if (defect.claim?.wilson95LowerBound != null && judged?.wilson95LowerBound != null && Math.abs(defect.claim.wilson95LowerBound - judged.wilson95LowerBound) > 1e-9) {
+      problems.push(`defect:${defect.id}: claim.wilson95LowerBound ${defect.claim.wilson95LowerBound} != measured ${judged.wilson95LowerBound}`);
+    }
+    if (defect.claim?.failedCases != null && cases != null && defect.claim.failedCases !== cases.failed) {
+      problems.push(`defect:${defect.id}: claim.failedCases ${defect.claim.failedCases} != measured ${cases.failed}`);
+    }
+  }
+  if (problems.length) {
+    throw new BenchmarkError("defect_ledger_invalid", `Defect ledger does not match the evidence: ${problems.join("; ")}.`);
+  }
+  return { verified: true, defects: ledger.length };
+}
+
+function regressionTestExists(reference, testsDir) {
+  return existsSync(resolve(testsDir, reference));
+}
+
+/**
+ * Every corpus scenario must carry a terminal outcome, in the corpus and in the
+ * per-case results. A run that silently dropped cases would otherwise look like
+ * a clean pass on a smaller set.
+ */
+export function verifyTerminalOutcomes(corpus, report) {
+  const expected = new Map(corpus.scenarios.map((scenario) => [scenario.id, scenario.expected?.outcome]));
+  const missing = [];
+  for (const [id, outcome] of expected) {
+    if (!TERMINAL_STATUSES.has(outcome)) missing.push(`${id}: corpus expectation is not a terminal outcome`);
+  }
+  const cases = report.comparison?.cases ?? [];
+  const seen = new Set();
+  for (const item of cases) {
+    seen.add(item.id);
+    if (!expected.has(item.id)) missing.push(`${item.id}: result is not in the corpus`);
+    else if (!TERMINAL_STATUSES.has(item.terminalOutcome)) missing.push(`${item.id}: result has no terminal outcome`);
+  }
+  for (const id of expected.keys()) if (!seen.has(id)) missing.push(`${id}: corpus scenario has no result`);
+  if (cases.length !== expected.size || missing.length) {
+    throw new BenchmarkError("terminal_outcomes_incomplete", `Not every corpus scenario has a terminal outcome in the results: ${missing.slice(0, 10).join("; ") || `${cases.length} of ${expected.size} cases present`}.`);
+  }
+  return { verified: true, cases: cases.length };
+}
+
 /** Backwards-compatible shape check used by the test suite. */
-export function verifyAggregateReport(report) {
+export function verifyAggregateReport(report, { corpus = null, testsDir = "tests" } = {}) {
   if (report?.schemaVersion !== SCHEMA_VERSION || report?.kind !== "benchmark-aggregate-report") {
     throw new BenchmarkError("invalid_shape", "Unsupported aggregate report schema.");
   }
@@ -176,6 +259,12 @@ export function verifyAggregateReport(report) {
   const unresolvedCritical = report.defects
     .filter((defect) => (defect.severity === "P0" || defect.severity === "P1") && defect.status !== "resolved")
     .map((defect) => defect.id);
+  verifyDefectLedger(report.defects, {
+    judged: report.images?.judging ?? null,
+    cases: report.comparison ? { failed: report.comparison.failed } : null,
+    testsDir,
+  });
+  if (corpus) verifyTerminalOutcomes(corpus, report);
   evidenceOf(report.liveSmoke, "liveSmoke");
   if (report.activation?.claimed === true) {
     if (report.activation.status !== "passed" || report.releaseReady !== true) {
@@ -190,29 +279,43 @@ export function verifyAggregateReport(report) {
   };
 }
 
+/** Resolve a recorded source next to the report when it is not under the cwd. */
+function resolveSource(reportPath, recorded) {
+  if (!recorded) return null;
+  const direct = resolve(recorded);
+  if (existsSync(direct)) return direct;
+  const beside = resolve(reportPath.slice(0, Math.max(0, reportPath.lastIndexOf("/"))), recorded.slice(recorded.lastIndexOf("/") + 1));
+  return existsSync(beside) ? beside : null;
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv, {
     corpus: "string", results: "string", images: "string", judging: "string",
-    smoke: "string", defects: "string", activation: "string", out: "string", verify: "string", "require-release": "boolean",
+    smoke: "string", defects: "string", activation: "string", out: "string", verify: "string", tests: "string",
   });
   if (args.verify) {
-    const report = await readJson(String(args.verify), "report_missing");
+    const reportPath = resolve(String(args.verify));
+    const report = await readJson(reportPath, "report_missing");
     // Integrity first: a malformed report, an empty ledger, or an activation
-    // claim without passing gates is always an error. Whether the release
-    // gates passed is data the caller asks for explicitly, so a "not ready"
-    // verdict is never a crash and never a silent pass either.
-    const result = verifyAggregateReport(report);
-    const requireRelease = args["require-release"] === true || process.env.PI_REQUIRE_RELEASE === "1";
+    // claim without passing gates is always an error. So is a ledger whose
+    // numbers or regression tests do not match the run, and a result set that
+    // does not cover every scenario with a terminal outcome.
+    const corpusPath = args.corpus ?? resolveSource(reportPath, report.sources?.corpus);
+    const corpus = corpusPath ? await readJson(corpusPath, "corpus_missing") : null;
+    const result = verifyAggregateReport(report, { corpus, testsDir: args.tests ?? "tests" });
     const unmet = [
       ...Object.entries(report.gates ?? {}).filter(([, value]) => value !== true).map(([name]) => `gate:${name}`),
       ...result.unresolvedCritical.map((id) => `defect:${id}`),
     ];
     process.stdout.write(`${JSON.stringify({
-      report: resolve(args.verify), ...result,
+      report: reportPath, ...result,
       unmetGates: unmet,
-      releaseGate: requireRelease && report.releaseReady !== true ? "failed" : "not_required",
+      releaseGate: report.releaseReady === true ? "passed" : "failed",
     })}\n`);
-    if (requireRelease && report.releaseReady !== true) {
+    // Release readiness is the contract, not an opt-in: a report that is not
+    // ready fails the command that verifies it. An earlier version moved this
+    // behind an environment variable, which turned the gate into a switch.
+    if (report.releaseReady !== true) {
       throw new BenchmarkError("gate_failed", `Release gates are unmet: ${unmet.join(", ")}.`);
     }
     return;
@@ -228,7 +331,18 @@ export async function main(argv = process.argv.slice(2)) {
   const liveSmoke = await optional(args.smoke ?? ".pi/benchmark/live-smoke.json", "report_missing");
   const defects = await optional(args.defects ?? ".pi/benchmark/defects.json", "report_missing");
   const activation = await optional(args.activation ?? ".pi/benchmark/activation.json", "report_missing");
-  const report = await buildAggregateReport({ corpus, results, manifest, judging, liveSmoke, defects, activation });
+  const report = await buildAggregateReport({
+    corpus, results, manifest, judging, liveSmoke, defects, activation,
+    sources: {
+      corpus: args.corpus ?? ".pi/benchmark/corpus.json",
+      results: args.results ?? ".pi/benchmark/results.json",
+      images: args.images ?? (manifest ? ".pi/benchmark/image-manifest.json" : null),
+      judging: args.judging ?? (judging ? ".pi/benchmark/judge.json" : null),
+      smoke: args.smoke ?? ".pi/benchmark/live-smoke.json",
+      defects: args.defects ?? ".pi/benchmark/defects.json",
+      activation: args.activation ?? ".pi/benchmark/activation.json",
+    },
+  });
   const out = await writeJson(args.out ?? ".pi/benchmark/report.json", report);
   process.stdout.write(`${JSON.stringify({ out, releaseReady: report.releaseReady, gates: report.gates, accuracy: report.comparison.deterministicAccuracy, visualUplift: report.images.visualUplift, judgedCases: report.images.judgedCases })}\n`);
 }

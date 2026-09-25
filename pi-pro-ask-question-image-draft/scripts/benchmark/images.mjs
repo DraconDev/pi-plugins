@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { copyFile, link, mkdir, readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { generateReviewImages } from "../../src/image-generator.ts";
@@ -251,6 +251,35 @@ export async function runGeneration(corpus, {
 }
 
 /**
+ * Canonical contract aliases.
+ *
+ * The release contract names `.pi/benchmark/images/visual-001-option-1.png`.
+ * `visual-001` is the first visual scenario in corpus order and the suffix is
+ * the option's index within that scenario, so the named path is a stable name
+ * for a real generated image rather than something an auditor has to guess.
+ */
+export const CONTRACT_ALIAS_PREFIX = "visual-001-option-";
+
+export async function writeContractAliases(corpus, manifest, { imageDir = DEFAULT_IMAGE_DIR } = {}) {
+  const first = corpus.scenarios.find((scenario) => scenario.stratum === "visual");
+  if (!first) throw new BenchmarkError("missing_evidence", "The corpus has no visual scenario to alias.");
+  const options = (first.canonicalInput.stages ?? [])[0]?.options ?? [];
+  const byKey = new Map((manifest.images ?? []).flatMap((image) => (image.optionIds ?? []).map((id) => [id, image])));
+  const aliases = [];
+  for (const [index, option] of options.entries()) {
+    const source = byKey.get(`${first.id}:${option.key ?? option.id ?? option.label}`);
+    if (!source) continue;
+    const name = `${CONTRACT_ALIAS_PREFIX}${index + 1}.png`;
+    const target = resolve(imageDir, name);
+    await mkdir(resolve(imageDir), { recursive: true });
+    try { await link(source.path, target); } catch { await copyFile(source.path, target); }
+    aliases.push({ alias: target, name, scenarioId: first.id, optionId: source.id, source: source.path, promptHash: source.hash, bytes: source.byteCount });
+  }
+  if (!aliases.length) throw new BenchmarkError("missing_evidence", `No generated image is bound to ${first.id}; the contract aliases cannot be written.`);
+  return aliases;
+}
+
+/**
  * `benchmark:images` - generate the visual corpus inside the 600-image budget
  * (cached by prompt hash), then validate and report what is on disk.
  * `--ingest-only` validates an existing manifest without any provider call.
@@ -285,9 +314,19 @@ export async function main(argv = process.argv.slice(2)) {
   const report = await ingestImageManifest(manifest, { max });
   report.generationFailures = failures;
   const written = await writeJson(out, report);
+  if (!args["ingest-only"]) {
+    // The contract names a canonical image path, so the pipeline produces it.
+    try {
+      report.contractAliases = await writeContractAliases(corpus, manifest, { imageDir: DEFAULT_IMAGE_DIR });
+      await writeJson(out, report);
+    } catch (error) {
+      process.stderr.write(`benchmark:images: contract aliases not written: ${error.message}\n`);
+    }
+  }
   process.stdout.write(`${JSON.stringify({
     out: written, manifest: cachePath, planned: manifest.planned, generated, cached,
     validated: report.generated, failures, providerCalls: generated, budget: max,
+    contractAliases: (report.contractAliases ?? []).map((alias) => alias.name),
   })}\n`);
   return report;
 }

@@ -28,23 +28,26 @@ const HERE = fileURLToPath(new URL(".", import.meta.url));
  * a property of the machine, not a verdict about the package.
  */
 export async function resolveEditor() {
-  let settingsEditor;
+  let settingsEditor = "";
+  let piResolved = "";
   try {
     const { SettingsManager } = await import("@earendil-works/pi-coding-agent");
-    settingsEditor = SettingsManager.create(process.cwd(), undefined, { projectTrusted: true })
-      .getSettings?.()?.externalEditor
-      ?? SettingsManager.create(process.cwd(), undefined, { projectTrusted: true }).getExternalEditorCommand();
-    // getExternalEditorCommand() already folds in $VISUAL/$EDITOR and the Pi
-    // default, so the *source* is recovered separately for the record.
-    settingsEditor = SettingsManager.create(process.cwd(), undefined, { projectTrusted: true }).getSettings?.()?.externalEditor;
+    const manager = SettingsManager.create(process.cwd(), undefined, { projectTrusted: true });
+    settingsEditor = manager.getProjectSettings?.()?.externalEditor ?? manager.getGlobalSettings?.()?.externalEditor ?? "";
+    piResolved = manager.getExternalEditorCommand()?.trim() ?? "";
   } catch {
-    settingsEditor = undefined;
+    settingsEditor = "";
   }
   const resolved = resolveEditorCommand({
     settingsEditor,
     visual: process.env.VISUAL,
     editor: process.env.EDITOR,
   });
+  // The gate must agree with Pi about which editor would be launched, or the
+  // walk proves something the package never does.
+  if (piResolved && resolved.command && piResolved !== resolved.command) {
+    throw new BenchmarkError("editor_resolution_mismatch", `Pi resolves the external editor to "${piResolved}" but the gate derived "${resolved.command}" from ${resolved.source}.`);
+  }
   if (resolved.runnable) return { ...resolved, provisioned: null };
   const candidate = PROVISIONABLE_EDITORS.map((name) => ({ name, executable: whichExecutable(name) })).find((item) => item.executable);
   if (!candidate) {

@@ -17,6 +17,8 @@ import { fileURLToPath } from "node:url";
 
 import { getCapabilities, ProcessTerminal, setCapabilities, setKeybindings, TuiMainScreen } from "@earendil-works/pi-tui";
 
+import { quitSequenceFor, resolveEditorCommand } from "./editor.mjs";
+
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "../..");
 const LOADER = process.env.PI_BENCHMARK_LOADER
@@ -145,13 +147,13 @@ let wizard;
 // Live paint from the same component the TUI renders.
 const frame = () => wizard.render(terminal.columns).join("\n");
 const painted = (needle) => frame().includes(needle);
-const waitFor = async (predicate, label, ms = 12000) => {
+const waitFor = async (predicate, label, ms = 12000, detail) => {
   const until = Date.now() + ms;
   while (Date.now() < until) {
     if (predicate()) return true;
     await tick(120);
   }
-  fail(label, new Error(`timed out waiting for ${label}`));
+  fail(label, new Error(`timed out waiting for ${label}${detail ? `: ${detail}` : ""}`));
   return false;
 };
 try {
@@ -182,7 +184,21 @@ try {
   const keybindings = KeybindingsManager.create();
   setKeybindings(keybindings);
   const externalKeys = keybindings.getKeys("app.editor.external");
-  record("keybindings", { externalEditorKeys: externalKeys, keybindingsSource: "pi-tui defaults" });
+  // The extension resolves the editor through Pi, so the walk resolves it the
+  // same way and derives the quit keys from *that* command. Hard-coding one
+  // editor's keys used to leave nano or vi running and fail the gate for a
+  // reason that had nothing to do with the package.
+  const { SettingsManager } = await import("/home/dracon/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/dist/core/settings-manager.js");
+  const settingsManager = SettingsManager.create(process.cwd(), undefined, { projectTrusted: true });
+  const settingsEditor = settingsManager.getProjectSettings?.()?.externalEditor ?? settingsManager.getGlobalSettings?.()?.externalEditor ?? "";
+  const editor = resolveEditorCommand({ settingsEditor, visual: process.env.VISUAL, editor: process.env.EDITOR });
+  const quit = quitSequenceFor(editor.command);
+  record("keybindings", {
+    externalEditorKeys: externalKeys, keybindingsSource: "pi-tui defaults",
+    editor: { command: editor.command, source: editor.source, runnable: editor.runnable },
+    editorQuitKeys: quit.quit, editorQuitKnown: quit.known, editorSavesOnPrompt: Boolean(quit.save),
+  });
+  evidence.observed.editor = { command: editor.command, source: editor.source, quitKeys: quit.quit };
   const sessionEntries = [];
   const notifications = [];
   const inputListeners = [];
@@ -412,7 +428,7 @@ try {
   // 5. The configured external editor takes over the real terminal.
   requestKey(externalKey, "open the configured external editor");
   await waitFor(() => /Launching external editor/.test(transcript), "editor-launch", 25000);
-  record("editor", { launched: true, key: externalKey });
+  record("editor", { launched: true, key: externalKey, command: editor.command, quitKeys: quit.quit });
 
   // Type inside the real editor, then save and quit it. The keys go through the
   // same pseudo-terminal, so this is a genuine editor session.
@@ -425,16 +441,23 @@ try {
   const editorDirsBefore = new Set(readdirSync("/tmp").filter((entry) => entry.startsWith("pi-visual-review-")));
   const liveEditorDir = () => readdirSync("/tmp").find((entry) => entry.startsWith("pi-visual-review-")
     && !editorDirsBefore.has(entry) && existsSync(join("/tmp", entry, "answer.md")));
-  requestKey("ctrl+q", "ask the editor to quit");
+  for (const key of quit.quit) {
+    requestKey(key, `ask ${editor.command} to quit`);
+    await tick(500);
+  }
   // The editor may ask to save its buffer; answer the prompt the way a user
   // would, then wait for the editor process itself to return.
-  await waitFor(() => /before closing|save changes/i.test(tailText()) || !liveEditorDir(), "editor-save-prompt", 30000);
-  if (liveEditorDir()) {
-    requestKey("n", "discard the editor buffer");
+  await waitFor(() => /before closing|save changes|unsaved/i.test(tailText()) || !liveEditorDir(), "editor-save-prompt", 30000);
+  if (liveEditorDir() && quit.save) {
+    requestKey(quit.save, "confirm saving the editor buffer");
     await tick(800);
   }
-  await waitFor(() => !liveEditorDir(), "editor-exited", 40000);
-  record("editor-closed", { editorLaunched: true, editorProcessExited: true });
+  if (liveEditorDir()) {
+    requestKey("ctrl+c", "fall back to an unconditional interrupt");
+    await waitFor(() => !liveEditorDir(), "editor-interrupted", 15000);
+  }
+  await waitFor(() => !liveEditorDir(), "editor-exited", 40000, `${editor.command} is still running after ${quit.quit.join(" + ")}; its process never returned`);
+  record("editor-closed", { editorLaunched: true, editorProcessExited: true, command: editor.command });
   await waitFor(() => painted("Enter to submit"), "back-from-editor", 20000);
   record("tui-resumed", { inputModeRestored: true });
 
