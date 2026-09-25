@@ -341,11 +341,14 @@ describe("harness honesty: gates that must fail loudly", () => {
     const script = new URL("../scripts/verify-activation.mjs", import.meta.url).pathname;
     const settings = join(await mkdtemp(join(tmpdir(), "activation-")), "settings.json");
     await writeFile(settings, JSON.stringify({ packages: ["npm:@juicesharp/rpiv-ask-user-question"] }));
-    const base = { ...process.env, PI_SETTINGS_PATH: settings };
+    const base = { ...process.env, PI_SETTINGS_PATH: settings, PI_VERIFY_ACTIVATION: "" };
     const plain = spawnSync(process.execPath, [script], { env: base, encoding: "utf8" });
-    assert.equal(plain.status, 0);
+    assert.equal(plain.status, 0, plain.stderr);
     assert.match(plain.stdout, /"status": "not_run"/);
     // Explicitly asking for the post-activation gate must not look green.
+    // The env is rebuilt from a sanitised base so an ambient
+    // PI_VERIFY_ACTIVATION=1 (as when the suite itself runs behind
+    // `PI_VERIFY_ACTIVATION=1 npm run check`) cannot leak into the plain run.
     const requested = spawnSync(process.execPath, [script], { env: { ...base, PI_VERIFY_ACTIVATION: "1" }, encoding: "utf8" });
     assert.equal(requested.status, 1);
     assert.match(requested.stderr, /not activated/);
