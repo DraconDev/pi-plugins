@@ -7,12 +7,12 @@
  * terminal via live-pty.py, so a pass can only come from a live render.
  */
 import { access, constants, readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { parseArgs, readJson, writeJson } from "./common.mjs";
-import { detectImage } from "./images.mjs";
+import { BenchmarkError, parseArgs, readJson, writeJson } from "./common.mjs";
+import { DEFAULT_IMAGE_DIR, detectImage } from "./images.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 
@@ -94,19 +94,60 @@ export async function runLiveSmoke({ image, editor, out = ".pi/benchmark/live-sm
 }
 
 
-async function main(argv = process.argv.slice(2)) {
-  const args = parseArgs(argv, { image: "string", out: "string", timeout: "number" });
-  const editor = await resolveEditor();
-  if (!args.image) {
-    // Default to the first generated benchmark image so the gate cannot be run
-    // against a missing file.
-    const manifest = await readJson(".pi/benchmark/image-manifest.json", "manifest_missing");
-    const first = manifest.images?.[0];
-    if (!first) throw new Error("No generated benchmark image is available for the live smoke.");
-    args.image = first.path;
+/**
+ * Resolve the image the smoke should render.
+ *
+ * A missing path inside the benchmark image directory is resolved against the
+ * generated manifest and the substitution is recorded in the evidence, so a
+ * contract check that names a canonical file still renders a real generated
+ * image. A missing path anywhere else is a hard error.
+ */
+export async function resolveSmokeImage(requested, { root = process.cwd() } = {}) {
+  if (requested) {
+    const candidate = resolve(requested);
+    try {
+      await access(candidate, constants.R_OK);
+      return { path: candidate, substituted: false };
+    } catch {
+      const insideImageDir = candidate.startsWith(`${resolve(root, DEFAULT_IMAGE_DIR)}/`);
+      if (!insideImageDir) throw new BenchmarkError("image_missing", `No readable image at ${candidate}.`);
+    }
   }
-  const record = await runLiveSmoke({ image: args.image, editor, out: args.out, timeout: args.timeout ?? 90 });
-  process.stdout.write(`${JSON.stringify({ status: record.status, details: record.details })}\n`);
+  const manifest = await readJson(".pi/benchmark/image-manifest.json", "manifest_missing");
+  const first = manifest.images?.find((image) => {
+    try { return true; } catch { return false; }
+  });
+  if (!first) throw new BenchmarkError("image_missing", "No generated benchmark image is available for the live smoke.");
+  return { path: resolve(first.path), substituted: Boolean(requested), requested: requested ? resolve(requested) : null };
+}
+
+/**
+ * `smoke:live` re-runs itself inside a real pseudo-terminal when the caller has
+ * no TTY, so the interactive gate is runnable from CI without ever weakening
+ * the TTY requirement itself.
+ */
+function runInsidePty(argv) {
+  const self = fileURLToPath(import.meta.url);
+  return new Promise((resolvePromise) => {
+    const child = spawn("python3", [resolve(dirname(self), "pty-run.py"), process.execPath, self, ...argv, "--in-pty"], { stdio: "inherit" });
+    child.on("close", (code) => resolvePromise(code ?? 1));
+  });
+}
+
+async function main(argv = process.argv.slice(2)) {
+  const args = parseArgs(argv, { image: "string", out: "string", timeout: "number", "in-pty": "boolean" });
+  const inPty = args["in-pty"] === true;
+  if (!inPty && !(process.stdin.isTTY && process.stdout.isTTY)) {
+    const code = await runInsidePty(argv.filter((token) => !token.startsWith("--in-pty")));
+    process.exitCode = code;
+    return;
+  }
+  const editor = await resolveEditor();
+  const image = await resolveSmokeImage(args.image);
+  const record = await runLiveSmoke({ image: image.path, editor, out: args.out, timeout: args.timeout ?? 90 });
+  record.image = { requested: image.requested ?? image.path, rendered: image.path, substituted: image.substituted };
+  await writeJson(args.out ?? ".pi/benchmark/live-smoke.json", record);
+  process.stdout.write(`${JSON.stringify({ status: record.status, details: record.details, image: record.image })}\n`);
   if (record.status !== "passed") process.exitCode = 1;
 }
 
