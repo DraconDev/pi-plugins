@@ -3,9 +3,15 @@ import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 
+import { generateReviewImages } from "../../src/image-generator.ts";
+import { normalizeReview } from "../../src/schema.ts";
 import { assertNoCredentials, BenchmarkError, parseArgs, parsePositiveLimit, readJson, SCHEMA_VERSION, writeJson } from "./common.mjs";
 
 export const DEFAULT_MANIFEST = ".pi/benchmark/images.json";
+export const DEFAULT_CACHE = ".pi/benchmark/image-manifest.json";
+export const DEFAULT_IMAGE_DIR = ".pi/benchmark/images";
+/** Hard ceiling from the objective: at most 600 successful Agnes generations. */
+export const IMAGE_BUDGET = 600;
 
 export function promptHash(prompt) {
   if (typeof prompt !== "string" || !prompt.trim()) throw new BenchmarkError("invalid_manifest", "Image manifest prompts must be non-empty strings.");
@@ -114,21 +120,204 @@ export async function buildImageReport({ manifest, judgeResults, max = 600, root
   return report;
 }
 
-export async function main(argv = process.argv.slice(2)) {
-  const args = parseArgs(argv, { manifest: "string", out: "string", max: "number" });
-  const max = parsePositiveLimit(args.max, 600);
-  if (!args.manifest) throw new BenchmarkError("provider_calls_disabled", "Image generation is disabled in this implementation pass; supply a real --manifest from an authorized Agnes run.");
-  const manifest = await readJson(args.manifest, "manifest_missing");
-  const report = await ingestImageManifest(manifest, { max });
-  const out = await writeJson(args.out ?? DEFAULT_MANIFEST, report);
-  process.stdout.write(`${JSON.stringify({ out, generated: report.generated, cached: report.cached })}\n`);
+export function optionPrompt(scenario, option) {
+  const concept = scenario.visualPrompt?.prompt?.trim();
+  if (!concept) throw new BenchmarkError("missing_prompt", `${scenario.id} has no visual prompt.`);
+  return [
+    concept,
+    `Treatment: ${option.label}.`,
+    option.description ? `Direction: ${option.description}` : "",
+    "Terminal-safe product mockup, high contrast, no photographic noise, legible at 80x24 characters.",
+  ].filter(Boolean).join(" ");
 }
 
+/** Three options per visual scenario, deduped by prompt hash. */
+export function planImages(corpus, { strata = ["visual"], limit = IMAGE_BUDGET, scenarioLimit = Infinity } = {}) {
+  const planned = [];
+  let scenarios = 0;
+  for (const scenario of corpus.scenarios) {
+    if (!strata.includes(scenario.stratum)) continue;
+    if (scenarios >= scenarioLimit) break;
+    scenarios += 1;
+    for (const stage of scenario.canonicalInput.stages ?? []) {
+      for (const option of stage.options) {
+        const prompt = optionPrompt(scenario, option);
+        planned.push({
+          optionId: `${scenario.id}:${option.key ?? option.id ?? option.label}`,
+          scenarioId: scenario.id, stratum: scenario.stratum, stageId: stage.id,
+          optionKey: option.key ?? option.id ?? option.label, optionLabel: option.label,
+          prompt, hash: promptHash(prompt),
+        });
+      }
+    }
+  }
+  if (planned.length > limit) {
+    throw new BenchmarkError("generation_limit", `Plan needs ${planned.length} images but --max is ${limit}.`);
+  }
+  return planned;
+}
+
+async function readCacheFile(path) {
+  try { return JSON.parse(await readFile(path, "utf8")); } catch { return null; }
+}
+
+async function cacheHit(entry) {
+  try {
+    const path = resolve(entry.path);
+    const info = await stat(path);
+    const detected = detectImage(await readFile(path));
+    return info.isFile() && info.size === entry.byteCount && detected.width === entry.width ? path : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Generate the missing images for the visual stratum.
+ *
+ * Bounded by the 600-image budget, cached by prompt hash so a rerun costs
+ * nothing, and every failure (quota, connection, upstream) is recorded with a
+ * typed code and never retried silently.
+ */
+export async function runGeneration(corpus, {
+  max = IMAGE_BUDGET, out = DEFAULT_IMAGE_DIR, cachePath = DEFAULT_CACHE, log = () => {}, scenarioLimit = Infinity,
+} = {}) {
+  const planned = planImages(corpus, { limit: max, scenarioLimit });
+  const cache = (await readCacheFile(cachePath)) ?? { schemaVersion: SCHEMA_VERSION, kind: "benchmark-image-manifest", images: [], failures: [] };
+  const byHash = new Map((cache.images ?? []).map((image) => [image.hash, image]));
+  const images = [...(cache.images ?? [])];
+  const failures = [...(cache.failures ?? [])];
+  let generated = 0;
+  let cached = 0;
+
+  for (const item of planned) {
+    const existing = byHash.get(item.hash);
+    if (existing && await cacheHit(existing)) { cached += 1; continue; }
+    if (generated + failures.length >= max) {
+      failures.push({ optionId: item.optionId, scenarioId: item.scenarioId, code: "generation_limit", message: "Skipped: the 600-image benchmark budget is spent.", at: new Date().toISOString() });
+      continue;
+    }
+    const review = normalizeReview({
+      reviewId: item.scenarioId, round: 1, stages: [{
+        id: item.stageId, kind: "draft", header: item.stageId, prompt: item.prompt,
+        options: [
+          { id: item.optionKey, label: item.optionLabel, description: item.prompt, generate: { prompt: item.prompt, provider: "agnes" } },
+          // The schema requires a real choice; this filler is never generated
+          // and only exists so the single-option request validates.
+          { id: `${item.optionKey}-filler`, label: "Unchanged baseline", description: "Baseline treatment without a generated image." },
+        ],
+        allowOther: false, allowRevision: false, required: true,
+      }],
+    }, 1);
+    try {
+      const result = await generateReviewImages(review, { cwd: process.cwd(), outputDir: resolve(out), timeoutMs: 180_000 });
+      const image = result.images[0];
+      if (!image) throw new BenchmarkError("no_image_returned", "The provider returned no image for this option.");
+      const bytes = await readFile(image.path);
+      const detected = detectImage(bytes);
+      const entry = {
+        id: item.optionId, optionIds: [item.optionId], scenarioId: item.scenarioId, stratum: item.stratum,
+        prompt: item.prompt, hash: item.hash, path: image.path,
+        provider: "agnes", model: image.model,
+        mimeType: detected.mimeType, width: detected.width, height: detected.height, byteCount: bytes.length,
+        generatedAt: new Date().toISOString(),
+      };
+      images.push(entry);
+      byHash.set(item.hash, entry);
+      generated += 1;
+      log({ event: "generated", optionId: item.optionId, width: detected.width, height: detected.height, total: generated + cached });
+      await writeJson(cachePath, { schemaVersion: SCHEMA_VERSION, kind: "benchmark-image-manifest", provider: "agnes", planned: planned.length, images, failures });
+    } catch (error) {
+      const failure = {
+        optionId: item.optionId, scenarioId: item.scenarioId, code: error?.code ?? "request_failed",
+        message: error instanceof Error ? error.message : String(error), at: new Date().toISOString(),
+      };
+      failures.push(failure);
+      log({ event: "failed", ...failure });
+      await writeJson(cachePath, { schemaVersion: SCHEMA_VERSION, kind: "benchmark-image-manifest", provider: "agnes", planned: planned.length, images, failures });
+    }
+  }
+  const manifest = { schemaVersion: SCHEMA_VERSION, kind: "benchmark-image-manifest", provider: "agnes", planned: planned.length, images, failures };
+  assertNoCredentials(manifest);
+  await writeJson(cachePath, manifest);
+  return { manifest, generated, cached, failures: failures.length, planned: planned.length };
+}
+
+/**
+ * `benchmark:images` - generate the visual corpus inside the 600-image budget
+ * (cached by prompt hash), then validate and report what is on disk.
+ * `--ingest-only` validates an existing manifest without any provider call.
+ */
+export async function main(argv = process.argv.slice(2)) {
+  const args = parseArgs(argv, {
+    corpus: "string", manifest: "string", out: "string", cache: "string", max: "number",
+    scenarios: "number", quiet: "boolean", "ingest-only": "boolean",
+  });
+  const max = parsePositiveLimit(args.max, IMAGE_BUDGET);
+  const out = args.out ?? DEFAULT_MANIFEST;
+  const cachePath = args.cache ?? DEFAULT_CACHE;
+
+  if (args.manifest || args["ingest-only"]) {
+    // Ingest-only path: no provider calls at all.
+    const manifest = await readJson(args.manifest ?? cachePath, "manifest_missing");
+    const report = await ingestImageManifest(manifest, { max });
+    const written = await writeJson(out, report);
+    process.stdout.write(`${JSON.stringify({ out: written, generated: report.generated, cached: report.cached, providerCalls: 0 })}\n`);
+    return report;
+  }
+
+  const corpus = await readJson(args.corpus ?? ".pi/benchmark/corpus.json", "corpus_missing");
+  const { manifest, generated, cached, failures } = await runGeneration(corpus, {
+    max,
+    out: args.out?.endsWith(".json") ? DEFAULT_IMAGE_DIR : (args.out ?? DEFAULT_IMAGE_DIR),
+    cachePath,
+    scenarioLimit: args.scenarios ?? Infinity,
+    log: args.quiet ? () => {} : (event) => process.stderr.write(`${JSON.stringify(event)}\n`),
+  });
+  const report = await ingestImageManifest(manifest, { max });
+  report.generationFailures = failures;
+  const written = await writeJson(out, report);
+  process.stdout.write(`${JSON.stringify({
+    out: written, manifest: cachePath, planned: manifest.planned, generated, cached,
+    validated: report.generated, failures, providerCalls: generated, budget: max,
+  })}\n`);
+  return report;
+}
+
+/**
+ * `benchmark:images:report` - fold the judged decision utility into the image
+ * report and state the visual gate outcome.
+ */
 export async function reportMain(argv = process.argv.slice(2)) {
   const args = parseArgs(argv, { manifest: "string", judges: "string", out: "string", max: "number" });
-  const manifest = await readJson(args.manifest ?? DEFAULT_MANIFEST, "manifest_missing");
-  const judges = args.judges ? await readJson(args.judges, "judge_results_missing") : undefined;
-  const report = await buildImageReport({ manifest, judgeResults: judges, max: parsePositiveLimit(args.max, 600) });
+  const max = parsePositiveLimit(args.max, IMAGE_BUDGET);
+  const manifestPath = args.manifest ?? (await readCacheFile(DEFAULT_CACHE) ? DEFAULT_CACHE : DEFAULT_MANIFEST);
+  const manifest = await readJson(manifestPath, "manifest_missing");
+  const judges = args.judges ? await readJson(args.judges, "judge_results_missing") : await readCacheFile(".pi/benchmark/judge.json");
+  const report = await buildImageReport({ manifest, judgeResults: undefined, max });
+  if (judges) {
+    const summary = judges.summary ?? judges;
+    report.decisionUtility = {
+      judgedCases: summary.judgedCases ?? 0,
+      candidateWins: summary.candidateWins ?? 0,
+      candidateWinRate: summary.candidateWinRate ?? 0,
+      wilson95LowerBound: summary.wilson95LowerBound ?? 0,
+      ties: summary.ties ?? 0,
+      undecided: summary.undecided ?? 0,
+      severeFailuresText: 0,
+      severeFailuresImage: summary.severeImageFailures ?? 0,
+      severeImageFailureRate: summary.severeImageFailureRate ?? 0,
+      model: judges.model ?? null,
+      blinded: judges.blinded === true,
+      tieIsNotCredit: judges.tieIsNotCredit === true,
+    };
+    report.decisionUtility.gate = {
+      meaningfulUplift: (summary.candidateWinRate ?? 0) >= 0.6,
+      confidenceBound: (summary.wilson95LowerBound ?? 0) > 0.5,
+      severeFailures: (summary.severeImageFailureRate ?? 1) <= 0.02,
+      judgedCases: (summary.judgedCases ?? 0) >= 200,
+    };
+  }
   const out = await writeJson(args.out ?? ".pi/benchmark/image-report.json", report);
   process.stdout.write(`${JSON.stringify({ out, generated: report.generated, decisionUtility: report.decisionUtility })}\n`);
 }
