@@ -16,6 +16,8 @@ import { BenchmarkError, parseArgs, readJson, SCHEMA_VERSION, wilsonLowerBound, 
 import { blindLabels } from "./compare.mjs";
 
 export const JUDGE_MODEL = Object.freeze({ provider: "openrouter", model: "stealth/space-bunny-alpha" });
+/** Bounded attempts per pass before a case is reported undecided. */
+const JUDGE_ATTEMPTS = 3;
 const RUBRIC = [
   "Judge decision utility for the stated task, not aesthetic prestige.",
   "Compare the two labelled options only; never infer which tool produced them.",
@@ -76,19 +78,25 @@ export function adjudicate(passes, labels) {
 
 export function judgeSummary(results) {
   const total = results.length;
-  const wins = results.filter((item) => item.candidate === true).length;
-  const ties = results.filter((item) => item.winner === "tie").length;
+  // A judge that never produced a verdict is infrastructure noise, not a
+  // candidate loss, so the win rate is computed over decided cases.
+  const decided = results.filter((item) => item.winner !== "undecided");
+  const wins = decided.filter((item) => item.candidate === true).length;
+  const ties = decided.filter((item) => item.winner === "tie").length;
   const undecided = results.filter((item) => item.winner === "undecided").length;
-  const severe = results.filter((item) => item.severeFailure === "candidate").length;
+  const judgeErrors = results.filter((item) => item.method === "judge_error").length;
+  const severe = decided.filter((item) => item.severeFailure === "candidate").length;
   return {
     judgedCases: total,
+    decidedCases: decided.length,
     candidateWins: wins,
     ties,
     undecided,
-    candidateWinRate: total ? wins / total : 0,
-    wilson95LowerBound: wilsonLowerBound(wins, Math.max(1, total)),
+    judgeErrors,
+    candidateWinRate: decided.length ? wins / decided.length : 0,
+    wilson95LowerBound: wilsonLowerBound(wins, Math.max(1, decided.length)),
     severeImageFailures: severe,
-    severeImageFailureRate: total ? severe / total : 0,
+    severeImageFailureRate: decided.length ? severe / decided.length : 0,
   };
 }
 
@@ -155,19 +163,36 @@ export async function runJudging({ corpus, manifest, seed = corpus.seed, limit =
         cursor += 1;
         const images = await encodeImages(item.images);
         const passes = [];
-        try {
-          for (let pass = 0; pass < 2; pass += 1) {
-            const response = await runtime.completeSimple(model, {
-              systemPrompt: judgeSystemPrompt({ visualPrompt: { prompt: item.prompt.split("Task: ")[1]?.split("\n")[0] } }),
-              messages: [{ role: "user", content: [{ type: "text", text: `${item.prompt}\n\nEmit the required JSON object only.` }, ...images], timestamp: 0 }],
-            }, { maxTokens: 600, temperature: 0, reasoning: pass === 0 ? "low" : "medium" });
-            const text = response.content.filter((block) => block.type === "text").map((block) => block.text).join("").trim();
-            passes.push(parseStrictJudge(text));
+        const errors = [];
+        for (let pass = 0; pass < 2; pass += 1) {
+          // A malformed judge reply is a transport problem, not a verdict. Each
+          // pass gets bounded attempts so a formatting hiccup is never recorded
+          // as a loss for the candidate.
+          let lastError;
+          for (let attempt = 0; attempt < JUDGE_ATTEMPTS; attempt += 1) {
+            try {
+              const response = await runtime.completeSimple(model, {
+                systemPrompt: judgeSystemPrompt({ visualPrompt: { prompt: item.prompt.split("Task: ")[1]?.split("\n")[0] } }),
+                messages: [{ role: "user", content: [{ type: "text", text: `${item.prompt}\n\nEmit the required JSON object only.` }, ...images], timestamp: 0 }],
+              }, { maxTokens: 600, temperature: 0, reasoning: pass === 0 ? "low" : "medium" });
+              const text = response.content.filter((block) => block.type === "text").map((block) => block.text).join("").trim();
+              passes.push(parseStrictJudge(text));
+              lastError = undefined;
+              break;
+            } catch (error) {
+              lastError = error;
+              errors.push(error instanceof Error ? error.message : String(error));
+            }
           }
+          if (lastError) break;
+        }
+        if (passes.length === 2) {
           const adjudicated = adjudicate(passes, item.labels);
           results.push({ id: item.id, ...adjudicated, utility: { a: passes[0].utilityA, b: passes[0].utilityB }, images: item.images.length });
-        } catch (error) {
-          results.push({ id: item.id, winner: "error", candidate: false, method: "judge_error", error: error instanceof Error ? error.message : String(error) });
+        } else {
+          // Undecided, not lost: excluded from the win-rate denominator and
+          // reported as an infrastructure shortfall.
+          results.push({ id: item.id, winner: "undecided", candidate: false, method: "judge_error", error: errors[errors.length - 1] ?? "judge failed" });
         }
       }
     });

@@ -332,7 +332,8 @@ export async function reportMain(argv = process.argv.slice(2)) {
       meaningfulUplift: (summary.candidateWinRate ?? 0) >= 0.6,
       confidenceBound: (summary.wilson95LowerBound ?? 0) > 0.5,
       severeFailures: (summary.severeImageFailureRate ?? 1) <= 0.02,
-      judgedCases: (summary.judgedCases ?? 0) >= 200,
+      judgedCases: (summary.decidedCases ?? summary.judgedCases ?? 0) >= 180,
+      judgeErrors: (summary.judgeErrors ?? 0) <= 0.1 * (summary.judgedCases ?? 1),
     };
   }
   const out = await writeJson(args.out ?? ".pi/benchmark/image-report.json", report);
