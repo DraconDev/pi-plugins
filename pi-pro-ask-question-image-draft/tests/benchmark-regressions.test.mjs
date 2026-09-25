@@ -22,7 +22,7 @@ import { resolveSmokeImage } from "../scripts/benchmark/smoke-live.mjs";
 import { verifyEvidence } from "../scripts/benchmark/publish.mjs";
 
 const FIXTURE_CORPUS = {
-  schemaVersion: "benchmark/1",
+  schemaVersion: 1,
   kind: "benchmark-corpus",
   seed: 7,
   count: 2,
@@ -65,7 +65,7 @@ function manifestFor(corpus, { id = "v-1", keys = ["a", "b", "c"] } = {}) {
       provider: "agnes", model: "agnes-image-2.5-flash", mimeType: "image/png", width: 1, height: 1, byteCount: 1,
     };
   });
-  return { schemaVersion: "benchmark/1", kind: "benchmark-image-manifest", provider: "agnes", planned: images.length, images, failures: [], corpusId: corpus.seed };
+  return { schemaVersion: 1, kind: "benchmark-image-manifest", provider: "agnes", planned: images.length, images, failures: [], corpusId: corpus.seed };
 }
 
 describe("ledger: judging defects", () => {
@@ -130,7 +130,9 @@ describe("ledger: judging defects", () => {
     assert.equal(summary.candidateWins, 2);
     assert.equal(summary.judgedCases, 5);
     assert.equal(summary.candidateWinRate, 2 / 5);
-    assert.equal(summary.decidedWinRate, 2 / 3);
+    // A tie is decided but is not credit; an undecided case is not decided.
+    assert.equal(summary.decidedCases, 4);
+    assert.equal(summary.decidedWinRate, 2 / 4);
     assert.equal(summary.judgeErrors, 1);
     assert.ok(summary.wilson95LowerBound < summary.candidateWinRate);
   });
@@ -183,9 +185,14 @@ describe("ledger: visual decision-utility defects", () => {
     assert.equal(good.gates.visualUplift, true);
   });
 
-  it("GATE-003: a contract-named image path is a hard failure when it does not exist, never a silent substitution", async () => {
+  it("GATE-003: a contract-named image path renders exactly that file, and a missing one is a hard failure", async () => {
+    const alias = await resolveSmokeImage(`.pi/benchmark/images/${CONTRACT_ALIAS_PREFIX}1.png`);
+    assert.equal(alias.substituted, false);
+    assert.equal(alias.path.endsWith(`${CONTRACT_ALIAS_PREFIX}1.png`), true);
+    // Nothing is substituted when the named file is absent, inside the image
+    // directory or anywhere else.
     await assert.rejects(
-      () => resolveSmokeImage(".pi/benchmark/images/visual-001-option-1.png"),
+      () => resolveSmokeImage(".pi/benchmark/images/visual-001-option-404.png"),
       (error) => error.code === "image_missing",
     );
     await assert.rejects(() => resolveSmokeImage("/nowhere/else.png"), (error) => error.code === "image_missing");
@@ -324,7 +331,7 @@ describe("ledger: harness defects", () => {
 
   it("GATE-002: an open P0/P1 is reported as data and only fails the release gate", () => {
     const report = {
-      schemaVersion: "benchmark/1", kind: "benchmark-aggregate-report",
+      schemaVersion: 1, kind: "benchmark-aggregate-report",
       corpus: { count: 1000, strata: { ordinary: 700, visual: 200, adversarial: 100 } },
       comparison: { deterministicAccuracy: 1, wilson95LowerBound: 0.99 },
       defects: [{ id: "OPEN-1", severity: "P1", status: "open", summary: "s" }],

@@ -77,6 +77,7 @@ function extractJsonObjects(value) {
     let depth = 0;
     let inString = false;
     let escaped = false;
+    let closed = false;
     for (let index = start; index < value.length; index += 1) {
       const char = value[index];
       if (escaped) { escaped = false; continue; }
@@ -86,9 +87,12 @@ function extractJsonObjects(value) {
       if (char === "{") depth += 1;
       else if (char === "}") {
         depth -= 1;
-        if (depth === 0) { found.push(value.slice(start, index + 1)); start = value.length; break; }
+        if (depth === 0) { found.push(value.slice(start, index + 1)); closed = true; break; }
       }
     }
+    // Keep scanning after a span closes: a reply can wrap a decoy object around
+    // the real verdict, and stopping at the first span would return the decoy.
+    if (closed && depth !== 0) continue;
   }
   return found.sort((left, right) => right.length - left.length);
 }
