@@ -24,6 +24,8 @@ import {
 import { runVisualReviewWizard } from "../src/tui.ts";
 
 export const ASK_USER_QUESTION_TOOL_NAME = "ask_user_question";
+export const ASK_USER_PROMPT_EVENT = "pi-visual-review:prompt" as const;
+export const ASK_USER_BLOCKED_EVENT = "pi-visual-review:blocked" as const;
 export const REVIEW_STATE_CUSTOM_TYPE = "pi-visual-review-state";
 export const TOOL_DESCRIPTION = `Ask the user for a staged visual review with optional image-backed choices, revisions, and explicit outcomes.
 
@@ -152,6 +154,51 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && (error.name === "AbortError" || /abort/i.test(error.message));
 }
 
+function cancelledResult(
+  review: NormalizedReview,
+  answers: readonly ReviewAnswer[],
+  generatedImages: readonly GeneratedImageReference[],
+): ReviewResult {
+  return {
+    version: 1,
+    reviewId: review.reviewId,
+    round: review.round,
+    status: "cancelled",
+    decision: "cancel",
+    cancelled: true,
+    answers: [...answers],
+    ...(generatedImages.length > 0 ? { generatedImages: generatedImages.map((image) => ({ ...image })) } : {}),
+  };
+}
+
+function emitPromptEvent(pi: ExtensionAPI, review: NormalizedReview): void {
+  pi.events.emit(ASK_USER_PROMPT_EVENT, {
+    reviewId: review.reviewId,
+    round: review.round,
+    questions: review.stages.map((stage) => ({
+      question: stage.prompt,
+      header: stage.header,
+      multiSelect: stage.multiSelect,
+      options: stage.options.map((option) => ({
+        label: option.label,
+        description: option.description ?? "",
+        hasPreview: Boolean(option.preview || option.image),
+      })),
+    })),
+  });
+}
+
+function emitBlockedEvent(pi: ExtensionAPI, active: boolean): void {
+  pi.events.emit(ASK_USER_BLOCKED_EVENT, { active });
+}
+
+function reconcileToolVisibility(pi: ExtensionAPI, ctx: ExtensionContext): void {
+  const active = pi.getActiveTools();
+  const hasTool = active.includes(ASK_USER_QUESTION_TOOL_NAME);
+  if (!ctx.hasUI && hasTool) pi.setActiveTools(active.filter((name) => name !== ASK_USER_QUESTION_TOOL_NAME));
+  else if (ctx.hasUI && !hasTool) pi.setActiveTools([...active, ASK_USER_QUESTION_TOOL_NAME]);
+}
+
 /**
  * Registers the compatibility tool. The package intentionally uses Pi's
  * built-in name so existing model workflows do not need to change. Disable or
@@ -159,6 +206,7 @@ function isAbortError(error: unknown): boolean {
  * if Pi reports a duplicate tool name.
  */
 export default function registerVisualReview(pi: ExtensionAPI): void {
+  pi.on("before_agent_start", (_event, ctx) => reconcileToolVisibility(pi, ctx));
   pi.registerTool({
     name: ASK_USER_QUESTION_TOOL_NAME,
     label: "Ask User Question / Visual Review",
@@ -181,6 +229,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
       review = restoreReviewArtifacts(review, previous);
       const initialAnswers = initialAnswersFor(review, previous);
       const initialSkippedStageIds = initialSkippedStageIdsFor(review, previous);
+      const initialGlobalNote = previous?.globalNote ?? "";
       const carriedImages = carriedGeneratedImages(review, previous);
 
       if (previous && review.round <= previous.round) {
@@ -206,6 +255,8 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
           review,
         );
       }
+
+      emitPromptEvent(pi, review);
 
       // Generation is deliberately explicit in the input contract. Existing image
       // references are left untouched; only options carrying `generate` are sent to
@@ -273,59 +324,46 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
       }
 
       let result: ReviewResult;
-      if (!ctx.hasUI) {
-        result = makeFallbackResult(review, "no_ui");
-      } else if (ctx.mode === "rpc" && hasDialogUI(ctx)) {
-        try {
-          result = await runDialogReview(ctx, review, initialAnswers, initialSkippedStageIds);
-        } catch (error) {
-          if (isAbortError(error) || signal?.aborted || ctx.signal?.aborted) {
-            result = {
-              version: 1,
-              reviewId: review.reviewId,
-              round: review.round,
-              status: "cancelled",
-              decision: "cancel",
-              cancelled: true,
-              answers: initialAnswers,
-              ...(generatedImages.length > 0 ? { generatedImages } : {}),
-            };
-          } else {
-            result = makeFallbackResult(review, "rpc");
+      emitBlockedEvent(pi, true);
+      try {
+        if (!ctx.hasUI) {
+          result = makeFallbackResult(review, "no_ui");
+        } else if (ctx.mode === "rpc" && hasDialogUI(ctx)) {
+          try {
+            result = await runDialogReview(ctx, review, initialAnswers, initialSkippedStageIds);
+          } catch (error) {
+            if (isAbortError(error) || signal?.aborted || ctx.signal?.aborted) {
+              result = cancelledResult(review, initialAnswers, generatedImages);
+            } else {
+              result = makeFallbackResult(review, "rpc");
+            }
           }
-        }
-      } else if (ctx.mode === "tui") {
-        try {
-          const wizardResult = await runVisualReviewWizard(ctx, review, initialAnswers, initialSkippedStageIds);
-          result = wizardResult ?? makeFallbackResult(review, "no_custom_ui");
-        } catch (error) {
-          if (isAbortError(error) || signal?.aborted || ctx.signal?.aborted) {
-            result = {
-              version: 1,
-              reviewId: review.reviewId,
-              round: review.round,
-              status: "cancelled",
-              decision: "cancel",
-              cancelled: true,
-              answers: initialAnswers,
-              ...(generatedImages.length > 0 ? { generatedImages } : {}),
-            };
-          } else if (ctx.mode === "tui" && hasDialogUI(ctx)) {
-            try {
-              result = await runDialogReview(ctx, review, initialAnswers, initialSkippedStageIds);
-            } catch {
+        } else if (ctx.mode === "tui") {
+          try {
+            const wizardResult = await runVisualReviewWizard(ctx, review, initialAnswers, initialSkippedStageIds, initialGlobalNote);
+            result = wizardResult ?? makeFallbackResult(review, "no_custom_ui");
+          } catch (error) {
+            if (isAbortError(error) || signal?.aborted || ctx.signal?.aborted) {
+              result = cancelledResult(review, initialAnswers, generatedImages);
+            } else if (hasDialogUI(ctx)) {
+              try {
+                result = await runDialogReview(ctx, review, initialAnswers, initialSkippedStageIds);
+              } catch {
+                result = makeFallbackResult(review, "no_custom_ui");
+              }
+            } else {
               result = makeFallbackResult(review, "no_custom_ui");
             }
-          } else {
-            result = makeFallbackResult(review, "no_custom_ui");
           }
+        } else {
+          result = makeFallbackResult(review, ctx.mode === "json" || ctx.mode === "print" ? "no_ui" : "no_custom_ui");
         }
-      } else {
-        result = makeFallbackResult(review, ctx.mode === "json" || ctx.mode === "print" ? "no_ui" : "no_custom_ui");
+      } finally {
+        emitBlockedEvent(pi, false);
       }
 
       if (generatedImages.length > 0) result = { ...result, generatedImages };
-      pi.appendEntry(REVIEW_STATE_CUSTOM_TYPE, makeReviewState(review, result.answers, result.status, result.skippedStageIds, result.generatedImages));
+      pi.appendEntry(REVIEW_STATE_CUSTOM_TYPE, makeReviewState(review, result.answers, result.status, result.skippedStageIds, result.generatedImages, result.globalNote));
       return textResult(result, review);
     },
     renderCall(args, theme, _context) {

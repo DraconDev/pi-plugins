@@ -58,6 +58,23 @@ describe("VisualReviewWizard", () => {
     assert.equal(state.renders > 0, true);
   });
 
+  it("uses Enter to toggle multi-select options and only Done selecting to commit", () => {
+    const state = wizard();
+    state.component.handleInput("\t");
+    state.component.handleInput("\r");
+    assert.match(state.component.render(100).join("\n"), /Selected: C/);
+    assert.equal(state.result, undefined);
+    state.component.handleInput("\x1b[B");
+    state.component.handleInput("\r");
+    assert.match(state.component.render(100).join("\n"), /Selected: C, D/);
+    assert.equal(state.result, undefined);
+    state.component.handleInput("\x1b[B");
+    state.component.handleInput("\r");
+    assert.equal(state.result, undefined);
+    // The first unresolved stage is revisited rather than silently approving.
+    assert.match(state.component.render(100).join("\n"), /Choose one/);
+  });
+
   it("submits custom and revision editor text and clears it", () => {
     const state = wizard();
     down(state.component);
@@ -87,6 +104,32 @@ describe("VisualReviewWizard", () => {
     assert.equal(revisionState.result?.status, "revision");
     assert.equal(revisionState.result?.revision?.feedback, "make it bolder");
     assert.equal(revisionState.result?.revision?.requestedRound, 2);
+  });
+
+  it("supports final review, global notes, and explicit rejection", () => {
+    let result;
+    const finalReview = normalizeReview({
+      reviewId: "final-review",
+      stages: [{ id: "only", header: "Only", prompt: "Choose one", options: [{ id: "a", label: "A" }, { id: "b", label: "B" }] }],
+    });
+    const component = new VisualReviewWizard(
+      { requestRender: () => {}, terminal: { rows: 40, columns: 100 } },
+      theme(),
+      finalReview,
+      process.cwd(),
+      (value) => { result = value; },
+    );
+    component.handleInput("\t");
+    component.handleInput("n");
+    component.handleInput("more context");
+    component.handleInput("\r");
+    assert.match(component.render(100).join("\n"), /Global note: more context/);
+    component.handleInput("\x1b[B");
+    component.handleInput("\x1b[B");
+    component.handleInput("\x1b[B");
+    component.handleInput("\r");
+    assert.equal(result?.status, "rejected");
+    assert.equal(result?.globalNote, "more context");
   });
 
   it("cancels on Escape and AbortSignal", () => {

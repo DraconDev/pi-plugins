@@ -1,4 +1,6 @@
-import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import { SettingsManager } from "@earendil-works/pi-coding-agent";
+import { editWithExternalEditor } from "./external-editor.ts";
 import {
   Editor,
   HStack,
@@ -7,10 +9,16 @@ import {
   type Component,
   type EditorTheme,
   type Focusable,
+  type KeyId,
   Markdown,
   type MarkdownTheme,
+  type OverlayHandle,
+  isKeyRelease,
+  isKeyRepeat,
   matchesKey,
   type TUI,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
   truncateToWidth,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
@@ -105,6 +113,13 @@ function rowsForStage(stage: NormalizedStage): Row[] {
   if (!stage.required) rows.push({ kind: "skip" });
   if (stage.allowRevision) rows.push({ kind: "revision" });
   return rows;
+}
+
+function noteForCurrentRow(row: Row | undefined, stage: NormalizedStage | undefined, answers: ReadonlyMap<string, ReviewAnswer>): string | undefined {
+  if (!stage || !row) return undefined;
+  return row.kind === "option" || row.kind === "done" || row.kind === "other" || row.kind === "skip" || row.kind === "revision"
+    ? answers.get(stage.id)?.notes
+    : undefined;
 }
 
 function rowsForReview(): Row[] {
@@ -224,10 +239,13 @@ class LinesComponent implements Component {
 export class VisualReviewWizard implements Component, Focusable {
   private readonly review: NormalizedReview;
   private readonly theme: Theme;
+  private readonly keybindings?: KeybindingsManager;
   private readonly requestRender: () => void;
+  private readonly tui: TUI;
   private readonly done: (result: ReviewResult) => void;
   private readonly cwd: string;
   private readonly signal?: AbortSignal;
+  private readonly externalEditorConfigured: boolean;
   private readonly answers = new Map<string, ReviewAnswer>();
   private readonly notesByStage = new Map<string, string>();
   private readonly skippedStageIds = new Set<string>();
@@ -235,7 +253,10 @@ export class VisualReviewWizard implements Component, Focusable {
   private readonly selections = new Map<string, Set<string>>();
   private readonly loadedImages = new Map<string, LoadedOption>();
   private readonly editor: Editor;
+  private readonly editExternal?: (value: string) => Promise<string | undefined>;
+  private overlayHandle?: OverlayHandle;
   private readonly imageMode: boolean;
+  private collapsed = false;
   private _focused = false;
   private stageIndex = 0;
   private selectedIndex = 0;
@@ -243,7 +264,9 @@ export class VisualReviewWizard implements Component, Focusable {
   private inputStageIndex = 0;
   private globalNote = "";
   private cachedWidth = -1;
+  private cachedHeight = -1;
   private cachedLines: string[] | undefined;
+  private scrollOffset = 0;
   private disposed = false;
   private finished = false;
 
@@ -257,9 +280,15 @@ export class VisualReviewWizard implements Component, Focusable {
     signal?: AbortSignal,
     initialSkippedStageIds: readonly string[] = [],
     initialGlobalNote = "",
+    keybindings?: KeybindingsManager,
+    editExternal?: (value: string) => Promise<string | undefined>,
   ) {
     this.review = review;
     this.theme = theme;
+    this.keybindings = keybindings;
+    this.editExternal = editExternal;
+    this.externalEditorConfigured = Boolean(editExternal);
+    this.tui = tui;
     this.cwd = cwd;
     this.done = done;
     this.signal = signal;
@@ -267,7 +296,7 @@ export class VisualReviewWizard implements Component, Focusable {
     this.globalNote = initialGlobalNote;
     this.editor = new Editor(tui, editorTheme(theme));
     this.editor.focused = true;
-    this.editor.onSubmit = (value) => this.submitEditor(value);
+    this.editor.disableSubmit = true;
 
     for (const [stageIndex, stage] of review.stages.entries()) {
       const answer = initialAnswers.find((candidate) => candidate.stageId === stage.id);
@@ -303,6 +332,7 @@ export class VisualReviewWizard implements Component, Focusable {
   get focused(): boolean { return this._focused; }
   set focused(value: boolean) {
     this._focused = value;
+    if (!value && this.collapsed) this.overlayHandle?.setHidden(true);
     this.editor.focused = value && this.inputMode !== "none";
   }
 
@@ -318,6 +348,14 @@ export class VisualReviewWizard implements Component, Focusable {
     this.finish(resultFor(this.review, "cancel", this.answers, this.skippedStageIds, undefined, this.globalNote));
   };
 
+  private async editExternalAnswer(): Promise<void> {
+    if (!this.editExternal || this.finished) return;
+    const edited = await this.editExternal(this.editor.getText());
+    if (edited === undefined || this.finished) return;
+    this.editor.setText(edited);
+    this.invalidate();
+  }
+
   private get isReviewTab(): boolean {
     return this.stageIndex >= this.review.stages.length;
   }
@@ -329,6 +367,18 @@ export class VisualReviewWizard implements Component, Focusable {
   private currentRows(): Row[] {
     const stage = this.currentStage();
     return stage ? rowsForStage(stage) : rowsForReview();
+  }
+
+  private matches(data: string, binding: "tui.select.up" | "tui.select.down" | "tui.select.confirm" | "tui.select.cancel" | "tui.input.submit" | "tui.input.newLine", fallback: KeyId): boolean {
+    return this.keybindings ? this.keybindings.matches(data, binding) : matchesKey(data, fallback);
+  }
+
+  private isConfirm(data: string): boolean {
+    return this.matches(data, "tui.select.confirm", Key.enter) || this.matches(data, "tui.input.submit", Key.enter);
+  }
+
+  private isCancel(data: string): boolean {
+    return this.matches(data, "tui.select.cancel", Key.escape);
   }
 
   private storeAnswer(stageId: string, answer: ReviewAnswer): void {
@@ -343,8 +393,17 @@ export class VisualReviewWizard implements Component, Focusable {
     if (answer) this.answers.set(stageId, note ? { ...answer, notes: note } : { ...answer, notes: undefined });
   }
 
+  private currentNote(): string | undefined {
+    const stage = this.currentStage();
+    if (!stage) return undefined;
+    const row = this.currentRows()[this.selectedIndex];
+    if (!row) return undefined;
+    return this.notesByStage.get(stage.id) ?? noteForCurrentRow(row, stage, this.answers);
+  }
+
   invalidate(): void {
     this.cachedWidth = -1;
+    this.cachedHeight = -1;
     this.cachedLines = undefined;
     this.editor.invalidate();
     this.requestRender();
@@ -352,14 +411,35 @@ export class VisualReviewWizard implements Component, Focusable {
 
   handleInput(data: string): void {
     if (this.disposed || this.finished || this.signal?.aborted) return;
+    if (matchesKey(data, Key.ctrl("]"))) {
+      this.toggleCollapsed();
+      return;
+    }
+
+    if (this.collapsed) {
+      if (this.isCancel(data)) this.finish(resultFor(this.review, "cancel", this.answers, this.skippedStageIds, undefined, this.globalNote));
+      return;
+    }
 
     if (this.inputMode !== "none") {
-      if (matchesKey(data, Key.escape)) {
+      if (this.isCancel(data)) {
         this.inputMode = "none";
         this.editor.setText("");
+        this.editor.focused = false;
         this.invalidate();
         return;
       }
+      if (this.keybindings?.matches(data, "app.editor.external") && this.inputMode === "other") {
+        void this.editExternalAnswer();
+        return;
+      }
+      if (this.isConfirm(data)) {
+        this.submitEditor(this.editor.getText());
+        return;
+      }
+      // The editor owns text editing and newline semantics. Its submit callback is
+      // disabled above so a configured submit key cannot clear the buffer before
+      // this component has copied it into the answer/note state.
       this.editor.handleInput(data);
       this.invalidate();
       return;
@@ -369,13 +449,15 @@ export class VisualReviewWizard implements Component, Focusable {
     const rows = this.currentRows();
     if (!rows.length) return;
 
-    if (matchesKey(data, Key.up)) {
-      this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+    if (this.matches(data, "tui.select.up", Key.up)) {
+      this.selectedIndex = (this.selectedIndex - 1 + rows.length) % rows.length;
+      this.scrollOffset = Math.max(0, this.scrollOffset - 1);
       this.invalidate();
       return;
     }
-    if (matchesKey(data, Key.down)) {
-      this.selectedIndex = Math.min(rows.length - 1, this.selectedIndex + 1);
+    if (this.matches(data, "tui.select.down", Key.down)) {
+      this.selectedIndex = (this.selectedIndex + 1) % rows.length;
+      this.scrollOffset = Math.min(Math.max(0, this.scrollOffset + 1), Math.max(0, rows.length - 1));
       this.invalidate();
       return;
     }
@@ -391,7 +473,7 @@ export class VisualReviewWizard implements Component, Focusable {
       this.invalidate();
       return;
     }
-    if (matchesKey(data, Key.escape)) {
+    if (this.isCancel(data)) {
       this.finish(resultFor(this.review, "cancel", this.answers, this.skippedStageIds, undefined, this.globalNote));
       return;
     }
@@ -402,7 +484,7 @@ export class VisualReviewWizard implements Component, Focusable {
       } else {
         this.inputMode = "note";
         this.inputStageIndex = this.stageIndex;
-        this.editor.setText(this.answers.get(this.review.stages[this.stageIndex]?.id ?? "")?.notes ?? "");
+        this.editor.setText(this.currentNote() ?? "");
       }
       this.editor.focused = this._focused;
       this.invalidate();
@@ -416,7 +498,7 @@ export class VisualReviewWizard implements Component, Focusable {
         if (!stage) return;
         this.inputMode = "note";
         this.inputStageIndex = this.stageIndex;
-        this.editor.setText(this.answers.get(stage.id)?.notes ?? "");
+        this.editor.setText(this.currentNote() ?? "");
         this.editor.focused = this._focused;
         this.invalidate();
       }
@@ -432,7 +514,7 @@ export class VisualReviewWizard implements Component, Focusable {
       return;
     }
     if (row.kind === "edit") {
-      if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
+      if (this.isConfirm(data) || data === " ") {
         const missing = unresolvedStages(this.review, this.answers, [...this.skippedStageIds])[0];
         this.stageIndex = missing ? this.review.stages.indexOf(missing) : 0;
         this.selectedIndex = 0;
@@ -441,7 +523,7 @@ export class VisualReviewWizard implements Component, Focusable {
       return;
     }
     if (row.kind === "approve") {
-      if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
+      if (this.isConfirm(data) || data === " ") {
         const missing = unresolvedStages(this.review, this.answers, [...this.skippedStageIds])[0];
         if (missing) {
           this.stageIndex = this.review.stages.indexOf(missing);
@@ -454,12 +536,12 @@ export class VisualReviewWizard implements Component, Focusable {
       return;
     }
     if (row.kind === "reject") {
-      if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) this.finish(resultFor(this.review, "reject", this.answers, this.skippedStageIds, undefined, this.globalNote));
+      if (this.isConfirm(data) || data === " ") this.finish(resultFor(this.review, "reject", this.answers, this.skippedStageIds, undefined, this.globalNote));
       return;
     }
     if (row.kind === "other" || row.kind === "revision" || row.kind === "skip") {
       if (!stage) return;
-      if (!matchesKey(data, Key.enter) && !matchesKey(data, Key.space)) return;
+      if (!this.isConfirm(data) && data !== " ") return;
       if (row.kind === "skip") {
         this.answers.delete(stage.id);
         this.skippedStageIds.add(stage.id);
@@ -477,23 +559,27 @@ export class VisualReviewWizard implements Component, Focusable {
     if (!stage) return;
 
     if (stage.multiSelect) {
-      if (!matchesKey(data, Key.space) && !matchesKey(data, Key.enter)) return;
       const selected = this.selection(stage.id);
       if (row.kind === "done") {
-        if (selected.size === 0) return;
+        // The explicit commit row is the only multi-select action that advances.
+        // Space remains a no-op here so it cannot accidentally commit a partial
+        // selection, matching the reference questionnaire's checkbox semantics.
+        if (!this.isConfirm(data) || selected.size === 0) return;
         const options = stage.options.filter((option) => selected.has(option.id));
         this.storeAnswer(stage.id, makeOptionAnswer(stage, this.stageIndex, options));
         this.skippedStageIds.delete(stage.id);
         this.advanceAfterAnswer();
         return;
       }
-      if (selected.has(row.option.id)) selected.delete(row.option.id);
-      else selected.add(row.option.id);
-      this.invalidate();
+      if (data === " " || this.isConfirm(data)) {
+        if (selected.has(row.option.id)) selected.delete(row.option.id);
+        else selected.add(row.option.id);
+        this.invalidate();
+      }
       return;
     }
 
-    if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
+    if (this.isConfirm(data)) {
       if (row.kind !== "option") return;
       this.storeAnswer(stage.id, makeOptionAnswer(stage, this.stageIndex, [row.option]));
       this.skippedStageIds.delete(stage.id);
@@ -502,7 +588,11 @@ export class VisualReviewWizard implements Component, Focusable {
   }
 
   render(width: number): string[] {
-    if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
+    if (this.collapsed) {
+      return [this.theme.fg("dim", `Visual review hidden — press Ctrl+] to reopen (${this.review.title ?? "review"})`)];
+    }
+    const terminalRows = this.tui.terminal?.rows;
+    if (this.cachedLines && this.cachedWidth === width && this.cachedHeight === (terminalRows ?? -1)) return this.cachedLines;
     const safeWidth = Math.max(20, width);
     const stage = this.currentStage();
     const lines: string[] = [];
@@ -559,7 +649,7 @@ export class VisualReviewWizard implements Component, Focusable {
       lines.push("");
       for (const line of this.editor.render(Math.max(1, safeWidth - 4))) lines.push(`  ${line}`);
       lines.push("");
-      lines.push(this.theme.fg("dim", "Enter to submit • Esc to go back"));
+      lines.push(this.theme.fg("dim", `Enter to submit • Esc to go back${this.inputMode === "other" && this.externalEditorConfigured ? " • Ctrl+G external editor" : ""}`));
     } else {
       this.editor.focused = false;
       const rows = this.currentRows();
@@ -602,6 +692,8 @@ export class VisualReviewWizard implements Component, Focusable {
       lines.push("");
       const current = stage ? this.answers.get(stage.id) : undefined;
       if (current) lines.push(this.theme.fg("success", `Current answer: ${current.answer ?? current.optionLabels?.join(", ") ?? "(empty)"}${current.notes ? ` — ${current.notes}` : ""}`));
+      const currentNote = stage ? this.currentNote() : undefined;
+      if (currentNote && !current?.notes) lines.push(this.theme.fg("muted", `Note: ${currentNote}`));
       const selection = stage ? this.selection(stage.id) : new Set<string>();
       const help = stage?.multiSelect
         ? `↑↓ move • Space toggle • Enter confirm • Tab stages • Esc cancel`
@@ -615,9 +707,92 @@ export class VisualReviewWizard implements Component, Focusable {
     lines.push("");
     lines.push(border("─".repeat(safeWidth)));
     const bounded = lines.map((line) => isImageLine(line) ? line : fitLine(line, safeWidth));
+    const visible = this.visibleLines(bounded);
     this.cachedWidth = width;
-    this.cachedLines = bounded;
-    return bounded;
+    this.cachedHeight = terminalRows ?? -1;
+    this.cachedLines = visible;
+    return visible;
+  }
+
+  private toggleCollapsed(): void {
+    this.setCollapsed(!this.collapsed);
+  }
+
+  /** Toggle the overlay from a raw terminal listener when Pi hides the overlay. */
+  toggleCollapsedExternal(): void {
+    this.toggleCollapsed();
+  }
+
+  /** Handle a raw terminal shortcut while the overlay is hidden. */
+  handleTerminalInput(data: string): boolean {
+    if (isKeyRelease(data) || isKeyRepeat(data)) return matchesKey(data, Key.ctrl("]"));
+    if (!matchesKey(data, Key.ctrl("]"))) return false;
+    this.toggleCollapsed();
+    return true;
+  }
+
+  /** Set the visibility state when an overlay handle is available. */
+  setCollapsed(collapsed: boolean): void {
+    if (this.collapsed === collapsed) return;
+    this.collapsed = collapsed;
+    this.overlayHandle?.setHidden(collapsed);
+    this.invalidate();
+  }
+
+  setOverlayHandle(handle: OverlayHandle): void {
+    this.overlayHandle = handle;
+  }
+
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (this.collapsed || this.disposed || this.finished || this._focused === false) return undefined;
+    if (event.type === "wheel") {
+      this.scrollOffset = Math.max(0, this.scrollOffset + (event.wheelDelta ?? 0));
+      this.invalidate();
+      return { handled: true, render: true };
+    }
+    if (event.type !== "click" || event.y < 0) return undefined;
+    const rowIndex = this.rowAtY(event.y, this.currentRows().length, event.width);
+    if (rowIndex === undefined) return undefined;
+    this.selectedIndex = rowIndex;
+    this.invalidate();
+    return { handled: true, focus: true, render: true };
+  }
+
+  private rowAtY(y: number, rowCount: number, width: number): number | undefined {
+    if (rowCount <= 0) return undefined;
+    const lines = this.cachedLines ?? this.render(width);
+    const target = Math.max(0, Math.min(lines.length - 1, Math.floor(y)));
+    const rowStarts: number[] = [];
+    for (let index = 0; index < lines.length; index += 1) {
+      if ((lines[index] ?? "").includes("> ")) rowStarts.push(index);
+    }
+    if (!rowStarts.length) return undefined;
+    for (let index = rowStarts.length - 1; index >= 0; index -= 1) {
+      if (rowStarts[index] <= target) return Math.min(rowCount - 1, index);
+    }
+    return 0;
+  }
+
+  private visibleLines(lines: string[]): string[] {
+    const height = this.tui.terminal?.rows;
+    if (!height || height <= 0 || lines.length <= height) return lines;
+    const headerCount = Math.min(5, lines.length);
+    const footerCount = Math.min(4, Math.max(0, lines.length - headerCount));
+    const body = lines.slice(headerCount, Math.max(headerCount, lines.length - footerCount));
+    const maxOffset = Math.max(0, body.length - 1);
+    this.scrollOffset = Math.min(Math.max(0, this.scrollOffset), maxOffset);
+    const indicatorCount = (this.scrollOffset > 0 ? 1 : 0) + (this.scrollOffset < maxOffset ? 1 : 0);
+    const bodyHeight = Math.max(1, Math.min(body.length, height - headerCount - footerCount - indicatorCount));
+    const start = Math.min(this.scrollOffset, Math.max(0, body.length - bodyHeight));
+    const end = Math.min(body.length, start + bodyHeight);
+    const result = [
+      ...lines.slice(0, headerCount),
+      ...(start > 0 ? [this.theme.fg("dim", "↑ content above")] : []),
+      ...body.slice(start, end),
+      ...(end < body.length ? [this.theme.fg("dim", "↓ content below")] : []),
+      ...lines.slice(Math.max(headerCount, lines.length - footerCount)),
+    ];
+    return result.slice(0, height);
   }
 
   private selection(stageId: string): Set<string> {
@@ -750,22 +925,56 @@ export async function runVisualReviewWizard(
   review: NormalizedReview,
   initialAnswers: readonly ReviewAnswer[] = [],
   initialSkippedStageIds: readonly string[] = [],
+  initialGlobalNote = "",
 ): Promise<ReviewResult> {
   if (ctx.mode !== "tui" || !ctx.hasUI) {
     const { makeFallbackResult } = await import("./fallback.ts");
     return makeFallbackResult(review, ctx.hasUI ? "no_custom_ui" : "no_ui");
   }
-  return ctx.ui.custom<ReviewResult>((tui, theme, _keybindings, done) => {
-    return new VisualReviewWizard(tui, theme, review, ctx.cwd, done, initialAnswers, ctx.signal, initialSkippedStageIds, "");
-  }, {
-    overlay: true,
-    overlayOptions: {
-      anchor: "bottom-center",
-      width: "100%",
-      maxHeight: "100%",
-      margin: { left: 0, right: 0, bottom: 0 },
-    },
+  let wizard: VisualReviewWizard | undefined;
+  let overlayHandle: OverlayHandle | undefined;
+  const removeTerminalListener = ctx.ui.onTerminalInput((data) => {
+    if (!wizard || !overlayHandle || (!overlayHandle.isHidden() && !overlayHandle.isFocused())) return undefined;
+    if (!wizard.handleTerminalInput(data)) return undefined;
+    if (overlayHandle.isHidden()) ctx.ui.notify("Visual review hidden — press Ctrl+] to reopen", "info");
+    return { consume: true };
   });
+  try {
+    return await ctx.ui.custom<ReviewResult>((tui, theme, keybindings, done) => {
+      wizard = new VisualReviewWizard(
+        tui,
+        theme,
+        review,
+        ctx.cwd,
+        done,
+        initialAnswers,
+        ctx.signal,
+        initialSkippedStageIds,
+        initialGlobalNote,
+        keybindings,
+        async (value) => {
+          const command = SettingsManager.create(ctx.cwd, undefined, { projectTrusted: ctx.isProjectTrusted() }).getExternalEditorCommand();
+          if (!command) return ctx.ui.editor("Edit custom answer", value);
+          return editWithExternalEditor(tui, command, value);
+        },
+      );
+      return wizard;
+    }, {
+      overlay: true,
+      overlayOptions: {
+        anchor: "bottom-center",
+        width: "100%",
+        maxHeight: "100%",
+        margin: { left: 0, right: 0, bottom: 0 },
+      },
+      onHandle: (handle) => {
+        overlayHandle = handle;
+        wizard?.setOverlayHandle(handle);
+      },
+    });
+  } finally {
+    removeTerminalListener();
+  }
 }
 
 export { selectedOptions };

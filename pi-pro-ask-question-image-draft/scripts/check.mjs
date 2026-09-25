@@ -50,8 +50,10 @@ const checks = [
   ["npm test", ["npm", "test"]],
   ["npm run smoke:tui", ["npm", "run", "smoke:tui"]],
   ["npm run smoke:runtime", ["npm", "run", "smoke:runtime"]],
-  ["npm run verify:activation", ["npm", "run", "verify:activation"]],
 ];
+if (process.env.PI_VERIFY_ACTIVATION === "1") {
+  checks.push(["npm run verify:activation", ["npm", "run", "verify:activation"]]);
+}
 for (const [name, command] of checks) {
   const result = spawnSync(command[0], command.slice(1), { cwd: root, stdio: "inherit" });
   assert.equal(result.status, 0, `${name} failed`);

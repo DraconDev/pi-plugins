@@ -54,11 +54,25 @@ function answerText(answer: ReviewAnswer): string {
 }
 
 export function formatAnswer(answer: ReviewAnswer, stagePrompt: string): string {
-  return `"${stagePrompt}"="${answerText(answer).replace(/"/g, '\\"')}"`;
+  const segments = [`"${stagePrompt}"="${answerText(answer).replace(/"/g, '\\"')}"`];
+  if (answer.notes) segments.push(`user notes: ${answer.notes}`);
+  return `${segments.join(". ")}.`;
 }
 
 export function formatRevision(revision: ReviewRevision): string {
   return `revision requested for stage ${revision.stageIndex + 1}: ${revision.feedback}`;
+}
+
+function legacyAnswerFor(answer: ReviewAnswer, questionIndex: number, question: string, preview?: string): VisualReviewAnswer {
+  return {
+    questionIndex,
+    question,
+    kind: answer.kind,
+    answer: answer.kind === "multi" ? null : answer.answer,
+    ...(answer.kind === "multi" ? { selected: answer.optionLabels ?? [] } : {}),
+    ...(answer.notes ? { notes: answer.notes } : {}),
+    ...(preview ? { preview } : {}),
+  };
 }
 
 function legacyAnswers(result: ReviewResult, review: NormalizedReview): VisualReviewAnswer[] {
@@ -72,15 +86,7 @@ function legacyAnswers(result: ReviewResult, review: NormalizedReview): VisualRe
     const preview = answer.kind === "option" && answer.optionIds?.length === 1
       ? optionById.get(answer.optionIds[0]!)?.preview
       : undefined;
-    return [{
-      questionIndex,
-      question: stage.prompt,
-      kind: answer.kind,
-      answer: answer.kind === "multi" ? null : answer.answer,
-      ...(answer.kind === "multi" ? { selected } : {}),
-      ...(answer.notes ? { notes: answer.notes } : {}),
-      ...(preview ? { preview } : {}),
-    }];
+    return [legacyAnswerFor(answer, questionIndex, stage.prompt, preview)];
   });
 }
 
@@ -114,7 +120,7 @@ export function buildResponse(result: ReviewResult, review: NormalizedReview): V
           const stage = stageById.get(answer.stageId);
           return formatAnswer(answer, stage?.prompt ?? answer.stageId);
         });
-        if (result.globalNote) formatted.push(`global note="${result.globalNote.replace(/"/g, '\\"')}"`);
+        if (result.globalNote) formatted.push(`global note: ${result.globalNote}.`);
         text = `${ENVELOPE_PREFIX} ${formatted.join(" ")} ${ENVELOPE_SUFFIX}`;
       }
       break;

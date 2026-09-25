@@ -15,4 +15,6 @@ const tool = extension.tools.get("ask_user_question")?.definition;
 assert.equal(tool?.executionMode, "sequential");
 assert.equal(tool?.parameters?.type, "object");
 assert.match(tool?.description ?? "", /staged visual review/);
-console.log(JSON.stringify({ extension: extension.resolvedPath, tools: names }, null, 2));
+const lifecycle = [...extension.handlers.keys()].filter((event) => event === "before_agent_start");
+assert.deepEqual(lifecycle, ["before_agent_start"]);
+console.log(JSON.stringify({ extension: extension.resolvedPath, tools: names, lifecycle }, null, 2));

@@ -74,6 +74,34 @@ describe("schema and legacy compatibility", () => {
     assert.equal(review.stages[0].allowRevision, false);
   });
 
+  it("normalizes line terminators across all user-facing text fields", () => {
+    const review = normalizeReview({
+      title: "Visual\r\nreview",
+      notes: "Global\r\nnote",
+      stages: [{
+        id: "layout",
+        header: "Lay\rout",
+        prompt: "Choose\r\na layout",
+        description: "Context\r\nhere",
+        imagePrompt: "Prompt\r\nhere",
+        options: [
+          { id: "grid", label: "Gr\r\nid", description: "Dense\r\nlayout", preview: "# A\r\nB" },
+          { id: "stack", label: "Stack", value: "st\r\nack" },
+        ],
+      }],
+    });
+    assert.equal(review.title, "Visual\nreview");
+    assert.equal(review.notes, "Global\nnote");
+    assert.equal(review.stages[0].header, "Layout");
+    assert.equal(review.stages[0].prompt, "Choose\na layout");
+    assert.equal(review.stages[0].description, "Context\nhere");
+    assert.equal(review.stages[0].imagePrompt, "Prompt\nhere");
+    assert.equal(review.stages[0].options[0].label, "Gr\nid");
+    assert.equal(review.stages[0].options[0].description, "Dense\nlayout");
+    assert.equal(review.stages[0].options[0].preview, "# A\nB");
+    assert.equal(review.stages[0].options[1].value, "st\nack");
+  });
+
   it("rejects malformed images and mixed stage shapes with controlled errors", () => {
     assert.throws(() => normalizeReview({ stages: [{ header: "x", prompt: "x", options: [{ label: "A", image: { mimeType: "image/png" } }, { label: "B" }] }] }), /image needs path|url|dataUri|mimeType|alt/);
     assert.throws(() => normalizeReview({ stages: [{ header: "x", prompt: "x", options: [{ label: "A" }, { label: "B" }] }], questions: [{ question: "x", options: [{ label: "A" }, { label: "B" }] }] }), /either stages or legacy questions/);
@@ -160,11 +188,20 @@ describe("strict staged state gate", () => {
 });
 
 describe("envelopes and fallback", () => {
-  it("builds explicit outcome envelopes", () => {
+  it("builds explicit outcome envelopes and preserves the compatibility details surface", () => {
     const review = baseReview();
-    const answer = answerFor(review, "layout", "grid");
-    const response = buildResponse(makeReviewResult(review, "approve", [answer]), review);
+    const answer = { ...answerFor(review, "layout", "grid"), notes: "Keep the spacing." };
+    const result = makeReviewResult(review, "approve", [answer], undefined, [], "Ship it.");
+    const response = buildResponse(result, review);
     assert.match(response.content[0].text, /User has answered/);
+    assert.match(response.content[0].text, /Keep the spacing/);
+    assert.match(response.content[0].text, /Ship it/);
+    assert.equal(response.details.answers[0]?.questionIndex, 0);
+    assert.equal(response.details.answers[0]?.answer, "Grid");
+    assert.equal(response.details.answers[0]?.notes, "Keep the spacing.");
+    assert.equal(response.details.cancelled, false);
+    assert.equal(response.details.globalNote, "Ship it.");
+    assert.equal(response.details.result.status, "completed");
     assert.match(errorResponse("bad").content[0].text, /could not start/);
     assert.equal(makeFallbackResult(review, "no_ui").decision, "fallback");
     assert.match(fallbackText(review, "no_ui"), /not a decline/);

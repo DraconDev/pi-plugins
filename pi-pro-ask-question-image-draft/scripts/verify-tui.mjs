@@ -55,6 +55,15 @@ try {
   wizard.dispose();
   assert.equal(renders > 0, true);
 
+  const collapseState = makeWizard(review);
+  enter(collapseState.component);
+  collapseState.component.handleInput("\x1d");
+  assert.match(collapseState.component.render(100).join("\n"), /hidden/);
+  assert.equal(collapseState.result, undefined);
+  collapseState.component.handleInput("\x1d");
+  assert.doesNotMatch(collapseState.component.render(100).join("\n"), /hidden/);
+  collapseState.component.dispose();
+
   assert.equal(matchesKey("\r", Key.enter), true);
   assert.equal(matchesKey("\n", Key.enter), true);
   assert.equal(matchesKey("\r", Key.space), false);
@@ -119,7 +128,11 @@ try {
     stages: [{ id: "reject", header: "Reject", prompt: "Review the draft", options: [{ id: "a", label: "A" }, { id: "b", label: "B" }] }],
   });
   const rejectState = makeWizard(rejectReview);
-  down(rejectState.component, 5);
+  // Outcomes live on the dedicated final review tab, not on the question tab.
+  // Navigate there explicitly so this smoke test also verifies the final-stage
+  // boundary rather than relying on an implementation-specific row count.
+  rejectState.component.handleInput("\t");
+  down(rejectState.component, 3);
   enter(rejectState.component);
   assert.equal(rejectState.result?.status, "rejected");
   assert.equal(rejectState.result?.decision, "reject");
