@@ -119,18 +119,28 @@ def main() -> int:
     deadline = time.time() + args.timeout
     sent_keys = set()
     harness_log = []
+    closed = False
 
     while time.time() < deadline:
-        readable, _, _ = select.select([fd], [], [], 0.15)
-        if readable:
-            try:
-                chunk = os.read(fd, 65536)
-            except OSError:
+        # Drain the pseudo-terminal aggressively. The inline image is megabytes
+        # of escape data; if the harness stops reading, the PTY buffer fills and
+        # the child's writes block, which looks like a hung keypress.
+        while True:
+            readable, _, _ = select.select([fd], [], [], 0.02)
+            if not readable:
                 break
+            try:
+                chunk = os.read(fd, 1 << 20)
+            except OSError:
+                chunk = b""
             if not chunk:
+                chunk = b""
+                closed = True
                 break
             transcript += chunk
-            mirror_screen()
+        if closed:
+            break
+        mirror_screen()
         if os.path.exists(args.out):
             try:
                 evidence = json.load(open(args.out))
@@ -151,7 +161,7 @@ def main() -> int:
                     os.write(fd, encode(item["data"]))
                     sent_keys.add(item.get("id"))
                     harness_log.append({"sent": item.get("id"), "data": item.get("data"), "why": item.get("why")})
-                    time.sleep(0.4)
+                    time.sleep(0.25)
         time.sleep(0.05)
 
     finished = os.path.exists(args.out)
