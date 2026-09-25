@@ -102,7 +102,6 @@ function rowsForStage(stage: NormalizedStage): Row[] {
   const rows: Row[] = stage.options.map((option) => ({ kind: "option", option }));
   if (stage.multiSelect) rows.push({ kind: "done" });
   if (stage.allowOther) rows.push({ kind: "other" });
-  rows.push({ kind: "note" });
   if (!stage.required) rows.push({ kind: "skip" });
   if (stage.allowRevision) rows.push({ kind: "revision" });
   return rows;
