@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "kind": "benchmark-aggregate-report",
-  "observedAt": "2026-09-25T23:25:52.613Z",
+  "observedAt": "2026-09-25T23:29:30.463Z",
   "sources": {
     "corpus": ".pi/benchmark/corpus.json",
     "results": ".pi/benchmark/results.json",
@@ -8761,7 +8761,7 @@
   "unresolvedCritical": [],
   "liveSmoke": {
     "status": "passed",
-    "observedAt": "2026-09-25T23:24:46.220Z",
+    "observedAt": "2026-09-25T23:29:10.511Z",
     "details": "micro (provisioned (EDITOR -> micro)) | image image/png 1024x1024 | pty exit 0 | steps 21",
     "assertions": {
       "realTty": true,
@@ -8784,9 +8784,58 @@
     }
   },
   "activation": {
-    "claimed": false,
-    "status": "not_run",
-    "afterGates": false,
-    "details": "The local package is still inactive; no activation was attempted."
+    "schemaVersion": 1,
+    "kind": "benchmark-activation",
+    "status": "passed",
+    "observedAt": "2026-09-25T23:28:26.048Z",
+    "details": "Re-emitted: /home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft is active exactly once, npm:@juicesharp/rpiv-ask-user-question is absent, and every unrelated setting equals the pre-activation backup.",
+    "settingsPath": "/home/dracon/.pi/agent/settings.json",
+    "backupPath": "/home/dracon/.pi/agent/settings.before-pi-visual-review.json",
+    "timestampedBackup": "/home/dracon/.pi/agent/settings.before-pi-visual-review.2026-09-25T23-26-41-314Z.json",
+    "package": "/home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft",
+    "superseded": "npm:@juicesharp/rpiv-ask-user-question",
+    "unrelatedSettingsPreserved": true,
+    "packagesBefore": [
+      "npm:pi-notify-agent",
+      "npm:@tmustier/pi-usage-extension",
+      "npm:@juicesharp/rpiv-ask-user-question",
+      "../../Dev/pi-plugins/extensions/pi-chrome-auto-auth",
+      "npm:pi-chrome",
+      "npm:pi-codex-image-gen",
+      "../../Dev/pi-plugins/pi-use-last-selected-thinking-level",
+      "npm:pi-subagents",
+      "../../Dev/pi-plugins/pi-goal-list-loop-audit",
+      "../../Dev/pi-plugins/pi-agnes-tools",
+      "../../Dev/pi-plugins/pi-stale-model-filter",
+      "npm:pi-web-ui"
+    ],
+    "packagesAfter": [
+      "npm:pi-notify-agent",
+      "npm:@tmustier/pi-usage-extension",
+      "/home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft",
+      "../../Dev/pi-plugins/extensions/pi-chrome-auto-auth",
+      "npm:pi-chrome",
+      "npm:pi-codex-image-gen",
+      "../../Dev/pi-plugins/pi-use-last-selected-thinking-level",
+      "npm:pi-subagents",
+      "../../Dev/pi-plugins/pi-goal-list-loop-audit",
+      "../../Dev/pi-plugins/pi-agnes-tools",
+      "../../Dev/pi-plugins/pi-stale-model-filter",
+      "npm:pi-web-ui"
+    ],
+    "gatesAtActivation": {
+      "accuracy": true,
+      "confidenceBound": true,
+      "stability": true,
+      "visualUplift": true,
+      "visualConfidence": true,
+      "severeFailures": true,
+      "imageBudget": true,
+      "liveSmoke": true,
+      "noUnresolvedCriticalDefects": true
+    },
+    "releaseReadyAtActivation": true,
+    "claimed": true,
+    "afterGates": true
   }
 }

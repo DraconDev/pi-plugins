@@ -5,8 +5,8 @@
   "artifacts": [
     {
       "file": "corpus.json",
-      "sha256": "e0849c6042cffda6bc7f79abbfe9f9b3be40eaa9df3c812749476687e815925f",
-      "bytes": 2706270
+      "sha256": "383ad28bf01450407706208b500c6913ee7bc930a4eb742e49ee2ff5fb89afe1",
+      "bytes": 3140204
     },
     {
       "file": "results.json",
@@ -35,18 +35,23 @@
     },
     {
       "file": "live-smoke.json",
-      "sha256": "d6bbae0e9bbac1725b9d1efd93fb77d799ad257b29ba44ba0d150a03e4accd10",
+      "sha256": "612b62c2e063054dbe9914927d8d674e9ed2aa3a0c9cb26adcc05a3640807290",
       "bytes": 4651
     },
     {
       "file": "report.json",
-      "sha256": "e908b417042f77a78190f7de7afa7f2dee10dc530dd88a446000b38c989bb36b",
-      "bytes": 243157
+      "sha256": "be0356d73dbe68acb337be00247017862ddf8d15bf0babb2be9b95c9f5848a62",
+      "bytes": 245254
     },
     {
       "file": "defects.json",
       "sha256": "b8e783d28ac44d6293453a7c70fef3cfed433574fcaa73b370a7d58702fd7b5a",
       "bytes": 25521
+    },
+    {
+      "file": "activation.json",
+      "sha256": "9968a49bda766d5d5376886dcfb3d35181de6a135b59a8aa4d61e02cd180ca83",
+      "bytes": 2150
     }
   ],
   "samples": [
