@@ -237,6 +237,14 @@ try {
   if (!saw("Live TTY smoke")) fail("render", new Error("the review title never reached the terminal"));
   if (!saw("Pick the visual treatment")) fail("render", new Error("the stage prompt never reached the terminal"));
   if (!saw("Airy treatment")) fail("image", new Error("the image-backed option never reached the terminal"));
+  // The wizard renders through the pi-tui copy that jiti resolved for the
+  // extension, which can be a different module instance than this file's.
+  const wizardTui = await import("/home/dracon/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist/index.js");
+  wizardTui.setCapabilities(CAPABILITY_OVERRIDE);
+  tuiModules.push(wizardTui);
+  pinCapabilities();
+  tui.requestRender(true);
+  await tick(600);
   const caps = tuiModules.map((module) => module.getCapabilities());
   record("render", { bytes: transcript.length, columns: terminal.columns, capabilities: caps, imageProtocol: caps.map((item) => item.images) });
 
