@@ -106,6 +106,7 @@ export async function runLiveSmoke({ image, editor, editorSource = "unknown", ou
   const entries = [];
   for (const mode of sessions) {
     const driverOut = resolve(`.pi/benchmark/live-smoke-evidence-${mode}.json`);
+    const startedAt = Date.now();
     const pty = await runPty({
       out: driverOut,
       // The happy path carries the image, the editor round trip and the whole
@@ -123,6 +124,7 @@ export async function runLiveSmoke({ image, editor, editorSource = "unknown", ou
       plan: sessionPlan(mode, { imagePath: preconditions.image }),
       evidence,
       exitCode: pty.code,
+      durationMs: Date.now() - startedAt,
       stderr: pty.stderr.trim().slice(0, 400),
     });
   }
@@ -150,7 +152,11 @@ export async function runLiveSmoke({ image, editor, editorSource = "unknown", ou
     sessions: aggregate.sessions,
     missingSessions: aggregate.missingSessions,
     errors: aggregate.errors,
-    pty: { usedPseudoTerminal: true, exitCodes: exits },
+    pty: {
+      usedPseudoTerminal: true,
+      exitCodes: exits,
+      durationsMs: Object.fromEntries(entries.map((entry) => [entry.plan.mode, entry.durationMs])),
+    },
   };
   await writeJson(out, record);
   return record;
