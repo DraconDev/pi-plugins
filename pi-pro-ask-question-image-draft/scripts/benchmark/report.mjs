@@ -308,6 +308,58 @@ export function verifyAggregateReport(report, { corpus = null, testsDir = "tests
   };
 }
 
+/**
+ * Recompute the report's gates from the artifacts it names and refuse any
+ * disagreement.
+ *
+ * Verification used to read `report.gates` and `report.releaseReady` as claims,
+ * so a report asserting `visualUplift: 0.2` with `gates.visualUplift: true`
+ * verified as `releaseGate: "passed"` with exit 0. That made the verifier
+ * self-certified. It now re-derives the comparison, the visual numbers and every
+ * gate from the corpus, results, image manifest and judging artifacts, and
+ * treats a mismatch as a failure.
+ */
+export async function recomputeFromSources(report, reportPath, { corpus, results, manifest, judging } = {}) {
+  const corpusPath = corpus ? resolve(corpus) : resolveSource(reportPath, report.sources?.corpus);
+  const resultsPath = results ? resolve(results) : resolveSource(reportPath, report.sources?.results);
+  const manifestPath = manifest ? resolve(manifest) : resolveSource(reportPath, report.sources?.images);
+  const judgingPath = judging ? resolve(judging) : resolveSource(reportPath, report.sources?.judging);
+  const missing = [
+    ["corpus", corpusPath], ["results", resultsPath], ["images", manifestPath], ["judging", judgingPath],
+  ].filter(([, path]) => !path).map(([name]) => name);
+  if (missing.length) {
+    throw new BenchmarkError("missing_evidence", `Cannot verify a report without the artifacts it names (missing: ${missing.join(", ")}). Regenerate the report or point at its sources.`);
+  }
+  const corpusValue = await readJson(corpusPath, "corpus_missing");
+  const resultsValue = await readJson(resultsPath, "results_missing");
+  const manifestValue = await readJson(manifestPath, "manifest_missing");
+  const judgingValue = await readJson(judgingPath, "manifest_missing");
+  const comparison = recomputeComparison(corpusValue, resultsValue);
+  const images = recomputeImages(manifestValue, judgingValue);
+  const resources = recomputeResources({ manifest: manifestValue, judging: judgingValue, results: resultsValue });
+  const gates = recomputeGates(comparison, images, resources);
+  const unresolved = (report.defects ?? []).filter((defect) => (defect.severity === "P0" || defect.severity === "P1") && defect.status !== "resolved");
+  const liveSmokePassed = report.liveSmoke?.status === "passed";
+  const releaseReady = Object.values(gates).every(Boolean) && liveSmokePassed && unresolved.length === 0;
+  const mismatches = [];
+  for (const [name, recomputed] of Object.entries(gates)) {
+    const claimed = report.gates?.[name];
+    if (claimed !== undefined && claimed !== recomputed) mismatches.push(`gate:${name} claims ${claimed}, recomputed ${recomputed}`);
+  }
+  const claimedReady = report.releaseReady;
+  if (claimedReady !== undefined && claimedReady !== releaseReady) {
+    mismatches.push(`releaseReady claims ${claimedReady}, recomputed ${releaseReady}`);
+  }
+  const measuredUplift = images.visualUplift;
+  if (report.images?.visualUplift !== undefined && Math.abs(report.images.visualUplift - measuredUplift) > 1e-9) {
+    mismatches.push(`images.visualUplift claims ${report.images.visualUplift}, recomputed ${measuredUplift}`);
+  }
+  if (mismatches.length) {
+    throw new BenchmarkError("gate_claim_mismatch", `The report's claims disagree with the artifacts it names: ${mismatches.join("; ")}.`);
+  }
+  return { gates, releaseReady, measuredUplift, sources: { corpus: corpusPath, results: resultsPath, images: manifestPath, judging: judgingPath } };
+}
+
 /** Resolve a recorded source next to the report when it is not under the cwd. */
 function resolveSource(reportPath, recorded) {
   if (!recorded) return null;
@@ -328,23 +380,28 @@ export async function main(argv = process.argv.slice(2)) {
     // Integrity first: a malformed report, an empty ledger, or an activation
     // claim without passing gates is always an error. So is a ledger whose
     // numbers or regression tests do not match the run, and a result set that
-    // does not cover every scenario with a terminal outcome.
+    // does not cover every scenario with a terminal outcome. And the gates
+    // themselves are recomputed from the artifacts, never read off the report.
     const corpusPath = args.corpus ?? resolveSource(reportPath, report.sources?.corpus);
     const corpus = corpusPath ? await readJson(corpusPath, "corpus_missing") : null;
+    const recomputed = await recomputeFromSources(report, reportPath, {
+      corpus: args.corpus, results: args.results, images: args.images, judging: args.judging,
+    });
     const result = verifyAggregateReport(report, { corpus, testsDir: args.tests ?? "tests" });
     const unmet = [
-      ...Object.entries(report.gates ?? {}).filter(([, value]) => value !== true).map(([name]) => `gate:${name}`),
+      ...Object.entries(recomputed.gates).filter(([, value]) => value !== true).map(([name]) => `gate:${name}`),
       ...result.unresolvedCritical.map((id) => `defect:${id}`),
     ];
     process.stdout.write(`${JSON.stringify({
       report: reportPath, ...result,
       unmetGates: unmet,
-      releaseGate: report.releaseReady === true ? "passed" : "failed",
+      recomputed: { releaseReady: recomputed.releaseReady, visualUplift: recomputed.measuredUplift, gates: recomputed.gates },
+      releaseGate: recomputed.releaseReady ? "passed" : "failed",
     })}\n`);
     // Release readiness is the contract, not an opt-in: a report that is not
     // ready fails the command that verifies it. An earlier version moved this
     // behind an environment variable, which turned the gate into a switch.
-    if (report.releaseReady !== true) {
+    if (recomputed.releaseReady !== true) {
       throw new BenchmarkError("gate_failed", `Release gates are unmet: ${unmet.join(", ")}.`);
     }
     return;
