@@ -153,13 +153,26 @@ export const FAMILIES = Object.freeze({
     draw: "one very thick vertical spine running the full height of the frame, with three oversized discs sitting on it at even spacing",
     content: "the top disc is the accent colour and the other two are solid black",
   },
+  hub: {
+    blocks: 4,
+    draw: "one very large disc in the centre with three clearly smaller discs around it, each joined to the centre by one thick straight line",
+    content: "the centre disc is the accent colour and the three outer discs are solid black outlines",
+  },
+  icon: {
+    blocks: 3,
+    draw: "three very large simple shapes in a single row, each inside its own square cell, with thick white gutters between the cells",
+    content: "each shape is a plain disc, triangle or square, and the middle one is the accent colour",
+  },
 });
 
 /** Treatment vocabulary -> arrangement family. */
 export const TREATMENT_FAMILIES = Object.freeze({
   // Density and focus
+  explained: "tiles", durable: "column", outline: "single", single: "single", bubbles: "chart",
+  markers: "map", band: "band", dash: "tiles", dashboard2: "grid", faithful: "tiles",
+  literal: "grid", brand: "tiles", solid: "stack", friendly: "tiles",
   airy: "column", spacious: "column", minimal: "column2", simple: "column2", compact: "column",
-  focused: "single", focus: "single", overview: "grid", context: "split", hero: "single",
+  focused: "single", focus: "single", overview: "tiles", context: "split", hero: "single",
   glance: "tiles", complete: "grid", detail: "grid", dense: "grid", wide: "band",
   comfortable: "column", generous: "column", bold: "single", solid: "single", heavy: "grid",
   filled: "grid", mixed: "grid", balanced: "split", contrast: "split", plain: "column2",
@@ -277,12 +290,19 @@ export function treatmentKey(option) {
  * speaks does a stable hash of the option's own words pick a family, so the
  * three treatments of a scenario never collapse onto one identical composition
  * by accident. `source` records which step answered, and the report counts them.
+ *
+ * `siblings` are the other options of the same stage. A vocabulary key that two
+ * of them share ("Chart" and "Chart") says nothing about how their arrangements
+ * differ, so the shared key is demoted to the description and then to the
+ * derived rotation: three identical compositions in one comparison is the one
+ * outcome the judged question cannot survive.
  */
-export function compositionFor(option) {
+export function compositionFor(option, siblings = []) {
   const key = treatmentKey(option);
-  const table = TREATMENT_FAMILIES[key];
-  if (table) return { family: table, source: "table", key };
   const description = String(option?.description ?? "").trim();
+  const table = TREATMENT_FAMILIES[key];
+  const sharedKey = Boolean(table) && siblings.some((sibling) => treatmentKey(sibling) === key);
+  if (table && !sharedKey) return { family: table, source: "table", key };
   for (const [pattern, family] of DESCRIPTION_CUES) {
     if (pattern.test(description)) return { family, source: "description", key };
   }
@@ -290,7 +310,7 @@ export function compositionFor(option) {
     const family = ROTATION[hash32(description) % ROTATION.length];
     return { family, source: "derived", key };
   }
-  return { family: "single", source: "default", key };
+  return { family: table ?? "single", source: table ? "table" : "default", key };
 }
 
 /**
@@ -300,14 +320,16 @@ export function compositionFor(option) {
  * so every prompt in the corpus is expressed in the same display budget: at
  * most nine large shapes, thick outlines, no type.
  */
-export function compositionSentence(option) {
-  const { family, source, key } = compositionFor(option);
+export function compositionSentence(option, siblings = []) {
+  const { family, source, key } = compositionFor(option, siblings);
   const spec = FAMILIES[family] ?? FAMILIES.single;
   const label = source === "table"
     ? `The arrangement is "${key}"`
     : source === "description"
       ? "The arrangement follows the treatment's own description"
-      : "The arrangement is not named by the treatment, so it is drawn as a plain balanced composition";
+      : source === "derived"
+        ? "The treatment names no arrangement of its own, so the layout is chosen from its own wording"
+        : "The arrangement is not named by the treatment, so it is drawn as a plain balanced composition";
   return {
     family,
     source,

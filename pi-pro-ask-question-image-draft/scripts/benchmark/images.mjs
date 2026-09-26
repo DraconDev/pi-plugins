@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { generateReviewImages } from "../../src/image-generator.ts";
 import { normalizeReview } from "../../src/schema.ts";
 import { assertNoCredentials, BenchmarkError, parseArgs, parsePositiveLimit, readJson, SCHEMA_VERSION, writeJson } from "./common.mjs";
-import { optionPrompt } from "./image-prompt.mjs";
+import { optionNegativePrompt, optionPrompt } from "./image-prompt.mjs";
 
 export { optionPrompt } from "./image-prompt.mjs";
 
@@ -16,9 +16,20 @@ export const DEFAULT_IMAGE_DIR = ".pi/benchmark/images";
 /** Hard ceiling from the objective: at most 600 successful Agnes generations. */
 export const IMAGE_BUDGET = 600;
 
-export function promptHash(prompt) {
+/**
+ * The cache key for one generation request.
+ *
+ * Both halves of the request are in the key. Hashing the prompt alone left a
+ * negative-prompt revision invisible to the cache, so a manifest could keep
+ * serving images that were generated from a request the pipeline no longer
+ * makes. A string is accepted for the prompt-only case.
+ */
+export function promptHash(entry) {
+  const prompt = typeof entry === "string" ? entry : entry?.prompt;
+  const negative = typeof entry === "string" ? undefined : entry?.negativePrompt;
   if (typeof prompt !== "string" || !prompt.trim()) throw new BenchmarkError("invalid_manifest", "Image manifest prompts must be non-empty strings.");
-  return createHash("sha256").update(prompt, "utf8").digest("hex");
+  const canonical = typeof negative === "string" && negative.trim() ? `${prompt}\u0000--avoid--\u0000${negative}` : prompt;
+  return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
 
 function dimensionsPng(bytes) {
@@ -69,7 +80,7 @@ export async function validateImageEntry(entry, root = process.cwd()) {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new BenchmarkError("invalid_manifest", "Every image manifest entry must be an object.");
   for (const field of ["id", "prompt", "path", "provider", "model"]) if (typeof entry[field] !== "string" || !entry[field]) throw new BenchmarkError("invalid_manifest", `Image entry ${field} must be a non-empty string.`);
   if (entry.provider !== "agnes") throw new BenchmarkError("invalid_manifest", `Image ${entry.id} must identify provider agnes.`);
-  if (entry.hash !== promptHash(entry.prompt)) throw new BenchmarkError("hash_mismatch", `Image ${entry.id} has an invalid prompt hash.`);
+  if (entry.hash !== promptHash(entry)) throw new BenchmarkError("hash_mismatch", `Image ${entry.id} has an invalid prompt hash.`);
   const path = resolve(root, entry.path);
   if (!path.startsWith(`${resolve(root)}${process.platform === "win32" ? "\\" : "/"}`) && path !== resolve(root)) throw new BenchmarkError("invalid_path", `Image ${entry.id} escapes the benchmark root.`);
   let info, bytes;
@@ -133,12 +144,17 @@ export function planImages(corpus, { strata = ["visual"], limit = IMAGE_BUDGET, 
     scenarios += 1;
     for (const stage of scenario.canonicalInput.stages ?? []) {
       for (const option of stage.options) {
-        const prompt = optionPrompt(scenario, option);
+        const siblings = stage.options.filter((candidate) => candidate !== option);
+        const prompt = optionPrompt(scenario, option, { siblings });
+        // The negative prompt is part of the request, so it is part of the key
+        // and part of the manifest: a manifest that cannot show what was asked
+        // for cannot be re-derived.
+        const negativePrompt = optionNegativePrompt();
         planned.push({
           optionId: `${scenario.id}:${option.key ?? option.id ?? option.label}`,
           scenarioId: scenario.id, stratum: scenario.stratum, stageId: stage.id,
           optionKey: option.key ?? option.id ?? option.label, optionLabel: option.label,
-          prompt, hash: promptHash(prompt),
+          prompt, negativePrompt, hash: promptHash({ prompt, negativePrompt }),
         });
       }
     }
@@ -236,7 +252,7 @@ async function flush() {
         reviewId: item.scenarioId, round: 1, stages: [{
           id: item.stageId, kind: "draft", header: item.stageId, prompt: item.prompt,
           options: [
-            { id: item.optionKey, label: item.optionLabel, description: item.prompt, generate: { prompt: item.prompt, provider: "agnes" } },
+            { id: item.optionKey, label: item.optionLabel, description: item.prompt, generate: { prompt: item.prompt, negativePrompt: item.negativePrompt, provider: "agnes" } },
             // The schema requires a real choice; this filler is never generated
             // and only exists so the single-option request validates.
             { id: `${item.optionKey}-filler`, label: "Unchanged baseline", description: "Baseline treatment without a generated image." },
@@ -252,7 +268,7 @@ async function flush() {
         const detected = detectImage(bytes);
         const entry = {
           id: item.optionId, optionIds: [item.optionId], scenarioId: item.scenarioId, stratum: item.stratum,
-          prompt: item.prompt, hash: item.hash, path: image.path,
+          prompt: item.prompt, negativePrompt: item.negativePrompt, hash: item.hash, path: image.path,
           provider: "agnes", model: image.model,
           mimeType: detected.mimeType, width: detected.width, height: detected.height, byteCount: bytes.length,
           generatedAt: new Date().toISOString(),
