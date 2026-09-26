@@ -318,6 +318,15 @@ function scoreReference(scenario, reference, localAbsolute) {
     envelopeDifference: typeof referenceEnvelope === "string" && localEnvelope !== null && referenceEnvelope !== localEnvelope
       ? firstDifference(referenceEnvelope, localEnvelope)
       : null,
+    // Both envelopes and the classification, kept only for a mismatch: a case
+    // that agrees needs no transcript, and a case that disagrees must never be
+    // reduced to a count.
+    envelopeClassification: typeof referenceEnvelope === "string" && localEnvelope !== null && referenceEnvelope !== localEnvelope
+      ? classifyEnvelopeDifference(referenceEnvelope, localEnvelope)
+      : null,
+    envelopes: typeof referenceEnvelope === "string" && localEnvelope !== null && referenceEnvelope !== localEnvelope
+      ? { reference: referenceEnvelope, local: localEnvelope }
+      : undefined,
     referenceCapabilities: reference.capabilities ?? null,
   };
 }
@@ -332,6 +341,80 @@ export function firstDifference(referenceEnvelope, localEnvelope) {
     }
   }
   return { line: 0, reference: "", local: "" };
+}
+
+/**
+ * Classify an envelope difference.
+ *
+ * The comparison has always scored shared cases on answers and status, and left
+ * the envelope text as a disclosed rate. A rate nobody reads is how 53
+ * disagreements sat unexamined while the report called the area "disclosed,
+ * not gated". So every mismatch is now classified against a fixed, mechanical
+ * rule:
+ *
+ * - the *answer set* - the key="value" pairs the envelope reports - differs, or
+ *   one side reports an answer the other does not: a **capability** difference,
+ *   because the envelope discloses a different decision;
+ * - the answers and the status agree and the difference is phrasing, ordering,
+ *   or a sentence either tool chose to add: **adapter-wording**, because two
+ *   independent implementations are not expected to phrase a result identically.
+ *
+ * A *disclosure* difference - one envelope carrying a block the other does not,
+ * such as a selected-preview line - is reported as its own kind, because it is
+ * neither a wrong answer nor a wording choice: it is a real difference in what
+ * the two tools tell the reader, and the owner should see it counted.
+ */
+export function classifyEnvelopeDifference(referenceEnvelope, localEnvelope) {
+  // A multi-select value is a *set*, not a sequence: the same three options
+  // reported in a different order is the same decision. Comparing the joined
+  // string classified one case as a capability difference when both envelopes
+  // named the identical three answers and the case itself passed on answers.
+  const answers = (text) => {
+    const found = new Set();
+    for (const match of String(text).matchAll(/"([^"]+)"\s*=\s*"([^"]*)"/g)) {
+      const parts = match[2].split(",").map((part) => part.trim()).filter(Boolean).sort();
+      found.add(`${match[1]}=${parts.length > 0 ? parts.join(" | ") : ""}`);
+    }
+    return found;
+  };
+  // Section labels are matched anywhere in the text, not only at the start of a
+  // line: an envelope routinely carries "selected preview: ..." inside a
+  // sentence, and a line-anchored detector missed every one of them, which is
+  // why the first pass called 52 disagreements plain wording.
+  const sections = (text) => {
+    const found = new Set();
+    for (const match of String(text).matchAll(/(?:^|[\s.;])(selected preview|preview|notes|answers?|status|result|summary|next steps?)(\s*:)?/gi)) {
+      found.add(match[1].toLowerCase());
+    }
+    return found;
+  };
+  const referenceAnswers = answers(referenceEnvelope);
+  const localAnswers = answers(localEnvelope);
+  const onlyReference = [...referenceAnswers].filter((item) => !localAnswers.has(item));
+  const onlyLocal = [...localAnswers].filter((item) => !referenceAnswers.has(item));
+  if (onlyReference.length > 0 || onlyLocal.length > 0) {
+    return {
+      kind: "capability",
+      reason: onlyReference.length > 0 && onlyLocal.length > 0
+        ? "the two envelopes report different answers"
+        : onlyReference.length > 0
+          ? "the reference envelope reports an answer the local envelope does not"
+          : "the local envelope reports an answer the reference envelope does not",
+      onlyReference, onlyLocal,
+    };
+  }
+  const referenceSections = sections(referenceEnvelope);
+  const localSections = sections(localEnvelope);
+  const onlyReferenceSections = [...referenceSections].filter((item) => !localSections.has(item));
+  const onlyLocalSections = [...localSections].filter((item) => !referenceSections.has(item));
+  if (onlyReferenceSections.length > 0 || onlyLocalSections.length > 0) {
+    return {
+      kind: "disclosure",
+      reason: "one envelope carries a block the other does not, with the same answers and status",
+      onlyReferenceSections, onlyLocalSections,
+    };
+  }
+  return { kind: "adapter-wording", reason: "the same answers and status, phrased differently", onlyReference: [], onlyLocal: [] };
 }
 
 export function blindLabels(seed, id) {
@@ -411,14 +494,30 @@ export async function compareCorpus(corpus, { passes = 2, blind = false, seed = 
       referenceRejections: sharedCases.filter((item) => item.referenceValidation === "rejected").length,
       envelopeMatchRate: sharedCases.length ? sharedCases.filter((item) => item.envelopeMatch === true).length / sharedCases.length : null,
       envelopeMismatches: sharedCases.filter((item) => item.envelopeMatch === false).length,
+      // Every mismatch, named. A count cannot be audited; a record with its
+      // classification and both texts can.
+      envelopeMismatchRecords: sharedCases.filter((item) => item.envelopeMatch === false).map((item) => ({
+        id: item.id,
+        classification: item.classification,
+        envelopeKind: item.envelopeClassification?.kind ?? "unclassified",
+        reason: item.envelopeClassification?.reason ?? null,
+        difference: item.envelopeDifference,
+      })),
+      envelopeMismatchByKind: Object.fromEntries(
+        [...new Set(sharedCases.filter((item) => item.envelopeMatch === false).map((item) => item.envelopeClassification?.kind ?? "unclassified"))]
+          .map((kind) => [kind, sharedCases.filter((item) => item.envelopeMatch === false && (item.envelopeClassification?.kind ?? "unclassified") === kind).length]),
+      ),
       envelopeMismatchByClassification: Object.fromEntries(
         [...new Set(sharedCases.filter((item) => item.envelopeMatch === false).map((item) => item.classification))]
           .map((classification) => [classification, sharedCases.filter((item) => item.envelopeMatch === false && item.classification === classification).length]),
       ),
-      // Envelope text is disclosed, never gated: the two tools document
-      // different response contracts, and every shared case is scored on the
-      // answers and the status, which is what the tool contract promises.
-      envelopeGate: false,
+      // The gate is on the classified capability differences - the ones where
+      // the two envelopes report different answers. Wording and disclosure
+      // differences are real and are counted, but two independent
+      // implementations are not expected to phrase a result identically, and
+      // neither is one expected to disclose exactly the same optional blocks.
+      envelopeGate: sharedCases.filter((item) => item.envelopeMatch === false && item.envelopeClassification?.kind === "capability").length === 0,
+      envelopeCapabilityMismatches: sharedCases.filter((item) => item.envelopeMatch === false && item.envelopeClassification?.kind === "capability").map((item) => item.id),
       losses: referenceLosses,
       candidateFailures,
     },

@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 
-import { compareCorpus, blindLabels, runLocal } from "../scripts/benchmark/compare.mjs";
+import { blindLabels, classifyEnvelopeDifference, compareCorpus, runLocal } from "../scripts/benchmark/compare.mjs";
 import { DURABLE_CORPUS_PATH, generateCorpus, loadDurableCorpus } from "../scripts/benchmark/corpus.mjs";
 import { editorCandidates, quitSequenceFor, resolveEditorCommand, whichExecutable } from "../scripts/benchmark/editor.mjs";
 import { optionPrompt, surfaceSubject, treatmentDirective } from "../scripts/benchmark/image-prompt.mjs";
@@ -865,5 +865,75 @@ describe("BUDGET-001: the budget gate counts generations, and the comparison rep
     assert.equal(winOrTie.candidateLosses, 0);
     assert.equal(winOrTie.gates.winOrTie, true);
     assert.ok(winOrTie.wilson95LowerBound > 0.5);
+  });
+});
+
+
+/**
+ * COMPARE-001: 53 shared cases disagreed with RPiV in envelope text, and the
+ * adapter recorded only a count, so nobody had read them.
+ *
+ * The comparator now records every mismatch - case id, classification, both
+ * texts - and sorts each one against a fixed rule. The rule itself had a defect
+ * the first classification exposed: a multi-select value is a set, and
+ * comparing it as a sequence called one case a capability difference when both
+ * envelopes named the identical three answers and the case passed on answers.
+ */
+describe("COMPARE-001: every envelope mismatch is recorded and classified", () => {
+  const envelope = (value, tail = "") => `User has answered your questions: "Pick every one that applies."="${value}". ${tail}`;
+
+  it("COMPARE-001: the same multi-select answers in another order are wording, not a capability difference", () => {
+    const reference = envelope("Add a summary page, Add a glossary, Rewrite and split", "You can now continue.");
+    const local = envelope("Rewrite and split, Add a summary page, Add a glossary", "You can now continue.");
+    const classified = classifyEnvelopeDifference(reference, local);
+    assert.equal(classified.kind, "adapter-wording");
+    assert.deepEqual(classified.onlyReference, []);
+  });
+
+  it("COMPARE-001: a genuinely different answer is a capability difference, and so is a missing one", () => {
+    const one = classifyEnvelopeDifference(envelope("A, B"), envelope("A, C"));
+    assert.equal(one.kind, "capability");
+    assert.match(one.reason, /different answers/);
+    // A one-sided answer is still a different answer, and the reason says so.
+    const two = classifyEnvelopeDifference(envelope("A, B"), envelope("A"));
+    assert.equal(two.kind, "capability");
+    assert.match(two.reason, /different answers/);
+    // A question the other envelope never reports at all is named explicitly.
+    const three = classifyEnvelopeDifference(
+      `${envelope("A")} Other question="B"`,
+      envelope("A"),
+    );
+    assert.equal(three.kind, "capability");
+    assert.match(three.reason, /reference envelope reports an answer/);
+  });
+
+  it("COMPARE-001: a block one envelope carries and the other does not is a disclosure difference", () => {
+    const reference = envelope("A", "selected preview: Image reference.");
+    const local = envelope("A");
+    const classified = classifyEnvelopeDifference(reference, local);
+    assert.equal(classified.kind, "disclosure");
+    assert.ok(classified.onlyReferenceSections.length > 0);
+  });
+
+  it("COMPARE-001: the run records every mismatch with both texts, and none is dropped", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const results = JSON.parse(await readFile(".pi/benchmark/results.json", "utf8"));
+    const reference = results.reference;
+    assert.ok(reference.envelopeMismatchRecords.length > 0, "there are shared cases to disagree on");
+    assert.equal(reference.envelopeMismatchRecords.length, reference.envelopeMismatches, "the records are the mismatches");
+    for (const record of reference.envelopeMismatchRecords) {
+      assert.equal(typeof record.id, "string");
+      assert.ok(["adapter-wording", "capability", "disclosure"].includes(record.envelopeKind), `${record.id} is unclassified`);
+      assert.ok(record.reason, `${record.id} has no reason`);
+    }
+    const cases = results.cases.filter((item) => item.envelopeMatch === false);
+    assert.equal(cases.length, reference.envelopeMismatchRecords.length);
+    for (const item of cases) {
+      assert.equal(typeof item.envelopes?.reference, "string", `${item.id} lost the reference envelope`);
+      assert.equal(typeof item.envelopes?.local, "string", `${item.id} lost the local envelope`);
+    }
+    // The gate is on capability differences only, and wording is never a gate.
+    assert.equal(reference.envelopeGate, reference.envelopeCapabilityMismatches.length === 0);
+    assert.equal(reference.envelopeCapabilityMismatches.length, 0, "a shared case reporting different answers is a defect");
   });
 });
