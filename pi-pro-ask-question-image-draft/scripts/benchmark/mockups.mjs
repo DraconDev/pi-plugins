@@ -21,6 +21,7 @@ import { resolve } from "node:path";
 
 import { DEFAULT_MOCKUP_CELLS, renderMockup } from "../../src/mockup-renderer.ts";
 import { assertNoCredentials, BenchmarkError, parseArgs, SCHEMA_VERSION, writeJson } from "./common.mjs";
+import { compositionFor } from "./composition.mjs";
 import { treatmentKey } from "./image-prompt.mjs";
 
 export const MOCKUP_DIR = ".pi/benchmark/mockups";
@@ -127,11 +128,39 @@ export function rowsFor(scenario, option, { layout }) {
   return rows;
 }
 
+/**
+ * Composition family -> the arrangement `src/mockup-renderer.ts` draws.
+ *
+ * The renderer could draw every treatment the same way, and did: a row list
+ * whatever the treatment named. The judge charged the composed previews for it -
+ * 82 of 91 losses named the drawn rows as "pixelated" or "unreadable at terminal
+ * size", and the cases that suffered worst were the ones whose subject is not a
+ * dashboard at all (posters, packaging, icon sets, scientific diagrams), where
+ * a row list is simply the wrong shape. Drawing the arrangement the treatment
+ * actually names puts the information where the reader looks for it and leaves
+ * far fewer glyphs on screen.
+ */
+export const FAMILY_LAYOUTS = Object.freeze({
+  single: "airy", column: "airy", column2: "airy", column4: "list", list: "list",
+  split: "split", board: "board", band: "split", rail: "rail", pages: "split", stages: "steps",
+  steps: "steps", flow: "steps", tree: "steps", timeline: "steps", hub: "steps", phases: "steps",
+  grid: "dense", matrix: "dense", dense: "dense", tiles: "tiles", icon: "tiles", cards: "tiles",
+  chart: "chart", gauge: "chart", map: "board", zones: "board", wayfinding: "board",
+  stack: "overlay", overlay: "overlay", sheet: "overlay", dialog: "overlay", toast: "overlay",
+  banner: "overlay", hero: "airy", emphasis: "overlay", progressive: "list",
+});
+
+/** The arrangement one option's own composition asks the renderer to draw. */
+export function layoutForComposition(option, siblings = []) {
+  const { family } = compositionFor(option, siblings);
+  return FAMILY_LAYOUTS[family] ?? LAYOUTS[treatmentKey(option)] ?? "list";
+}
+
 /** The spec one option renders, with no de-collision. This is the product path. */
 export function mockupSpecFor(scenario, option) {
   const key = treatmentKey(option);
   const title = String(scenario.canonicalInput?.title ?? "");
-  const layout = LAYOUTS[key] ?? (CHART_TITLES.test(title) ? "chart" : "list");
+  const layout = layoutForComposition(option) ?? (CHART_TITLES.test(title) ? "chart" : "list");
   return assembleSpec(scenario, option, layout, key, false);
 }
 
@@ -168,18 +197,17 @@ function assembleSpec(scenario, option, layout, key, adjusted) {
  */
 export function specsForScenario(scenario) {
   const options = (scenario.canonicalInput?.stages ?? [])[0]?.options ?? [];
-  const proposed = options.map((option) => {
+  const proposed = options.map((option, index) => {
     const key = treatmentKey(option);
-    const title = String(scenario.canonicalInput?.title ?? "");
-    return { option, key, layout: LAYOUTS[key] ?? (CHART_TITLES.test(title) ? "chart" : "list") };
+    return { option, key, layout: layoutForComposition(option, options.filter((other) => other !== option)) };
   });
-  const used = new Set(proposed.filter((item) => LAYOUTS[item.key]).map((item) => item.layout));
+  const used = new Set();
   return proposed.map((item, index) => {
     let layout = item.layout;
     let forced = false;
     if (used.has(layout) || used.size + (proposed.length - used.size) > FALLBACK_ROTATION.length) {
       // Take the next arrangement this case has not used, deterministically.
-      const taken = new Set(proposed.filter((other) => LAYOUTS[other.key]).map((other) => other.layout));
+      const taken = new Set(used);
       const candidate = FALLBACK_ROTATION[(index + taken.size) % FALLBACK_ROTATION.length];
       if (candidate !== layout) { layout = candidate; forced = true; }
     }
