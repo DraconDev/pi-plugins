@@ -243,6 +243,10 @@ export async function runMockups(corpus, {
       stratum: item.stratum,
       layout: item.layout,
       layoutSource: item.layoutSource,
+      // The spec is the image's provenance: the composed arm composes the art
+      // into this exact structure, and a manifest that could not say which
+      // structure it was would make that composition unreproducible.
+      spec: item.spec,
       prompt: `mockup:${item.layout}:${item.hash.slice(0, 16)}`,
       hash: item.hash,
       path: target,
