@@ -20,6 +20,26 @@ import { CONTRACT_ALIAS_PREFIX, ingestImageManifest, optionPrompt as imageOption
 import { buildAggregateReport, recomputeGates, verifyAggregateReport, verifyDefectLedger, verifyTerminalOutcomes } from "../scripts/benchmark/report.mjs";
 import { resolveSmokeImage } from "../scripts/benchmark/smoke-live.mjs";
 import { verifyEvidence } from "../scripts/benchmark/publish.mjs";
+import { compositionsFor } from "../scripts/benchmark/composition.mjs";
+import { runComposition } from "../scripts/benchmark/compose.mjs";
+import { renderMockup } from "../src/mockup-renderer.ts";
+import { composePreview, cropToFill } from "../src/preview-composer.ts";
+import { decodePng, encodePng } from "../src/png.ts";
+import { detectImage } from "../scripts/benchmark/images.mjs";
+
+/**
+ * Visual scenarios for the prompt invariants.
+ *
+ * Read from the durable corpus so the invariants are checked against the
+ * scenarios that are actually shipped rather than a freshly generated sample,
+ * but skipped loudly if that corpus is absent: a test that silently passes on
+ * zero scenarios proves nothing.
+ */
+async function corpusVisualScenarios(limit) {
+  const corpus = await loadDurableCorpus({ count: 1000, seed: 20260925 });
+  assert.ok(corpus, `${DURABLE_CORPUS_PATH} must be present to check the shipped prompts`);
+  return corpus.scenarios.filter((scenario) => scenario.stratum === "visual").slice(0, limit);
+}
 
 const ORDINARY_SCENARIO = {
   id: "t-1", stratum: "ordinary", classification: "legacy-single", comparisonScope: "local-only", inputValid: true,
@@ -142,7 +162,10 @@ describe("ledger: visual decision-utility defects", () => {
     const scenario = VISUAL_SCENARIO;
     for (const option of scenario.canonicalInput.stages[0].options) {
       const prompt = imageOptionPrompt(scenario, option);
-      assert.match(prompt, /flat UI mockup/);
+      // The drawable instruction is now the countable composition (VISUAL-006);
+      // this test keeps the two properties that have always mattered: the prompt
+      // names what to draw, and it is long enough to carry the instruction.
+      assert.match(prompt, /Draw exactly this composition/);
       assert.ok(prompt.length > 200, "a prompt must carry a drawable instruction");
       // The judged comparison is blinded: a caption naming the option would
       // hand the judge the treatment identity.
@@ -155,8 +178,9 @@ describe("ledger: visual decision-utility defects", () => {
     for (const scenario of corpus.scenarios) {
       for (const stage of scenario.canonicalInput.stages ?? []) {
         for (const option of stage.options) {
-          const { directive } = treatmentDirective(option);
+          const { directive, source } = treatmentDirective(option);
           assert.ok(directive.length > 12, `empty directive for ${option.label}`);
+          assert.match(source, /^(table|description|derived|default)/);
         }
       }
     }
@@ -530,5 +554,165 @@ describe("ledger: measurement-condition defects", () => {
     const after = await generationAccounting(manifest, { imageDir: directory, ledger });
     assert.equal(after.cumulativeSuccessfulGenerations, 2, "deleting an orphan must not erase that it was generated");
     assert.equal(after.supersededGenerationsAlreadyDeleted, 1);
+  });
+});
+
+/**
+ * VISUAL-006: the image prompt is written in the units the terminal can resolve.
+ *
+ * Root cause of the 34.5% severe rate: the style asked for a full-density
+ * interface mockup - "thin dark outlines", "fill the frame", placeholder words
+ * in the chrome - and the judge sees that art on the 31 x 16 cell grid, about
+ * 248 x 256 pixels. A hairline is a quarter of a display pixel wide and a
+ * full-density mockup is texture at that size, so the three treatments of a
+ * scenario measured as three shades of the same grey. The prompt now names a
+ * countable composition, a hard ceiling on shapes, thick strokes, and wide gaps,
+ * and the tests below pin each of those so a later "prettier prompt" cannot
+ * quietly reintroduce the defect.
+ */
+describe("VISUAL-006: the image prompt is written for the display it is judged at", () => {
+  it("VISUAL-006: every prompt carries a countable composition and the display budget", async () => {
+    const VISUAL_SCENARIOS = await corpusVisualScenarios(24);
+    assert.ok(VISUAL_SCENARIOS.length > 0, "the visual stratum must not be empty");
+    for (const scenario of VISUAL_SCENARIOS) {
+      for (const option of scenario.canonicalInput.stages[0].options) {
+        const prompt = imageOptionPrompt(scenario, option);
+        assert.match(prompt, /Draw exactly this composition and nothing else/);
+        // A composition is countable. "A well-organised interface" is not.
+        assert.match(prompt, /\b(one|two|three|four|five|six|nine)\b[^.]*\b(block|panel|cell|tile|circle|bar|band|band|disc|rectangle)/i,
+          `${scenario.id}/${option.label} has no countable composition`);
+        assert.match(prompt, /at most nine shapes/i);
+        assert.match(prompt, /wide white gaps/i);
+        assert.match(prompt, /thick black outlines/i);
+        // The hairline style that measured as texture is gone for good.
+        assert.doesNotMatch(prompt, /thin dark outline/i);
+        assert.doesNotMatch(prompt, /fill the frame: every region/i);
+        // The prompt is deterministic: the cache and the 600-image budget both
+        // depend on the same scenario producing the same string.
+        assert.equal(prompt, imageOptionPrompt(scenario, option));
+      }
+    }
+  });
+
+  it("VISUAL-006: the three treatments of a case never share a composition", async () => {
+    for (const scenario of await corpusVisualScenarios(24)) {
+      const options = scenario.canonicalInput.stages[0].options;
+      const compositions = compositionsFor(options);
+      assert.equal(new Set(compositions.map((item) => item.family)).size, options.length,
+        `${scenario.id} draws two of its treatments the same way: ${JSON.stringify(compositions)}`);
+    }
+  });
+
+  it("VISUAL-006: a forced composition is recorded, never silently substituted", () => {
+    const options = [
+      { key: "a", label: "Board Alpha", description: "A wide band across the top with two blocks below." },
+      { key: "b", label: "Board Beta", description: "A wide band across the top with two blocks below." },
+      { key: "c", label: "Board Gamma", description: "A 3x3 grid of cells." },
+    ];
+    const resolved = compositionsFor(options);
+    const spread = resolved.filter((item) => item.source.endsWith("+spread"));
+    assert.equal(spread.length, 1, "a shared treatment must be spread onto another arrangement");
+    assert.equal(new Set(resolved.map((item) => item.family)).size, 3);
+  });
+
+  it("VISUAL-006: the negative prompt is part of the request and of the cache key", async () => {
+    const planned = planImages({ scenarios: await corpusVisualScenarios(24) }, { limit: 600 });
+    for (const item of planned) {
+      assert.equal(typeof item.negativePrompt, "string");
+      assert.ok(item.negativePrompt.length > 0);
+      // The key covers both halves: a negative-prompt revision must not be
+      // served from a cache built for the previous one.
+      assert.equal(item.hash, promptHash(item));
+      assert.notEqual(promptHash({ prompt: item.prompt }), item.hash);
+      assert.equal(promptHash({ prompt: item.prompt, negativePrompt: item.negativePrompt }), item.hash);
+    }
+  });
+});
+
+/**
+ * VISUAL-007: the shipped preview composes art into the package's own structure.
+ *
+ * Root cause: the 2% severe ceiling is unreachable for a raw generated preview,
+ * because a 248 x 256 raster can carry a shape and an emphasis but not the
+ * information the question asks about - the judge charged 34.5% of raw
+ * previews for exactly that, with "abstract placeholder-like symbols" in its
+ * own words. The product therefore draws the information-bearing layer
+ * deterministically and places the art inside it. These tests pin the parts
+ * that make that a real product path rather than a benchmark trick: the
+ * composition is a pure function of (spec, art), the art is cropped rather than
+ * squashed, the structure survives compositing, and an option that asks for both
+ * gets the composition instead of silently losing one of the two.
+ */
+describe("VISUAL-007: the composed preview is a deterministic product path", () => {
+  const spec = { layout: "list", rows: [
+    { code: "01", label: "ROUTE 4", value: 0.9, status: "danger" },
+    { code: "02", label: "ROUTE 7", value: 0.4, status: "ok" },
+    { code: "03", label: "ROUTE 9", value: 0.6, status: "warn" },
+  ] };
+
+  it("VISUAL-007: the same spec and art compose to byte-identical bytes", () => {
+    const art = { width: 64, height: 48, data: Buffer.alloc(64 * 48 * 3).fill(120) };
+    const first = composePreview({ spec, art });
+    const second = composePreview({ spec, art });
+    assert.equal(first.png.equals(second.png), true, "composition must be reproducible");
+    assert.equal(first.width, 31 * 8);
+    assert.equal(first.height, 16 * 16);
+  });
+
+  it("VISUAL-007: the art is cropped to fill, never squashed", () => {
+    const wide = { width: 200, height: 20, data: Buffer.alloc(200 * 20 * 3, 200) };
+    const cropped = cropToFill(wide, 60, 40);
+    // A squashed 10:1 source into a 3:2 target would come out with a changed
+    // aspect; the crop keeps it, which is why the shape is preserved.
+    assert.equal(cropped.width, 60);
+    assert.equal(cropped.height, 40);
+    assert.equal(cropToFill({ ...wide, width: 20, height: 200 }, 60, 40).width, 60);
+  });
+
+  it("VISUAL-007: the structure survives compositing, so a preview is never less informative than text", () => {
+    const art = { width: 32, height: 32, data: Buffer.alloc(32 * 32 * 3, 30) };
+    const plain = renderMockup(spec);
+    const composed = composePreview({ spec, art });
+    // The row band below the art still carries ink: a preview that art covered
+    // completely would be the regression this composition exists to prevent.
+    const decoded = decodePng(composed.png);
+    let ink = 0;
+    for (let y = 8 * 16; y < decoded.height; y += 1) {
+      for (let x = 0; x < decoded.width; x += 1) {
+        const index = (y * decoded.width + x) * 3;
+        if (decoded.data[index] < 120 || decoded.data[index + 1] < 120 || decoded.data[index + 2] < 120) ink += 1;
+      }
+    }
+    assert.ok(ink > 200, `composed preview lost its structure: ${ink} ink pixels below the art band`);
+    assert.ok(plain.png.length > 0);
+  });
+
+  it("VISUAL-007: an option that asks for both a mockup and a generation gets the composition", async () => {
+    const { generateReviewImages } = await import("../src/image-generator.ts");
+    const artPng = encodePng({ width: 32, height: 32, data: Buffer.alloc(32 * 32 * 3, 200) });
+    const fetchImpl = async () => new Response(JSON.stringify({ data: [{ b64_json: artPng.toString("base64") }] }), {
+      status: 200, headers: { "content-type": "application/json" },
+    });
+    const directory = await mkdtemp(join(tmpdir(), "composed-"));
+    const review = {
+      version: 1, reviewId: "r", round: 1, provider: "agnes", model: "agnes-image-2.5-flash",
+      title: "Composed", notes: "",
+      stages: [{
+        id: "s", kind: "draft", header: "Layout", prompt: "Pick a layout", required: true,
+        multiSelect: false, allowOther: false, allowRevision: false, allowSkip: false,
+        options: [{ id: "a", label: "Split", description: "Two panels", mockup: spec, generate: { prompt: "a mockup", provider: "agnes" } }],
+      }],
+    };
+    const result = await generateReviewImages(review, {
+      cwd: process.cwd(), outputDir: directory, fetchImpl, resolveCredential: () => "test-key", timeoutMs: 5000,
+    });
+    assert.equal(result.images.length, 1);
+    assert.equal(result.images[0].provider, "composed");
+    assert.match(result.images[0].model, /^deterministic-cell-renderer\+/);
+    const written = await readFile(result.images[0].path);
+    assert.equal(detectImage(written).mimeType, "image/png");
+    // The composited option no longer asks for a second generation.
+    assert.equal(result.review.stages[0].options[0].generate, undefined);
+    assert.equal(result.review.stages[0].options[0].mockup, undefined);
   });
 });

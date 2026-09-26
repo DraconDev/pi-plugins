@@ -270,6 +270,17 @@ export class Canvas {
   toRgb(): Buffer {
     return Buffer.from(this.pixels);
   }
+
+  /** Copy another canvas into this one at a pixel offset. */
+  blit(source: Canvas, atX = 0, atY = 0): void {
+    const pixels = source.toRgb();
+    for (let y = 0; y < source.height; y += 1) {
+      for (let x = 0; x < source.width; x += 1) {
+        const index = (y * source.width + x) * 3;
+        this.set(atX + x, atY + y, [pixels[index]!, pixels[index + 1]!, pixels[index + 2]!]);
+      }
+    }
+  }
 }
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);

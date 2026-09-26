@@ -350,21 +350,24 @@ export function compositionsFor(options) {
   const bases = list.map((option) => baseComposition(option));
   const used = new Set();
   return bases.map((base, index) => {
-    const others = bases.filter((_, other) => other !== index).map((item) => item.family);
-    if (!others.includes(base.family) && !used.has(base.family)) {
+    // First claim wins, in order: an option is only moved when an earlier
+    // sibling already took its arrangement. Checking every sibling instead
+    // would move all of them and hand back three *different* arrangements that
+    // none of the treatments asked for.
+    if (!used.has(base.family)) {
       used.add(base.family);
       return base;
     }
+    const taken = new Set(used);
     const candidates = [...(NEIGHBOURS[base.family] ?? []), ...ROTATION].filter((family) => FAMILIES[family]);
     const start = hash32(`${list[index]?.label ?? ""}|${treatmentKey(list[index])}|${index}`) % Math.max(1, candidates.length);
     for (let step = 0; step < candidates.length; step += 1) {
       const candidate = candidates[(start + step) % candidates.length];
-      if (candidate !== base.family && !others.includes(candidate) && !used.has(candidate)) {
+      if (candidate !== base.family && !taken.has(candidate)) {
         used.add(candidate);
         return { ...base, family: candidate, source: `${base.source}+spread` };
       }
     }
-    used.add(base.family);
     return base;
   });
 }

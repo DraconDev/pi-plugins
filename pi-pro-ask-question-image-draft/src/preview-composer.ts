@@ -32,7 +32,7 @@
  * machine, which is what lets the release gate be re-measured rather than
  * re-argued.
  */
-import { CELL_HEIGHT, DEFAULT_MOCKUP_CELLS, encodeCanvasPng, renderMockupCanvas, type MockupSpec, type Rgb } from "./mockup-renderer.ts";
+import { CELL_HEIGHT, CELL_WIDTH, Canvas, DEFAULT_MOCKUP_CELLS, DEFAULT_STYLE, encodeCanvasPng, renderMockupCanvas, type MockupSpec, type Rgb } from "./mockup-renderer.ts";
 import { decodePng, resampleArea, type RgbImage } from "./png.ts";
 
 export type DecodedImage = RgbImage;
@@ -43,10 +43,10 @@ export interface ComposeOptions {
   widthCells?: number;
   heightCells?: number;
   /**
-   * Height of the art band, in cells, measured from the top of the body area
-   * (below the chrome row). Defaults to a third of the frame, which leaves the
-   * deterministic rows the majority of the preview: the art characterises the
-   * treatment, the rows carry the information.
+   * Height of the art band, in cells, measured from the top of the frame.
+   * Defaults to a third of the frame, which leaves the deterministic rows the
+   * majority of the preview: the art characterises the treatment, the rows carry
+   * the information.
    */
   artRows?: number;
   style?: { frame: Rgb };
@@ -94,27 +94,32 @@ export function composePreview(options: ComposeOptions): { png: Buffer; width: n
   const { spec, art } = options;
   const widthCells = options.widthCells ?? DEFAULT_MOCKUP_CELLS.widthCells;
   const heightCells = options.heightCells ?? DEFAULT_MOCKUP_CELLS.heightCells;
-  const canvas = renderMockupCanvas(spec, { widthCells, heightCells });
-  const pixels = canvas.toRgb();
-  const artRows = Math.max(1, Math.min(heightCells - 2, options.artRows ?? Math.max(3, Math.round(heightCells / 3))));
-  // Row 0 is the chrome the structure drew; the art sits directly under it and
-  // the structure's own rows continue underneath the band.
-  const top = 1;
+  // The structure is drawn into the rows the art band does not take, and into
+  // no more: rendering it on the full grid and pasting the art over the top
+  // erased the structure's own rows, which is the one thing the composition
+  // exists to guarantee. Laying it out in the remaining rows makes each layout
+  // pick a capacity that fits, so nothing is silently clipped.
+  const artRows = Math.max(2, Math.min(heightCells - 4, options.artRows ?? Math.max(3, Math.round(heightCells / 3))));
+  const structureRows = heightCells - artRows;
+  const structure = renderMockupCanvas(spec, { widthCells, heightCells: structureRows });
+  const style = { ...DEFAULT_STYLE, ...(spec.style ?? {}) };
+  const canvas = new Canvas(widthCells * CELL_WIDTH, heightCells * CELL_HEIGHT, style.background);
   const pixelWidth = canvas.width - 2;
   const pixelHeight = artRows * CELL_HEIGHT - 2;
   const placed = cropToFill(art, pixelWidth, pixelHeight);
   const originX = 1;
-  const originY = top * CELL_HEIGHT + 1;
+  const originY = 1;
   for (let y = 0; y < pixelHeight; y += 1) {
     const source = y * placed.width * 3;
-    placed.data.copy(pixels, ((originY + y) * canvas.width + originX) * 3, source, source + placed.width * 3);
+    placed.data.copy(canvas.toRgb(), ((originY + y) * canvas.width + originX) * 3, source, source + placed.width * 3);
   }
-  // Frame: the boundary between generated art and drawn structure.
+  canvas.blit(structure, 0, artRows * CELL_HEIGHT);
+  // Frame: the boundary between generated art and drawn structure. A preview
+  // that blurs its two layers is worse than one that admits it has two.
   const frame = options.style?.frame ?? DEFAULT_FRAME;
-  canvas.fillRect(0, top * CELL_HEIGHT, canvas.width, 1, frame);
-  canvas.fillRect(0, (top + artRows) * CELL_HEIGHT - 1, canvas.width, 1, frame);
-  canvas.fillRect(0, top * CELL_HEIGHT, 1, artRows * CELL_HEIGHT, frame);
-  canvas.fillRect(canvas.width - 1, top * CELL_HEIGHT, 1, artRows * CELL_HEIGHT, frame);
+  canvas.fillRect(0, artRows * CELL_HEIGHT - 1, canvas.width, 1, frame);
+  canvas.fillRect(0, 0, 1, artRows * CELL_HEIGHT, frame);
+  canvas.fillRect(canvas.width - 1, 0, 1, artRows * CELL_HEIGHT, frame);
   return { png: encodeCanvasPng(canvas), width: canvas.width, height: canvas.height };
 }
 
