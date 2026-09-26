@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 /**
- * The gating image arm: the product's own preview, composed.
+ * The composed arm, which is a *product capability* rather than the gated arm.
+ *
+ * The release gate measures the generated image on its own, because that is what
+ * the objective names ("Agnes must be meaningfully more useful..."). This script
+ * builds the other preview the package can render - the deterministic structure
+ * with the art inside it - and the report carries its numbers beside the gated
+ * arm so both are visible. It does not decide anything on its own.
  *
  * `src/preview-composer.ts` draws the deterministic structure and places the
  * generated art inside it. This script runs that product path over the whole

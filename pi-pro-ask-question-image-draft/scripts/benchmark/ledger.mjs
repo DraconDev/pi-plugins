@@ -159,6 +159,27 @@ const DEFECTS = [
     claim: { ceiling: 0.02, ceilingClass: "legibility", restated: true, measured: { image: { wins: 92, rate: 0.46, legibility: 0.02, unestablished: 0.055 }, composed: { wins: 109, rate: 0.545, legibility: 0.31 } } },
   },
   {
+    id: "BUDGET-001", severity: "P0", status: "open",
+    summary: "The 600-image boundary was breached by 3.4x: the generation ledger records 2,020 successful Agnes generations against a boundary of 600, and the release gate reported `imageBudget: true` throughout because it compared one manifest's entry count rather than provider consumption.",
+    rootCause: "The cache is keyed by prompt hash, so revising the image prompt retires a whole 600-image set and starts a new one. The gate was written against the manifest, which cannot exceed 600 by construction, and the cumulative figure was recorded as a note rather than as a gate input. Superseded files were pruned; the generations behind them were not.",
+    fix: "The gate now reads the ledger's cumulative count as well as the manifest's set, and it fails at 2,020. The overrun itself cannot be undone - those generations are spent - so this stays open until the owner either amends the boundary or accepts the overrun, and no completion claim should be made while it is open.",
+    claim: { budget: 600, cumulativeSuccessfulGenerations: 2020, supersededGenerations: 1420, gateNowFails: true },
+  },
+  {
+    id: "COMPARE-001", severity: "P1", status: "open",
+    summary: "The shared-envelope comparison against RPiV matches on 84.1% of the 333 shared cases (53 mismatches: 36 image-class, 15 text, 2 legacy), and the report recorded the failure in `measurementLimits` without any gate or defect owning it.",
+    rootCause: "The adapter compares envelope *text* across two independent implementations, and the report surfaced the rate as a note while gating only on answers and status - which is what the tool contract actually promises. A reported-but-ungated failure is a failure nobody is accountable for.",
+    fix: "Recorded here as an open P1 so it is owned rather than noted. Whether 53 envelope-text mismatches are a real capability difference needs a per-classification read of the mismatches, which this run did not do; the next run must either close them or restate the comparison as answers-and-status only, with the owner accepting the narrower claim.",
+    claim: { sharedCases: 333, envelopeMatchRate: 0.8408408408408409, mismatches: 53, byClassification: { image: 36, text: 15, legacy: 2 } },
+  },
+  {
+    id: "SMOKE-001", severity: "P1", status: "open",
+    summary: "The live real-TTY run exercises inline image composition, keyboard controls, stage advance, Ctrl+] collapse/reopen, a custom answer, the external editor and final review, but never records a note, a revision round, a reject or a cancel - four of the behaviours the contract names.",
+    rootCause: "The driver walks one happy path plus the editor round trip. The four missing behaviours are covered by the headless suites, so nothing is broken; they are simply not proven on a real terminal.",
+    fix: "Extend scripts/benchmark/live-driver.mjs to drive note, revision, reject and cancel on the PTY with an assertion each, then re-run the smoke. Not done in this pass.",
+    claim: { recorded: ["image", "keyboard", "stage-advance", "collapse", "reopen", "custom-input", "editor", "final-review", "complete"], missing: ["note", "revision", "reject", "cancel"] },
+  },
+  {
     id: "VISUAL-009", severity: "P1", status: "resolved",
     summary: "The severe ceiling counted disputes the harness could not settle as evidence that the image was unreadable: 11 of the 15 calls in the legibility bucket were cases where two passes disagreed about severity and the adjudicator's own reply could not be parsed.",
     rootCause: "attributeSevereFailure charged a `both` verdict with no declared class, and the summary then treated any class it did not recognise as legibility - so a failed adjudication became a fact about the picture.",

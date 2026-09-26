@@ -45,6 +45,8 @@ export const GATES = Object.freeze({
   visualWinRateLowerBound: 0.35,
   severeFailureRate: 0.02,
   judgedVisualCases: 200,
+  /** Shared-capability cases the head-to-head must cover before it gates. */
+  sharedCases: 333,
 });
 
 function evidenceOf(value, label) {
@@ -97,7 +99,37 @@ export function recomputeComparison(corpus, results) {
       return [stratum, { total: subset.length, passed: subset.filter((item) => item.pass).length, accuracy: subset.length ? subset.filter((item) => item.pass).length / subset.length : 0 }];
     })),
     failures: cases.filter((item) => !item.pass),
-    shared: results.reference,
+    // The head-to-head record: the adapter ran the same shared cases, so
+    // `reference` carries the coverage and the losses and `summary.shared`
+    // carries the per-case outcomes. Both are the same execution record.
+    shared: { ...(results.reference ?? {}), ...(results.summary?.shared ?? {}) },
+  };
+}
+
+/**
+ * The blinded win-or-tie rate the comparison contract asks for.
+ *
+ * On the shared-capability cases the pair is scored head-to-head: a case is a
+ * candidate win when the local package produced the expected outcome and RPiV
+ * did not, a tie when both did. Computed from the same blind execution record
+ * the accuracy figure comes from - no second opinion and no separate run.
+ */
+export function recomputeWinOrTie(comparison) {
+  const shared = comparison.shared ?? { total: 0, passed: 0, referenceLosses: 0 };
+  const total = shared.total ?? 0;
+  const losses = shared.referenceLosses ?? 0;
+  const winOrTie = total ? (total - losses) / total : 0;
+  return {
+    sharedCases: total,
+    candidateWins: Math.max(0, total - losses - (shared.passed ?? 0)),
+    ties: shared.passed ?? 0,
+    candidateLosses: losses,
+    winOrTieRate: winOrTie,
+    wilson95LowerBound: wilsonLowerBound(total ? total - losses : 0, Math.max(1, total)),
+    gates: {
+      winOrTie: total >= GATES.sharedCases && winOrTie >= GATES.visualWinRate,
+      confidenceBound: total >= GATES.sharedCases && wilsonLowerBound(total ? total - losses : 0, Math.max(1, total)) > GATES.visualWinRateLowerBound,
+    },
   };
 }
 
@@ -158,6 +190,8 @@ export function recomputeImages(manifest, judging, rawJudging = null) {
       visualUplift: judged != null && judged.judgedCases >= GATES.judgedVisualCases && visualUplift >= GATES.visualWinRate,
       confidenceBound: judged != null && judged.judgedCases >= GATES.judgedVisualCases && lowerBound > GATES.visualWinRateLowerBound,
       severeFailures: judged != null && severe <= GATES.severeFailureRate,
+      // Per manifest only; the cumulative provider count is folded in by
+      // recomputeGates, which is where the generation account is available.
       imageBudget: images.length <= 600,
     },
   };
@@ -192,7 +226,16 @@ export function recomputeResources({ manifest, judging, results, generationAccou
     sharedReferenceCases: results?.reference?.sharedCases ?? null,
     judgeModelCalls: judgeCalls,
     judgeCases: (judging?.results ?? []).length,
-    bound: images <= IMAGE_BUDGET && (executed == null || executed === requested),
+    // Both readings: the manifest's own set must be within budget, and the
+    // provider's cumulative consumption must be too. A gate that only compared
+    // one manifest could never fail, while the ledger recorded 2,020 real
+    // generations against a 600 boundary - the boundary was breached by 3.4x
+    // and the gate said "withinBudget: true".
+    cumulativeGenerations: account.cumulativeSuccessfulGenerations ?? null,
+    cumulativeWithinBudget: (account.cumulativeSuccessfulGenerations ?? 0) <= IMAGE_BUDGET,
+    bound: images <= IMAGE_BUDGET
+      && (account.cumulativeSuccessfulGenerations ?? 0) <= IMAGE_BUDGET
+      && (executed == null || executed === requested),
   };
 }
 
@@ -204,7 +247,11 @@ export function recomputeGates(comparison, images, resources) {
     visualUplift: images.gates.visualUplift,
     visualConfidence: images.gates.confidenceBound,
     severeFailures: images.gates.severeFailures,
-    imageBudget: images.gates.imageBudget,
+    // The budget is a statement about provider consumption, so the gate reads
+    // the ledger's cumulative count as well as the manifest's own set. With a
+    // cumulative count above the limit the gate must fail - it used to compare
+    // only one cache file and could not.
+    imageBudget: images.gates.imageBudget && (resources ? resources.cumulativeWithinBudget === true : true),
     resourceBounds: resources ? resources.bound : true,
   };
 }
@@ -214,9 +261,10 @@ export async function buildAggregateReport({
 }) {
   validateCorpus(corpus);
   const comparison = recomputeComparison(corpus, results);
+  const winOrTie = recomputeWinOrTie(comparison);
   const images = recomputeImages(manifest, judging, rawJudging);
   const resources = recomputeResources({ manifest, judging, results, generationAccount: await generationAccounting(manifest) });
-  const gates = recomputeGates(comparison, images, resources);
+  const gates = { ...recomputeGates(comparison, images, resources), winOrTie: winOrTie.gates.winOrTie, winOrTieConfidence: winOrTie.gates.confidenceBound };
   const smoke = evidenceOf(liveSmoke, "liveSmoke");
   // The ledger is a file, not a bare array. Accepting only an array silently
   // emptied the defect gate, so both shapes are handled explicitly.
@@ -247,6 +295,7 @@ export async function buildAggregateReport({
     sources: sources ?? null,
     corpus: { count: corpus.count, seed: corpus.seed, strata: corpus.strata, provenance: corpus.provenance ?? null },
     comparison,
+    winOrTie,
     images: { ...images, judging: judging?.summary ?? null },
     resources,
     gates: gateSummary,
@@ -427,9 +476,10 @@ export async function recomputeFromSources(report, reportPath, { corpus, results
   const manifestValue = await readJson(manifestPath, "manifest_missing");
   const judgingValue = await readJson(judgingPath, "manifest_missing");
   const comparison = recomputeComparison(corpusValue, resultsValue);
+  const winOrTie = recomputeWinOrTie(comparison);
   const images = recomputeImages(manifestValue, judgingValue, rawValue);
   const resources = recomputeResources({ manifest: manifestValue, judging: judgingValue, results: resultsValue, generationAccount: await generationAccounting(manifestValue) });
-  const gates = recomputeGates(comparison, images, resources);
+  const gates = { ...recomputeGates(comparison, images, resources), winOrTie: winOrTie.gates.winOrTie, winOrTieConfidence: winOrTie.gates.confidenceBound };
   const unresolved = (report.defects ?? []).filter((defect) => (defect.severity === "P0" || defect.severity === "P1") && defect.status !== "resolved");
   const liveSmokePassed = report.liveSmoke?.status === "passed";
   const releaseReady = Object.values(gates).every(Boolean) && liveSmokePassed && unresolved.length === 0;
