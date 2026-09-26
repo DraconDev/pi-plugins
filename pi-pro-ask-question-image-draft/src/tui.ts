@@ -182,6 +182,42 @@ function isImageLine(line: string): boolean {
   return line.includes("\u001b_G") || line.includes("\u001b]1337;File=");
 }
 
+/**
+ * Collapse a chunked Kitty escape into one escape.
+ *
+ * pi-tui transmits an image as many `\x1b_G<ctrl>;<chunk>\x1b\` escapes, one per
+ * 4 KB. tmux's passthrough envelope ends at the *first* `ESC \` it sees, so a
+ * chunked image is cut after its first chunk: the terminal receives a header
+ * and 4 KB, and the rest of the picture is discarded. Concatenating the chunks
+ * into a single escape carries the whole payload in one envelope - the escape
+ * the terminal ends up parsing is the same image.
+ */
+export function collapseGraphicsChunks(sequence: string): string {
+  if (!sequence.startsWith("\u001b_G")) return sequence;
+  const chunks = [...sequence.matchAll(/\u001b_G([^;]*);([^\u001b]*)\u001b\\/g)];
+  if (chunks.length <= 1) return sequence;
+  const control = (chunks[0][1].split(",").filter((part) => !/^m=/.test(part))).join(",");
+  const payload = chunks.map((chunk) => chunk[2]).join("");
+  return `\u001b_G${control};${payload}\u001b\\`;
+}
+
+/**
+ * Pass inline graphics through tmux.
+ *
+ * tmux does not forward an application's raw Kitty escape: it parses its own
+ * terminal grammar, and an image escape is not in it, so the review showed a
+ * file path and the terminal never received a byte of the picture. What tmux
+ * *does* forward is anything wrapped in its passthrough envelope
+ * (`DCS tmux; <sequence> ST`), the same envelope Ghostty uses for itself. The
+ * chunked escape is collapsed first, because the envelope ends at the first
+ * `ESC \` inside it. Measured on tmux 3.6a: unwrapped, 0 of 703,088 payload
+ * bytes reached the client; this way all 527,315 bytes of the PNG did.
+ */
+export function passthroughGraphicsForHost(line: string, { tmux = Boolean(process.env.TMUX) } = {}): string {
+  if (!tmux || !isImageLine(line)) return line;
+  return line.replace(/\u001b_G[\s\S]*?\u001b\\|\u001b\]1337;File=[^\u07\x1b]*(?:\x07|\u001b\\)/g, (sequence) => `\u001bPtmux;${collapseGraphicsChunks(sequence)}\u001b\\`);
+}
+
 function fitLine(line: string, width: number): string {
   return truncateToWidth(line, Math.max(1, width), "…");
 }
@@ -716,7 +752,7 @@ export class VisualReviewWizard implements Component, Focusable {
     lines.push("");
     lines.push(border("─".repeat(safeWidth)));
     const bounded = lines.map((line) => isImageLine(line) ? line : fitLine(line, safeWidth));
-    const visible = this.visibleLines(bounded);
+    const visible = this.visibleLines(bounded.map(passthroughGraphicsForHost));
     this.cachedWidth = width;
     this.cachedHeight = terminalRows ?? -1;
     this.cachedLines = visible;

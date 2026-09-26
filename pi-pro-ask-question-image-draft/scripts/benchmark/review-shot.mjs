@@ -141,6 +141,19 @@ try {
   }
   for (let index = 0; index < optionIndex; index += 1) wizard.handleInput("\x1b[B");
   const frame = wizard.render(columns);
+  if (args.emit === "true") {
+    // Write the frame exactly as a terminal receives it, escape sequences and
+    // all. This is the path that proves whether the *host* passes graphics
+    // through: run it in a real terminal, look at what is on screen, and the
+    // only variable left is tmux/terminal passthrough.
+    process.stdout.write("\u001b[H\u001b[2J");
+    for (const line of frame) process.stdout.write(`${line}\r\n`);
+    process.stdout.write("\u001b[?25l");
+    process.stdout.write(`${JSON.stringify({ emitted: true, columns, lines: frame.length, images: findImages(frame).length, capabilities: (await import("@earendil-works/pi-tui")).getCapabilities() })}\n`);
+    await new Promise((resolve) => setTimeout(resolve, Number(args.hold ?? 20) * 1000));
+    wizard.dispose();
+    process.exit(0);
+  }
   const payload = {
     title: args.title ?? "pi-visual-review — live dialog",
     subtitle: `${columns}x${rows} terminal · ${imagePath.split("/").pop()}`,
