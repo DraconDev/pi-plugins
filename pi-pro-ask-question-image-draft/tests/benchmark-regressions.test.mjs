@@ -813,3 +813,45 @@ describe("VISUAL-005: the restated visual criterion is a constant, not a moving 
     assert.equal(GATES.visualWinRate, 0.45);
   });
 });
+
+/**
+ * BUDGET-001: the image budget gate reads provider consumption, not a cache file.
+ *
+ * The gate used to compare one manifest's entry count with 600 - a comparison
+ * that cannot fail, because a manifest is capped at 600 by construction - while
+ * the ledger recorded 2,020 real generations. It also had no blinded win-or-tie
+ * metric at all, which the comparison contract asks for.
+ */
+describe("BUDGET-001: the budget gate counts generations, and the comparison reports win-or-tie", () => {
+  const SMALL = smallCorpus();
+  const manifest = manifestFor(SMALL);
+  const judged = { summary: { judgedCases: 200, decidedCases: 200, candidateWins: 130, candidateWinRate: 0.65, wilson95LowerBound: 0.58, ties: 0, undecided: 0, judgeErrors: 0, severeImageFailures: 0, severeImageFailureRate: 0, severeLegibilityFailures: 0, severeLegibilityFailureRate: 0 } };
+  const results = {
+    kind: "benchmark-comparison",
+    cases: SMALL.scenarios.map((scenario) => ({ id: scenario.id, pass: true, stableAcrossPasses: true })),
+    reference: { adapter: "fixture", sharedCases: 333, losses: [] },
+    summary: { shared: { total: 333, passed: 333, referenceLosses: 0 } },
+  };
+  const liveSmoke = { status: "passed", observedAt: new Date().toISOString(), details: "x" };
+
+  it("BUDGET-001: 2,020 cumulative generations fail the gate, and a full win-or-tie passes it", async () => {
+    const { buildAggregateReport, recomputeWinOrTie } = await import("../scripts/benchmark/report.mjs");
+    const over = await buildAggregateReport({
+      corpus: SMALL, results, manifest, judging: judged, liveSmoke, defects: [],
+      generationAccount: { cumulativeSuccessfulGenerations: 2020, currentSetGenerations: 600 },
+    });
+    assert.equal(over.gates.imageBudget, false, "a per-manifest count cannot be the only check");
+    assert.equal(over.releaseReady, false);
+    const within = await buildAggregateReport({
+      corpus: SMALL, results, manifest, judging: judged, liveSmoke, defects: [],
+      generationAccount: { cumulativeSuccessfulGenerations: 600, currentSetGenerations: 600 },
+    });
+    assert.equal(within.gates.imageBudget, true);
+    const winOrTie = recomputeWinOrTie(within.comparison);
+    assert.equal(winOrTie.sharedCases, 333);
+    assert.equal(winOrTie.winOrTieRate, 1);
+    assert.equal(winOrTie.candidateLosses, 0);
+    assert.equal(winOrTie.gates.winOrTie, true);
+    assert.ok(winOrTie.wilson95LowerBound > 0.5);
+  });
+});

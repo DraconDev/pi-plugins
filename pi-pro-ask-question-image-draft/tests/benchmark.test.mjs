@@ -23,6 +23,7 @@ function validAggregate() {
       gates: { accuracy: true, confidenceBound: true },
     },
     defects: [],
+      generationAccount: { cumulativeSuccessfulGenerations: 0, currentSetGenerations: 0 },
     images: {
       visualUplift: 0.2,
       severeFailureRate: 0,
@@ -109,7 +110,14 @@ function detectFile(bytes) {
 describe("aggregate report verifier", () => {
   it("rejects missing gates, premature activation claims, and missing evidence", async () => {
     const corpus = generateCorpus({ count: 1000, seed: 20260925 });
-    const results = { kind: "benchmark-comparison", cases: corpus.scenarios.map((scenario) => ({ id: scenario.id, pass: true, stableAcrossPasses: true })) };
+    const results = {
+      kind: "benchmark-comparison",
+      cases: corpus.scenarios.map((scenario) => ({ id: scenario.id, pass: true, stableAcrossPasses: true })),
+      // The head-to-half of the comparison: the same shared cases run through
+      // the RPiV adapter, which is what the win-or-tie gate is computed from.
+      reference: { adapter: "fixture", sharedCases: 333, losses: [], candidateFailures: [] },
+      summary: { shared: { total: 333, passed: 333, referenceLosses: 0 } },
+    };
     const build = (overrides = {}) => buildAggregateReport({
       corpus, results,
       manifest: { images: [], failures: [], planned: 0 },
@@ -122,6 +130,7 @@ describe("aggregate report verifier", () => {
       },
       liveSmoke: { status: "passed", observedAt: "2026-09-25T10:00:00Z", details: "real TTY and editor", assertions: {}, pty: { usedPseudoTerminal: true } },
       defects: [],
+      generationAccount: { cumulativeSuccessfulGenerations: 0, currentSetGenerations: 0 },
       ...overrides,
     });
 

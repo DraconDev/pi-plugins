@@ -257,13 +257,18 @@ export function recomputeGates(comparison, images, resources) {
 }
 
 export async function buildAggregateReport({
-  corpus, results, manifest, judging, liveSmoke, defects, activation, sources = null, rawJudging = null, observedAt = new Date().toISOString(),
+  corpus, results, manifest, judging, liveSmoke, defects, activation, sources = null, rawJudging = null,
+  // The generation account is injectable so a caller can state the provider
+  // consumption it is reporting on. Left to itself the report counts the real
+  // image directory, which is right for a run and wrong for a fixture.
+  generationAccount = undefined, observedAt = new Date().toISOString(),
 }) {
   validateCorpus(corpus);
   const comparison = recomputeComparison(corpus, results);
   const winOrTie = recomputeWinOrTie(comparison);
   const images = recomputeImages(manifest, judging, rawJudging);
-  const resources = recomputeResources({ manifest, judging, results, generationAccount: await generationAccounting(manifest) });
+  const account = generationAccount ?? await generationAccounting(manifest);
+  const resources = recomputeResources({ manifest, judging, results, generationAccount: account });
   const gates = { ...recomputeGates(comparison, images, resources), winOrTie: winOrTie.gates.winOrTie, winOrTieConfidence: winOrTie.gates.confidenceBound };
   const smoke = evidenceOf(liveSmoke, "liveSmoke");
   // The ledger is a file, not a bare array. Accepting only an array silently
