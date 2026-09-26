@@ -8,8 +8,12 @@
  * through the terminal. Assertions are made against the bytes the screen actually
  * painted and the real wizard/overlay state, so a pass cannot be fabricated.
  *
- * Expected key walk (sent by live-pty.py): down, enter, Ctrl+], Ctrl+], up,
- * enter, e, (editor quit), enter.
+ * One process drives one session (`--session=<mode>`), chosen from the plan in
+ * live-sessions.mjs. The happy path is the walk SMOKE-001 already proved - down,
+ * enter, Ctrl+], Ctrl+], up, enter, e, (editor quit), enter - and the note,
+ * revision, reject and cancel sessions each drive one named behaviour. Reject
+ * and cancel end a review, so each gets its own process and its own session
+ * rather than two stops on one walk.
  */
 import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -18,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import { getCapabilities, ProcessTerminal, setCapabilities, setKeybindings, TuiMainScreen } from "@earendil-works/pi-tui";
 
 import { quitSequenceFor, resolveEditorCommand } from "./editor.mjs";
+import { LABELS, NOTE_TEXT, REVISION_FEEDBACK, sessionPlan, verifySessionEvidence } from "./live-sessions.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "../..");
@@ -43,8 +48,19 @@ const imagePath = resolve(args.get("image") ?? "");
 const outPath = resolve(args.get("out") ?? "/tmp/live-smoke-evidence.json");
 const keysPath = resolve(args.get("keys") ?? "/tmp/live-smoke-keys.json");
 const deadline = Date.now() + Number(args.get("timeout") ?? 120) * 1000;
+const session = String(args.get("session") ?? "happy");
+let plan;
+try {
+  plan = sessionPlan(session, { imagePath });
+} catch (error) {
+  // An unknown --session is a caller error, but the PTY harness still needs an
+  // evidence file: it reads this file to decide whether the run happened.
+  writeFileSync(outPath, `${JSON.stringify({ kind: "live-tty-smoke", status: "failed", steps: [], assertions: {}, errors: { session: String(error.message) }, session: { mode: session } }, null, 2)}\n`);
+  process.stderr.write(`live-driver: ${error.message}\n`);
+  process.exit(2);
+}
 
-const evidence = { kind: "live-tty-smoke", tty: {}, steps: [], errors: {}, assertions: {}, observed: {} };
+const evidence = { kind: "live-tty-smoke", session: { mode: plan.mode, title: plan.title, result: null, rounds: [] }, tty: {}, steps: [], errors: {}, assertions: {}, observed: {} };
 const flush = () => writeFileSync(outPath, `${JSON.stringify(evidence, null, 2)}\n`);
 const record = (step, detail = {}) => { evidence.steps.push({ step, ...detail }); flush(); };
 /**
@@ -118,23 +134,9 @@ const theme = {
 };
 const tick = (ms = 200) => new Promise((resolveTick) => setTimeout(resolveTick, ms));
 
-const reviewInput = {
-  reviewId: "live-smoke",
-  title: "Live TTY smoke",
-  stages: [
-    {
-      id: "direction", kind: "draft", header: "Direction", prompt: "Pick the visual treatment",
-      options: [
-        { id: "airy", label: "Airy treatment", description: "Open layout with generous spacing", image: { path: imagePath, alt: "Generated treatment" } },
-        { id: "dense", label: "Dense treatment", description: "Compact layout" },
-      ],
-    },
-    {
-      id: "followup", kind: "choice", header: "Follow-up", prompt: "Capture anything else", required: false,
-      options: [{ id: "none", label: "Nothing else" }, { id: "blocked", label: "Blocked on review" }],
-    },
-  ],
-};
+/** The review this session opens, straight from the shared plan. */
+const reviewInput = plan.review;
+const imageKey = plan.imageOption ? `${plan.imageOption.stageId}:${plan.imageOption.optionId}` : null;
 
 // Strip SGR, OSC-8 hyperlink, and cursor sequences before reading the screen.
 const plain = (line) => line
@@ -144,6 +146,32 @@ const plain = (line) => line
 
 let overlayHandle;
 let wizard;
+let overlays = 0;
+let tuiStarted = false;
+
+/**
+ * The tool result, reduced to the facts a session is judged on. A real
+ * `ReviewResult` comes back from the extension; this only names its fields so
+ * the evidence is readable and so the plan's checks never have to guess at a
+ * result shape.
+ */
+const summarize = (result) => {
+  const review = result?.details?.result ?? null;
+  return {
+    status: review?.status ?? result?.details?.status ?? null,
+    decision: review?.decision ?? null,
+    round: review?.round ?? null,
+    cancelled: review?.cancelled ?? null,
+    answers: (review?.answers ?? []).map((answer) => ({
+      stageId: answer?.stageId ?? null,
+      answer: answer?.answer ?? null,
+      optionLabels: answer?.optionLabels ?? [],
+      notes: answer?.notes ?? null,
+    })),
+    revision: review?.revision ?? null,
+    globalNote: review?.globalNote ?? null,
+  };
+};
 // Live paint from the same component the TUI renders.
 const frame = () => wizard.render(terminal.columns).join("\n");
 const painted = (needle) => frame().includes(needle);
@@ -168,7 +196,11 @@ try {
   // The real runtime, with the one action the tool needs bound to this session.
   const runtime = createExtensionRuntime();
   const runtimeEntries = [];
-  runtime.appendEntry = (type, data) => { runtimeEntries.push({ type, data }); };
+  // An extension's appendEntry *is* the session log, so it is recorded in both
+  // places. A second round reads the first round's persisted state back through
+  // the session, exactly as it would in a real Pi session.
+  const sessionEntries = [];
+  runtime.appendEntry = (type, data) => { runtimeEntries.push({ type, data }); sessionEntries.push({ type, data }); };
   runtime.refreshTools = () => {};
   runtime.getActiveTools = () => [];
   runtime.getAllTools = () => [];
@@ -199,7 +231,6 @@ try {
     editorQuitKeys: quit.quit, editorQuitKnown: quit.known, editorSavesOnPrompt: Boolean(quit.save),
   });
   evidence.observed.editor = { command: editor.command, source: editor.source, quitKeys: quit.quit };
-  const sessionEntries = [];
   const notifications = [];
   const inputListeners = [];
   let finish;
@@ -226,6 +257,7 @@ try {
       async custom(factory, options = {}) {
         const component = await factory(tui, theme, keybindings, finish);
         wizard = component;
+        overlays += 1;
         overlayHandle = tui.showOverlay(component, typeof options.overlayOptions === "function" ? options.overlayOptions() : (options.overlayOptions ?? { anchor: "bottom-center", width: "100%", maxHeight: "100%" }));
         overlayHandle.focus();
         options.onHandle?.(overlayHandle);
@@ -236,17 +268,23 @@ try {
         // overlay is hidden; otherwise the TUI dispatches to the focused
         // component. Routing it the same way here keeps every keypress real and
         // delivers it exactly once.
-        const terminalStart = terminal.start.bind(terminal);
-        terminal.start = (onInput, onResize) => {
-          terminalStart((data) => {
-            if (overlayHandle.isHidden()) for (const listener of [...inputListeners]) listener(data);
-            else onInput(data);
-          }, onResize);
-        };
-        tui.start();
+        // The terminal is started once: a second round re-opens the review on
+        // the same screen, and re-wrapping the input path would deliver every
+        // key twice.
+        if (!tuiStarted) {
+          tuiStarted = true;
+          const terminalStart = terminal.start.bind(terminal);
+          terminal.start = (onInput, onResize) => {
+            terminalStart((data) => {
+              if (overlayHandle.isHidden()) for (const listener of [...inputListeners]) listener(data);
+              else onInput(data);
+            }, onResize);
+          };
+          tui.start();
+        }
         overlayHandle.focus();
         await tick(900);
-        record("overlay", { focused: overlayHandle.isFocused(), hidden: overlayHandle.isHidden() });
+        record("overlay", { round: overlays, focused: overlayHandle.isFocused(), hidden: overlayHandle.isHidden() });
         return finished;
       },
       async editor() { return undefined; },
@@ -263,10 +301,15 @@ try {
   await tick(1500);
   if (!wizard) fail("render", new Error("the custom UI never opened the review wizard"));
 
-  if (!saw("Live TTY smoke")) fail("render", new Error("the review title never reached the terminal"));
-  if (!saw("Pick the visual treatment")) fail("render", new Error("the stage prompt never reached the terminal"));
-  if (!saw("Airy treatment")) fail("image", new Error("the image-backed option never reached the terminal"));
+  if (!saw(plan.title)) fail("render", new Error(`the review title "${plan.title}" never reached the terminal`));
   {
+    const stage = reviewInput.stages[0];
+    if (!saw(stage.prompt)) fail("render", new Error(`the stage prompt "${stage.prompt}" never reached the terminal`));
+    if (plan.imageOption && !saw(plan.review.stages[0].options.find((option) => option.id === plan.imageOption.optionId).label)) {
+      fail("image", new Error("the image-backed option never reached the terminal"));
+    }
+  }
+  if (plan.imageOption) {
     const probe = wizard.render(110);
     const imageLineIndex = probe.findIndex((line) => /\u001b_G|\u001b_@/.test(line));
     record("image-probe", {
@@ -275,7 +318,7 @@ try {
       previewLines: probe.filter((line) => line.includes("Preview:")).length,
       altLines: probe.filter((line) => /Alt:|Image:/.test(line)).length,
       loadedEntry: (() => {
-        const entry = wizard.loadedImages?.get("direction:airy");
+        const entry = wizard.loadedImages?.get(imageKey);
         return entry ? { hasImage: Boolean(entry.image), error: entry.error ?? null, keys: Object.keys(entry) } : null;
       })(),
       nestedCaps: (await import("/home/dracon/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist/terminal-image.js")).getCapabilities().images,
@@ -296,17 +339,23 @@ try {
   let hiddenFrames = 0;
   const watcher = setInterval(() => { if (overlayHandle?.isHidden()) hiddenFrames += 1; }, 60);
   const seenKeys = [];
-  const originalHandleInput = wizard.handleInput.bind(wizard);
-  wizard.handleInput = (data) => { seenKeys.push(JSON.stringify(data)); return originalHandleInput(data); };
-  const originalTerminalInput = wizard.handleTerminalInput.bind(wizard);
-  wizard.handleTerminalInput = (data) => {
-    const handled = originalTerminalInput(data);
-    evidence.observed.terminalInput = [...(evidence.observed.terminalInput ?? []), `${JSON.stringify(data)}=${handled}`];
-    flush();
-    return handled;
+  // Every round that opens a review is instrumented the same way, so a second
+  // round's keypresses are recorded exactly like the first round's.
+  const instrument = () => {
+    if (!wizard) return;
+    const originalHandleInput = wizard.handleInput.bind(wizard);
+    wizard.handleInput = (data) => { seenKeys.push(JSON.stringify(data)); return originalHandleInput(data); };
+    const originalTerminalInput = wizard.handleTerminalInput.bind(wizard);
+    wizard.handleTerminalInput = (data) => {
+      const handled = originalTerminalInput(data);
+      evidence.observed.terminalInput = [...(evidence.observed.terminalInput ?? []), `${JSON.stringify(data)}=${handled}`];
+      flush();
+      return handled;
+    };
   };
+  instrument();
   const noteImageState = () => {
-    const entry = wizard?.loadedImages?.get("direction:airy");
+    const entry = imageKey ? wizard?.loadedImages?.get(imageKey) : undefined;
     evidence.observed.frameImage = /\u001b_G|\u001b_@/.test(frame());
     evidence.observed.wizard = wizard ? {
       imageMode: wizard.imageMode, loaded: wizard.loadedImages?.size ?? null,
@@ -330,15 +379,17 @@ try {
   // payload. Image loading is asynchronous, so wait for the bytes.
   let payloadBytes = 0;
   let paintedPayload = 0;
-  await waitFor(() => {
-    // Force a repaint so the asynchronously loaded image reaches the terminal.
-    tui.requestRender(true);
-    payloadBytes = (transcript.match(/[A-Za-z0-9+/=]{200,}/g) ?? []).reduce((sum, chunk) => sum + chunk.length, 0);
-    paintedPayload = (frame().match(/[A-Za-z0-9+/=]{200,}/g) ?? []).reduce((sum, chunk) => sum + chunk.length, 0);
-    return payloadBytes >= 2000 || paintedPayload >= 2000;
-  }, "image-bytes", 30000);
-  if (payloadBytes < 2000) fail("image", new Error(`the inline image never reached the terminal (frame payload ${paintedPayload} bytes)`));
-  record("image", { imageProtocol: "kitty", imagePayloadBytes: payloadBytes, imageOnTerminal: true });
+  if (plan.imageOption) {
+    await waitFor(() => {
+      // Force a repaint so the asynchronously loaded image reaches the terminal.
+      tui.requestRender(true);
+      payloadBytes = (transcript.match(/[A-Za-z0-9+/=]{200,}/g) ?? []).reduce((sum, chunk) => sum + chunk.length, 0);
+      paintedPayload = (frame().match(/[A-Za-z0-9+/=]{200,}/g) ?? []).reduce((sum, chunk) => sum + chunk.length, 0);
+      return payloadBytes >= 2000 || paintedPayload >= 2000;
+    }, "image-bytes", 30000);
+    if (payloadBytes < 2000) fail("image", new Error(`the inline image never reached the terminal (frame payload ${paintedPayload} bytes)`));
+    record("image", { imageProtocol: "kitty", imagePayloadBytes: payloadBytes, imageOnTerminal: true });
+  }
 
   // The live render marks the active row with "> ". Navigation is driven from
   // what is actually on screen, not from a guessed row count.
@@ -374,142 +425,262 @@ try {
     }
     fail(label, new Error(`never reached the "${rowText}" row; active row is ${activeRow()}`));
   };
-  // 1. Answer the image-backed stage with the real keyboard.
-  await tick(1500);
-  await moveTo("Dense treatment", "second-option");
-  const beforeSelect = seenKeys.length;
-  requestKey("\r", "select the treatment");
-  await waitFor(() => seenKeys.length > beforeSelect, "select-key", 25000);
-  await waitFor(() => !painted("Pick the visual treatment") && painted("Follow-up"), "stage-advance", 15000);
-  record("stage-advance", { row: activeRow() });
-
-  // 2. Collapse and reopen the overlay with the real Ctrl+] key.
-  requestKey("\u001d", "collapse the overlay");
-  await waitFor(() => hiddenFrames > 0, "collapse");
-  record("collapse", { hiddenFrames });
-  requestKey("\u001d", "reopen the overlay");
-  await waitFor(() => overlayHandle.isHidden() === false, "reopen");
-  record("reopen", { visible: true, row: activeRow() });
-
-  // 3. Answer the optional follow-up stage, then open the final review.
-  await moveTo("Nothing else", "follow-up-option");
-  const beforeFollowUp = seenKeys.length;
-  requestKey("\r", "answer the follow-up stage");
-  await waitFor(() => seenKeys.length > beforeFollowUp, "follow-up-key", 25000);
-  await tick(700);
-  if (!painted("Approve review")) {
-    // The review is the next stop in the stage cycle when the answer did not
-    // advance there by itself.
-    const beforeTabReview = seenKeys.length;
-    requestKey("\t", "tab to the final review");
-    await waitFor(() => seenKeys.length > beforeTabReview, "review-tab-key", 25000);
-  }
-  await waitFor(() => painted("Approve review"), "final-review", 15000);
-  record("final-review", { row: activeRow() });
-
-  // 4. Go back to the first stage through the review's "Edit answers" row and
-  //    open the configured external editor from the custom-answer input.
-  await moveTo("Edit answers", "edit-answers-row");
-  const beforeEdit = seenKeys.length;
-  requestKey("\r", "return to the stages");
-  await waitFor(() => seenKeys.length > beforeEdit, "edit-key", 25000);
-  await waitFor(() => painted("Pick the visual treatment"), "back-to-stage-one", 15000);
-  record("back-to-stage-one", { row: activeRow() });
-
-  const externalKey = externalKeys[0];
-  if (!externalKey) fail("editor", new Error("no app.editor.external keybinding is defined"));
-  await moveTo("Type something.", "other-row");
-  const beforeOther = seenKeys.length;
-  requestKey("\r", "open the custom answer editor");
-  await waitFor(() => seenKeys.length > beforeOther, "other-key", 25000);
-  await waitFor(() => painted("Enter to submit"), "custom-input-mode", 15000);
-  record("custom-input", { key: externalKey });
-
-  // 5. The configured external editor takes over the real terminal.
-  requestKey(externalKey, "open the configured external editor");
-  await waitFor(() => /Launching external editor/.test(transcript), "editor-launch", 25000);
-  record("editor", { launched: true, key: externalKey, command: editor.command, quitKeys: quit.quit });
-
-  // Type inside the real editor, then save and quit it. The keys go through the
-  // same pseudo-terminal, so this is a genuine editor session.
-  // Close the real editor and hand the terminal back to the TUI. The frame
-  // already says "Enter to submit" while the editor owns the terminal, so the
-  // reliable signal that the editor has exited is Pi's own temp answer file
-  // being removed after the editor process returns.
-  // Only the directory this launch created matters: stale directories from
-  // earlier runs must not make the editor look permanently open.
-  const editorDirsBefore = new Set(readdirSync("/tmp").filter((entry) => entry.startsWith("pi-visual-review-")));
-  const liveEditorDir = () => readdirSync("/tmp").find((entry) => entry.startsWith("pi-visual-review-")
-    && !editorDirsBefore.has(entry) && existsSync(join("/tmp", entry, "answer.md")));
-  for (const key of quit.quit) {
-    requestKey(key, `ask ${editor.command} to quit`);
-    await tick(500);
-  }
-  // The editor may ask to save its buffer; answer the prompt the way a user
-  // would, then wait for the editor process itself to return.
-  await waitFor(() => /before closing|save changes|unsaved/i.test(tailText()) || !liveEditorDir(), "editor-save-prompt", 30000);
-  if (liveEditorDir() && quit.save) {
-    requestKey(quit.save, "confirm saving the editor buffer");
-    await tick(800);
-  }
-  if (liveEditorDir()) {
-    requestKey("ctrl+c", "fall back to an unconditional interrupt");
-    await waitFor(() => !liveEditorDir(), "editor-interrupted", 15000);
-  }
-  await waitFor(() => !liveEditorDir(), "editor-exited", 40000, `${editor.command} is still running after ${quit.quit.join(" + ")}; its process never returned`);
-  record("editor-closed", { editorLaunched: true, editorProcessExited: true, command: editor.command });
-  await waitFor(() => painted("Enter to submit"), "back-from-editor", 20000);
-  record("tui-resumed", { inputModeRestored: true });
-
-  // Leave the custom-answer editor without changing the stage answer.
-  const beforeEscape = seenKeys.length;
-  requestKey("escape", "leave the custom answer editor");
-  await waitFor(() => seenKeys.length > beforeEscape, "escape-key", 40000);
-  await tick(600);
-
-  // 6. Approve through the explicit final review action. Tab walks the stage
-  //    cycle, so step onto the review screen first.
-  for (let hop = 0; hop < 3 && !painted("Approve review"); hop += 1) {
-    const beforeHop = seenKeys.length;
-    requestKey("\t", "tab towards the final review");
-    await waitFor(() => seenKeys.length > beforeHop, `review-hop-${hop}`, 25000);
-    await tick(400);
-  }
-  await waitFor(() => painted("Approve review"), "review-screen", 25000);
-  await moveTo("Approve review", "approve-row");
-  const beforeApprove = seenKeys.length;
-  requestKey("\r", "approve the review");
-  await waitFor(() => seenKeys.length > beforeApprove, "approve-key", 25000);
-
-  const result = await execution;
-  clearTimeout(timeoutGuard);
-  clearInterval(watcher);
-  clearInterval(heartbeat);
-
-  const status = result.details?.result?.status ?? result.details?.status;
-  const answers = result.details?.result?.answers?.map((answer) => answer.stageId) ?? [];
-
-  if (status !== "completed") fail("complete", new Error(`unexpected status ${status}`));
-  if (!answers.includes("direction")) fail("complete", new Error("the chosen option was not recorded"));
-  if (hiddenFrames === 0) fail("collapse", new Error("the overlay was never hidden"));
-  if (!saw("Launching external editor")) fail("editor", new Error("the configured external editor never launched"));
-  if (runtimeEntries.length === 0) fail("persistence", new Error("the tool persisted no review-state entry"));
-  record("complete", { status, answers, hiddenFrames, keys: seenKeys.length, editorLaunched: true, persistedEntries: runtimeEntries.length });
-
-  evidence.assertions = {
-    realTty: true,
-    realExtension: true,
-    titleAndPromptOnScreen: true,
-    imageRendered: true,
-    keyboardControls: seenKeys.length >= 6,
-    stageAdvance: true,
-    collapseReopen: hiddenFrames > 0,
-    finalReview: true,
-    externalEditor: true,
-    completedWithAnswer: answers.includes("direction"),
-    persistence: runtimeEntries.length > 0,
+  /**
+   * Press a real key and wait until the wizard has actually received it, then
+   * for the screen state that key was supposed to produce. Nothing here is
+   * assumed: every key travels through the pseudo-terminal and every predicate
+   * reads the frame the component really rendered.
+   */
+  const press = async (data, why, predicate, label, ms = 25000) => {
+    const before = seenKeys.length;
+    requestKey(data, why);
+    await waitFor(() => seenKeys.length > before, `${label}-key`, ms);
+    if (predicate) await waitFor(predicate, label, ms);
   };
-  evidence.observed = { keys: seenKeys, hiddenFrames, notifications, sessionEntries: sessionEntries.length, persistedEntries: runtimeEntries.length, transcriptBytes: transcript.length };
+  /** Tab forwards until the final review is on screen, the way a user walks there. */
+  const tabToReview = async (label) => {
+    for (let hop = 0; hop < 4 && !painted(LABELS.approve); hop += 1) {
+      await press("\t", `${label}: tab towards the final review`, null, `${label}-hop-${hop}`);
+      await tick(400);
+    }
+    await waitFor(() => painted(LABELS.approve), `${label}-review-screen`, 25000);
+  };
+  /** Tab backwards/forwards until the first stage is on screen again. */
+  const tabToStage = async (label) => {
+    const prompt = reviewInput.stages[0].prompt;
+    for (let hop = 0; hop < 4 && !painted(prompt); hop += 1) {
+      await press("\t", `${label}: tab back to the stages`, null, `${label}-hop-${hop}`);
+      await tick(400);
+    }
+    await waitFor(() => painted(prompt), `${label}-stage-screen`, 25000);
+  };
+  if (plan.mode === "happy") {
+    // 1. Answer the image-backed stage with the real keyboard.
+    await tick(1500);
+    await moveTo("Dense treatment", "second-option");
+    const beforeSelect = seenKeys.length;
+    requestKey("\r", "select the treatment");
+    await waitFor(() => seenKeys.length > beforeSelect, "select-key", 25000);
+    await waitFor(() => !painted("Pick the visual treatment") && painted("Follow-up"), "stage-advance", 15000);
+    record("stage-advance", { row: activeRow() });
+
+    // 2. Collapse and reopen the overlay with the real Ctrl+] key.
+    requestKey("\u001d", "collapse the overlay");
+    await waitFor(() => hiddenFrames > 0, "collapse");
+    record("collapse", { hiddenFrames });
+    requestKey("\u001d", "reopen the overlay");
+    await waitFor(() => overlayHandle.isHidden() === false, "reopen");
+    record("reopen", { visible: true, row: activeRow() });
+
+    // 3. Answer the optional follow-up stage, then open the final review.
+    await moveTo("Nothing else", "follow-up-option");
+    const beforeFollowUp = seenKeys.length;
+    requestKey("\r", "answer the follow-up stage");
+    await waitFor(() => seenKeys.length > beforeFollowUp, "follow-up-key", 25000);
+    await tick(700);
+    if (!painted("Approve review")) {
+      // The review is the next stop in the stage cycle when the answer did not
+      // advance there by itself.
+      const beforeTabReview = seenKeys.length;
+      requestKey("\t", "tab to the final review");
+      await waitFor(() => seenKeys.length > beforeTabReview, "review-tab-key", 25000);
+    }
+    await waitFor(() => painted("Approve review"), "final-review", 15000);
+    record("final-review", { row: activeRow() });
+
+    // 4. Go back to the first stage through the review's "Edit answers" row and
+    //    open the configured external editor from the custom-answer input.
+    await moveTo("Edit answers", "edit-answers-row");
+    const beforeEdit = seenKeys.length;
+    requestKey("\r", "return to the stages");
+    await waitFor(() => seenKeys.length > beforeEdit, "edit-key", 25000);
+    await waitFor(() => painted("Pick the visual treatment"), "back-to-stage-one", 15000);
+    record("back-to-stage-one", { row: activeRow() });
+
+    const externalKey = externalKeys[0];
+    if (!externalKey) fail("editor", new Error("no app.editor.external keybinding is defined"));
+    await moveTo("Type something.", "other-row");
+    const beforeOther = seenKeys.length;
+    requestKey("\r", "open the custom answer editor");
+    await waitFor(() => seenKeys.length > beforeOther, "other-key", 25000);
+    await waitFor(() => painted("Enter to submit"), "custom-input-mode", 15000);
+    record("custom-input", { key: externalKey });
+
+    // 5. The configured external editor takes over the real terminal.
+    requestKey(externalKey, "open the configured external editor");
+    await waitFor(() => /Launching external editor/.test(transcript), "editor-launch", 25000);
+    record("editor", { launched: true, key: externalKey, command: editor.command, quitKeys: quit.quit });
+
+    // Type inside the real editor, then save and quit it. The keys go through the
+    // same pseudo-terminal, so this is a genuine editor session.
+    // Close the real editor and hand the terminal back to the TUI. The frame
+    // already says "Enter to submit" while the editor owns the terminal, so the
+    // reliable signal that the editor has exited is Pi's own temp answer file
+    // being removed after the editor process returns.
+    // Only the directory this launch created matters: stale directories from
+    // earlier runs must not make the editor look permanently open.
+    const editorDirsBefore = new Set(readdirSync("/tmp").filter((entry) => entry.startsWith("pi-visual-review-")));
+    const liveEditorDir = () => readdirSync("/tmp").find((entry) => entry.startsWith("pi-visual-review-")
+      && !editorDirsBefore.has(entry) && existsSync(join("/tmp", entry, "answer.md")));
+    for (const key of quit.quit) {
+      requestKey(key, `ask ${editor.command} to quit`);
+      await tick(500);
+    }
+    // The editor may ask to save its buffer; answer the prompt the way a user
+    // would, then wait for the editor process itself to return.
+    await waitFor(() => /before closing|save changes|unsaved/i.test(tailText()) || !liveEditorDir(), "editor-save-prompt", 30000);
+    if (liveEditorDir() && quit.save) {
+      requestKey(quit.save, "confirm saving the editor buffer");
+      await tick(800);
+    }
+    if (liveEditorDir()) {
+      requestKey("ctrl+c", "fall back to an unconditional interrupt");
+      await waitFor(() => !liveEditorDir(), "editor-interrupted", 15000);
+    }
+    await waitFor(() => !liveEditorDir(), "editor-exited", 40000, `${editor.command} is still running after ${quit.quit.join(" + ")}; its process never returned`);
+    record("editor-closed", { editorLaunched: true, editorProcessExited: true, command: editor.command });
+    await waitFor(() => painted("Enter to submit"), "back-from-editor", 20000);
+    record("tui-resumed", { inputModeRestored: true });
+
+    // Leave the custom-answer editor without changing the stage answer.
+    const beforeEscape = seenKeys.length;
+    requestKey("escape", "leave the custom answer editor");
+    await waitFor(() => seenKeys.length > beforeEscape, "escape-key", 40000);
+    await tick(600);
+
+    // 6. Approve through the explicit final review action. Tab walks the stage
+    //    cycle, so step onto the review screen first.
+    for (let hop = 0; hop < 3 && !painted("Approve review"); hop += 1) {
+      const beforeHop = seenKeys.length;
+      requestKey("\t", "tab towards the final review");
+      await waitFor(() => seenKeys.length > beforeHop, `review-hop-${hop}`, 25000);
+      await tick(400);
+    }
+    await waitFor(() => painted("Approve review"), "review-screen", 25000);
+    await moveTo("Approve review", "approve-row");
+    const beforeApprove = seenKeys.length;
+    requestKey("\r", "approve the review");
+    await waitFor(() => seenKeys.length > beforeApprove, "approve-key", 25000);
+
+    const result = await execution;
+    clearTimeout(timeoutGuard);
+    clearInterval(watcher);
+    clearInterval(heartbeat);
+
+    const status = result.details?.result?.status ?? result.details?.status;
+    const answers = result.details?.result?.answers?.map((answer) => answer.stageId) ?? [];
+
+    if (status !== "completed") fail("complete", new Error(`unexpected status ${status}`));
+    if (!answers.includes("direction")) fail("complete", new Error("the chosen option was not recorded"));
+    if (hiddenFrames === 0) fail("collapse", new Error("the overlay was never hidden"));
+    if (!saw("Launching external editor")) fail("editor", new Error("the configured external editor never launched"));
+    if (runtimeEntries.length === 0) fail("persistence", new Error("the tool persisted no review-state entry"));
+    record("complete", { status, answers, hiddenFrames, keys: seenKeys.length, editorLaunched: true, persistedEntries: runtimeEntries.length });
+
+    evidence.assertions = {
+      realTty: true,
+      realExtension: true,
+      titleAndPromptOnScreen: true,
+      imageRendered: true,
+      keyboardControls: seenKeys.length >= 6,
+      stageAdvance: true,
+      collapseReopen: hiddenFrames > 0,
+      finalReview: true,
+      externalEditor: true,
+      completedWithAnswer: answers.includes("direction"),
+      persistence: runtimeEntries.length > 0,
+    };
+    evidence.observed = { keys: seenKeys, hiddenFrames, notifications, sessionEntries: sessionEntries.length, persistedEntries: runtimeEntries.length, transcriptBytes: transcript.length };
+  } else {
+    // The four behaviour sessions. Each one is a whole review driven with real
+    // keys, and each one ends the way the behaviour ends: a note leaves the
+    // review approvable, a revision hands control back to the model and the
+    // next round is then driven, and a reject or a cancel end the review.
+    if (plan.mode === "note") {
+      await tick(800);
+      await moveTo(plan.answer, "note-option");
+      await press("\r", "answer the stage", () => painted(LABELS.approve), "note-answer");
+      await tabToStage("note-stage");
+      await press("n", "open the stage note editor", () => painted(LABELS.notePrompt), "note-editor", 15000);
+      await press(NOTE_TEXT, "type the note", () => painted(NOTE_TEXT), "note-text", 15000);
+      await press("\r", "submit the note", () => frame().split("\n").map(plain).some((line) => line.includes(`Current answer:`) && line.includes(NOTE_TEXT)), "note-submit", 15000);
+      // The note has to be on the rendered answer line, not merely accepted.
+      const answerLine = frame().split("\n").map(plain).find((line) => line.includes("Current answer:")) ?? null;
+      record("note", { text: NOTE_TEXT, stageId: plan.imageOption.stageId, onScreen: answerLine, attached: Boolean(answerLine?.includes(NOTE_TEXT)) });
+      if (!answerLine?.includes(NOTE_TEXT)) fail("note", new Error(`the submitted note never reached the answer line: ${JSON.stringify(answerLine)}`));
+      await tabToReview("note-review");
+      await moveTo(LABELS.approve, "note-approve-row");
+      await press("\r", "approve the review with its note");
+      const result = await execution;
+      const summary = summarize(result);
+      evidence.session.result = summary;
+      evidence.session.rounds = [summary];
+    } else if (plan.mode === "revision") {
+      await tick(800);
+      await moveTo(LABELS.revision, "revision-row");
+      await press("\r", "request a revision", () => painted(LABELS.revisionPrompt), "revision-editor", 15000);
+      await press(REVISION_FEEDBACK, "type the revision feedback", () => painted(REVISION_FEEDBACK), "revision-text", 15000);
+      await press("\r", "submit the revision");
+      const first = summarize(await execution);
+      evidence.session.rounds = [first];
+      record("revision", {
+        feedback: REVISION_FEEDBACK,
+        status: first.status,
+        requestedRound: first.revision?.requestedRound ?? null,
+        stageId: first.revision?.stageId ?? null,
+      });
+      // A revision is only a *round* if the next round can actually be driven:
+      // the model is handed the review again, the persisted state is read back
+      // through the session, and the user approves the regenerated proposal.
+      const before = overlays;
+      const second = tool.execute("live-smoke", { ...reviewInput, round: 2 }, context.signal, {
+        appendEntry: (type, data) => { sessionEntries.push({ type, data }); runtimeEntries.push({ type, data }); },
+      }, context);
+      second.catch((error) => fail("tool", new Error(`round 2 failed: ${error?.message ?? error}`)));
+      await waitFor(() => overlays > before, "round-two-overlay", 20000);
+      instrument();
+      await waitFor(() => painted(reviewInput.stages[0].prompt), "round-two-stage", 20000);
+      record("revision-round-two", { round: 2, prompt: reviewInput.stages[0].prompt });
+      await moveTo(plan.review.stages[0].options[0].label, "round-two-option");
+      await press("\r", "answer the regenerated stage", () => painted(LABELS.approve), "round-two-answer");
+      await moveTo(LABELS.approve, "round-two-approve-row");
+      await press("\r", "approve round two");
+      const secondRound = summarize(await second);
+      evidence.session.rounds = [first, secondRound];
+      evidence.session.result = secondRound;
+    } else if (plan.mode === "reject") {
+      await tick(800);
+      await moveTo(plan.answer, "reject-option");
+      await press("\r", "answer the stage", () => painted(LABELS.approve), "reject-answer");
+      await moveTo(LABELS.reject, "reject-row");
+      await press("\r", "reject the review");
+      const result = await execution;
+      const summary = summarize(result);
+      evidence.session.result = summary;
+      evidence.session.rounds = [summary];
+      record("reject", { endedBy: "the Reject review row", status: summary.status, row: activeRow() });
+    } else {
+      // Cancel: Escape on a real terminal, mid-review, with nothing answered.
+      await tick(800);
+      await press("escape", "cancel the review with Escape", null, "cancel-escape", 25000);
+      const result = await execution;
+      const summary = summarize(result);
+      evidence.session.result = summary;
+      evidence.session.rounds = [summary];
+      record("cancel", { endedBy: "Escape", status: summary.status, cancelled: summary.cancelled === true });
+    }
+    clearTimeout(timeoutGuard);
+    clearInterval(watcher);
+    clearInterval(heartbeat);
+    if (evidence.session.result === null) fail(plan.step, new Error("the session recorded no tool result"));
+    if (evidence.session.rounds.length === 0) fail(plan.step, new Error("the session recorded no round"));
+    evidence.observed = { keys: seenKeys, notifications, sessionEntries: sessionEntries.length, persistedEntries: runtimeEntries.length, transcriptBytes: transcript.length, overlays };
+  }
+  // One check, shared by every session: the evidence this session wrote is the
+  // evidence its assertion is allowed to rest on.
+  const verified = verifySessionEvidence(plan, evidence);
+  if (!verified.passed) fail(plan.step, new Error(verified.reasons.join("; ")));
+  if (plan.assertion) evidence.assertions = { [plan.assertion]: true };
   evidence.status = "passed";
 } catch (error) {
   evidence.status = "failed";

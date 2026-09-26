@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { BenchmarkError, parseArgs, readJson, writeJson } from "./common.mjs";
 import { PROVISIONABLE_EDITORS, resolveEditorCommand, whichExecutable } from "./editor.mjs";
 import { DEFAULT_IMAGE_DIR, detectImage } from "./images.mjs";
+import { aggregateSessionEvidence, HAPPY_SESSION, SESSION_MODES, sessionPlan } from "./live-sessions.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 
@@ -89,24 +90,47 @@ function runPty({ out, timeout, driverArgs = [] }) {
   });
 }
 
-export async function runLiveSmoke({ image, editor, editorSource = "unknown", out = ".pi/benchmark/live-smoke.json", timeout = 90 } = {}) {
+/**
+ * Run every session on its own pseudo-terminal and fold the evidence.
+ *
+ * Each session is a separate process on a separate PTY, because reject and
+ * cancel end a review: one walk cannot both answer and cancel. A session that
+ * did not run is a failure here, not an omission, so the aggregate can only
+ * pass with all five sessions' evidence present.
+ */
+export async function runLiveSmoke({ image, editor, editorSource = "unknown", out = ".pi/benchmark/live-smoke.json", timeout = 90, sessions = SESSION_MODES } = {}) {
   const preconditions = await liveSmokePreconditions({
     image, stdinIsTTY: Boolean(process.stdin.isTTY), stdoutIsTTY: Boolean(process.stdout.isTTY), editor,
   });
-  const driverOut = resolve(".pi/benchmark/live-smoke-evidence.json");
-  const pty = await runPty({
-    out: driverOut, timeout,
-    driverArgs: [`--image=${preconditions.image}`, `--timeout=${Math.max(30, timeout - 20)}`],
-  });
-  let evidence;
-  try {
-    evidence = JSON.parse(await readFile(driverOut, "utf8"));
-  } catch (error) {
-    evidence = { status: "failed", steps: [], errors: { "read-evidence": String(error) } };
+  const budget = Math.max(30, timeout - 20);
+  const entries = [];
+  for (const mode of sessions) {
+    const driverOut = resolve(`.pi/benchmark/live-smoke-evidence-${mode}.json`);
+    const pty = await runPty({
+      out: driverOut,
+      // The happy path carries the image, the editor round trip and the whole
+      // collapse/reopen walk; the behaviour sessions are short by design.
+      timeout: mode === HAPPY_SESSION ? budget : Math.max(30, Math.min(60, budget)),
+      driverArgs: [`--session=${mode}`, `--image=${preconditions.image}`, `--timeout=${mode === HAPPY_SESSION ? budget : Math.max(30, Math.min(60, budget))}`],
+    });
+    let evidence;
+    try {
+      evidence = JSON.parse(await readFile(driverOut, "utf8"));
+    } catch (error) {
+      evidence = { status: "failed", steps: [], errors: { "read-evidence": String(error) } };
+    }
+    entries.push({
+      plan: sessionPlan(mode, { imagePath: preconditions.image }),
+      evidence,
+      exitCode: pty.code,
+      stderr: pty.stderr.trim().slice(0, 400),
+    });
   }
-  const passed = pty.code === 0 && evidence.status === "passed" && evidence.assertions?.externalEditor === true
-    && evidence.assertions?.collapseReopen === true && evidence.assertions?.finalReview === true
-    && evidence.pty?.usedPseudoTerminal === true;
+  const aggregate = aggregateSessionEvidence(entries);
+  const exits = Object.fromEntries(entries.map((entry) => [entry.plan.mode, entry.exitCode]));
+  const passed = Object.values(exits).every((code) => code === 0)
+    && entries.every((entry) => entry.evidence?.pty?.usedPseudoTerminal === true)
+    && aggregate.status === "passed";
   const record = {
     kind: "benchmark-live-smoke",
     status: passed ? "passed" : "failed",
@@ -114,17 +138,19 @@ export async function runLiveSmoke({ image, editor, editorSource = "unknown", ou
     details: [
       `${preconditions.editor} (${editorSource})`,
       `image ${preconditions.mimeType} ${preconditions.width}x${preconditions.height}`,
-      `pty exit ${pty.code}`,
-      `steps ${evidence.steps?.length ?? 0}`,
-      evidence.failure ?? "",
-      pty.stderr.trim().slice(0, 400),
+      `sessions ${aggregate.sessions.filter((session) => session.passed).length}/${aggregate.sessions.length}`,
+      `steps ${aggregate.steps.length}`,
+      aggregate.sessions.filter((session) => !session.passed).map((session) => `${session.session}: ${session.reasons.join("; ")}`).join(" | "),
+      entries.map((entry) => entry.stderr).filter(Boolean).join(" | "),
     ].filter(Boolean).join(" | "),
     preconditions,
-    editor: { command: preconditions.editor, source: editorSource, resolved: evidence.observed?.editor ?? null },
-    assertions: evidence.assertions ?? null,
-    steps: evidence.steps ?? [],
-    errors: evidence.errors ?? {},
-    pty: evidence.pty ?? { exitCode: pty.code, driverOutput: pty.stdout.trim().slice(0, 400) },
+    editor: { command: preconditions.editor, source: editorSource, resolved: entries[0]?.evidence?.observed?.editor ?? null },
+    assertions: aggregate.assertions,
+    steps: aggregate.steps,
+    sessions: aggregate.sessions,
+    missingSessions: aggregate.missingSessions,
+    errors: aggregate.errors,
+    pty: { usedPseudoTerminal: true, exitCodes: exits },
   };
   await writeJson(out, record);
   return record;
