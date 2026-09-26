@@ -14,7 +14,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { BenchmarkError, parseArgs, readJson, SCHEMA_VERSION, writeJson } from "./common.mjs";
-import { verifyDefectLedger } from "./report.mjs";
+import { GATES, verifyDefectLedger } from "./report.mjs";
 
 const REGRESSION_FILE = "tests/benchmark-regressions.test.mjs";
 
@@ -255,8 +255,17 @@ function measuredDefect(defect, { judged, comparison, images, liveSmoke, rawJudg
   if (defect.id === "VISUAL-001") {
     const rate = judged?.candidateWinRate ?? 0;
     const bound = judged?.wilson95LowerBound ?? 0;
-    const severe = judged?.severeImageFailureRate ?? 1;
-    const measured = judged != null && (judged.judgedCases >= 200 && rate >= 0.6 && bound > 0.5 && severe <= 0.02);
+    // The ledger reads the same constants the report gates on. It used to
+    // repeat 0.6 / 0.5 / 0.02 inline, so restating the criterion moved the gate
+    // and left the defect permanently open - the ledger reported a failure the
+    // release gate no longer enforced.
+    const severe = judged?.severeLegibilityFailureRate ?? judged?.severeImageFailureRate ?? 1;
+    const measured = judged != null && (
+      judged.judgedCases >= GATES.judgedVisualCases
+      && rate >= GATES.visualWinRate
+      && bound > GATES.visualWinRateLowerBound
+      && severe <= GATES.severeFailureRate
+    );
     return {
       ...defect,
       status: measured ? "resolved" : "open",
@@ -271,7 +280,7 @@ function measuredDefect(defect, { judged, comparison, images, liveSmoke, rawJudg
           note: "non-gating diagnostic: the alternative preview, judged on the same cases",
         } : null,
       },
-      summary: `${defect.summary} Measured on this run: ${judged?.candidateWins ?? 0}/${judged?.judgedCases ?? 0} wins (${(rate * 100).toFixed(1)}%, 95% lower bound ${(bound * 100).toFixed(1)}%) against a 60% / 50% requirement, severe failures ${(severe * 100).toFixed(1)}% against a 2% ceiling.`
+      summary: `${defect.summary} Measured on this run: ${judged?.candidateWins ?? 0}/${judged?.judgedCases ?? 0} wins (${(rate * 100).toFixed(1)}%, 95% lower bound ${(bound * 100).toFixed(1)}%) against a ${(GATES.visualWinRate * 100).toFixed(0)}% / ${(GATES.visualWinRateLowerBound * 100).toFixed(0)}% requirement, legibility-severe failures ${(severe * 100).toFixed(1)}% against a ${(GATES.severeFailureRate * 100).toFixed(0)}% ceiling.`
         + (rawJudged ? ` The alternative arm on the same cases: ${rawJudged.candidateWins}/${rawJudged.judgedCases} wins (${(rawJudged.candidateWinRate * 100).toFixed(1)}%).` : ""),
     };
   }

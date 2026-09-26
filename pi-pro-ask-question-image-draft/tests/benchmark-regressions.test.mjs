@@ -793,4 +793,23 @@ describe("VISUAL-005: the restated visual criterion is a constant, not a moving 
     const blurry = recomputeImages(manifest, judged(92, 8));
     assert.equal(blurry.gates.severeFailures, false, "4% legibility must still fail the 2% ceiling");
   });
+
+  it("VISUAL-005: the defect ledger resolves against the same constants the gate enforces", async () => {
+    const { GATES } = await import("../scripts/benchmark/report.mjs");
+    const { buildDefectLedger } = await import("../scripts/benchmark/ledger.mjs");
+    const judged = (wins, legibility) => ({
+      judgedCases: 200, decidedCases: 200, candidateWins: wins, candidateWinRate: wins / 200,
+      wilson95LowerBound: wins / 200 - 0.05, ties: 0, undecided: 0, judgeErrors: 0,
+      severeImageFailures: 0, severeImageFailureRate: 0, severeLegibilityFailures: legibility,
+      severeLegibilityFailureRate: legibility / 200, severeByKind: { legibility: legibility },
+      unestablishedSevereFailures: 0,
+    });
+    const atFloor = buildDefectLedger({ judged: judged(92, 4) }).defects.find((item) => item.id === "VISUAL-001");
+    assert.equal(atFloor.status, "resolved", "the ledger must agree with a gate that passes");
+    const belowFloor = buildDefectLedger({ judged: judged(80, 4) }).defects.find((item) => item.id === "VISUAL-001");
+    assert.equal(belowFloor.status, "open", "and must still open when the gate fails");
+    const overCeiling = buildDefectLedger({ judged: judged(92, 8) }).defects.find((item) => item.id === "VISUAL-001");
+    assert.equal(overCeiling.status, "open", "and when the legibility ceiling is exceeded");
+    assert.equal(GATES.visualWinRate, 0.45);
+  });
 });
