@@ -92,10 +92,12 @@ export function recomputeImages(manifest, judging, rawJudging = null) {
   // 20-23% on the same cases). Every other class is reported beside it, for
   // both arms, so the restated criterion cannot hide a number.
   const severe = judged ? (judged.severeLegibilityFailureRate ?? judged.severeImageFailureRate) : 1;
-  // The raw arm is the generated image on its own, with no structure under it.
-  // It is measured and reported on every run and gates nothing: it is the
-  // evidence for the design decision (a raw preview cannot carry the
-  // information a 248 x 256 raster has room for), not a release criterion.
+  // The alternative arm is the second preview measured on the same blinded
+  // cases - the composed preview against the generated image, or the other way
+  // round. It is reported on every run and gates nothing: it is the evidence for
+  // the design decision, not a release criterion. It is named by the arm the
+  // judging artifact recorded, not by the order the two were run in, so the
+  // report cannot call a composed preview "raw".
   const raw = rawJudging?.summary;
   return {
     arm: judging?.condition?.arm ?? manifest?.arm ?? manifest?.provider ?? "generated",
@@ -117,8 +119,9 @@ export function recomputeImages(manifest, judging, rawJudging = null) {
     severeReferenceLegibilityRate: judged ? (judged.severeReferenceLegibilityFailureRate ?? null) : null,
     ties: judged?.ties ?? null,
     undecided: judged?.undecided ?? null,
-    rawImageArm: raw ? {
+    alternativeArm: raw ? {
       measured: true,
+      arm: rawJudging?.condition?.arm ?? null,
       judgedCases: raw.judgedCases,
       candidateWins: raw.candidateWins,
       candidateWinRate: raw.candidateWinRate,
@@ -127,8 +130,8 @@ export function recomputeImages(manifest, judging, rawJudging = null) {
       severeLegibilityFailureRate: raw.severeLegibilityFailureRate ?? null,
       severeByKind: raw.severeByKind ?? null,
       severeReferenceFailureRate: raw.severeReferenceFailureRate,
-      note: "Generated art alone on the preview cell grid. Non-gating: it is what the art is worth without the package's structure, and it is why the shipped preview composes the two.",
-    } : { measured: false, note: "The raw-image arm was not judged on this run." },
+      note: "The other preview, judged on the same cases with the same rubric and the same baseline. Non-gating: it is the comparison the design decision rests on.",
+    } : { measured: false, note: "No alternative arm was judged on this run." },
     gates: {
       visualUplift: judged != null && judged.judgedCases >= GATES.judgedVisualCases && visualUplift >= GATES.visualWinRate,
       confidenceBound: judged != null && judged.judgedCases >= GATES.judgedVisualCases && lowerBound > GATES.visualWinRateLowerBound,

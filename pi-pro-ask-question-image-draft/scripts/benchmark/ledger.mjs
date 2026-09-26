@@ -229,7 +229,7 @@ const DEFECTS = [
   },
 ];
 
-function measuredDefect(defect, { judged, comparison, images, liveSmoke, rawJudged }) {
+function measuredDefect(defect, { judged, comparison, images, liveSmoke, rawJudged, rawJudgedArm }) {
   const claim = { ...(defect.claim ?? {}) };
   if (judged) {
     claim.judgedCases = judged.judgedCases;
@@ -256,15 +256,16 @@ function measuredDefect(defect, { judged, comparison, images, liveSmoke, rawJudg
       claim: {
         ...claim,
         arm: "the shipped composed preview",
-        rawImageArm: rawJudged ? {
+        alternativeArm: rawJudged ? {
+          arm: rawJudgedArm ?? null,
           judgedCases: rawJudged.judgedCases, candidateWins: rawJudged.candidateWins,
           candidateWinRate: rawJudged.candidateWinRate, wilson95LowerBound: rawJudged.wilson95LowerBound,
           severeImageFailureRate: rawJudged.severeImageFailureRate,
-          note: "non-gating diagnostic: the generated image on the preview grid with no structure under it",
+          note: "non-gating diagnostic: the alternative preview, judged on the same cases",
         } : null,
       },
       summary: `${defect.summary} Measured on this run: ${judged?.candidateWins ?? 0}/${judged?.judgedCases ?? 0} wins (${(rate * 100).toFixed(1)}%, 95% lower bound ${(bound * 100).toFixed(1)}%) against a 60% / 50% requirement, severe failures ${(severe * 100).toFixed(1)}% against a 2% ceiling.`
-        + (rawJudged ? ` The raw image arm on the same cases: ${rawJudged.candidateWins}/${rawJudged.judgedCases} wins (${(rawJudged.candidateWinRate * 100).toFixed(1)}%), severe ${(rawJudged.severeImageFailureRate * 100).toFixed(1)}%.` : ""),
+        + (rawJudged ? ` The alternative arm on the same cases: ${rawJudged.candidateWins}/${rawJudged.judgedCases} wins (${(rawJudged.candidateWinRate * 100).toFixed(1)}%).` : ""),
     };
   }
   return { ...defect, claim };
@@ -295,10 +296,13 @@ export async function main(argv = process.argv.slice(2)) {
   const judgedFile = await readOptionalJson(args.judged ?? ".pi/benchmark/judge.json");
   const judged = (judgedFile?.summary ?? judgedFile ?? (await readOptionalJson(args.report ?? ".pi/benchmark/report.json"))?.images?.judging ?? null);
   const report = (await readOptionalJson(args.report ?? ".pi/benchmark/report.json")) ?? {};
-  const rawJudged = (await readOptionalJson(args["raw-judged"] ?? ".pi/benchmark/judge-raw-image.json"))?.summary ?? null;
+  const rawJudgingArtifact = await readOptionalJson(args["raw-judged"] ?? ".pi/benchmark/judge-raw-image.json");
+  const rawJudged = rawJudgingArtifact?.summary ?? null;
+  const rawJudgedArm = rawJudgingArtifact?.condition?.arm ?? null;
   const ledger = buildDefectLedger({
     judged,
     rawJudged,
+    rawJudgedArm,
     comparison: report.comparison ?? null,
     images: report.images ?? null,
     liveSmoke: report.liveSmoke ?? null,
