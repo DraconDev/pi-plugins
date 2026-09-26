@@ -56,7 +56,9 @@ export function renderTextArm(review, { columns = 110, selectedIndex = 0 } = {})
   lines.push(...wrapText(stage.prompt ?? "", width));
   lines.push("");
   stage.options.forEach((option, index) => {
-    lines.push(...wrapText(`${index === selectedIndex ? "> " : "  "}${option.label}`, width));
+    // The TUI numbers its rows for the reader, so the baseline arm numbers them
+    // too: a baseline that is not the text the package prints is a lie.
+    lines.push(...wrapText(`${index === selectedIndex ? "> " : "  "}${index + 1}. ${option.label}`, width));
     if (option.description) {
       for (const line of wrapText(`     ${option.description}`, width)) lines.push(line);
     }

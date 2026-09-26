@@ -144,3 +144,107 @@ describe("VisualReviewWizard", () => {
     assert.equal(abortState.result?.cancelled, true);
   });
 });
+
+/**
+ * Chrome: the dialog is read by a person, at a glance, next to the reference
+ * extension. These pin the three things that made it read as unfinished: rows
+ * without numbers, per-row descriptions wrapped into ragged blocks beside an
+ * image, and a preview pane that said nothing at all when the host could not
+ * draw one.
+ */
+describe("TUI chrome: rows, the preview pane and image-host honesty", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  const chromeReview = () => normalizeReview({
+    reviewId: "chrome",
+    title: "Chrome",
+    stages: [{
+      id: "one", header: "One", prompt: "Pick a treatment",
+      options: [
+        { id: "a", label: "Transit airy", description: "Favors quick orientation; trade-off: less detail in secondary states." },
+        { id: "b", label: "Transit split", description: "Favors balanced context; trade-off: more visual density to scan." },
+      ],
+    }],
+  });
+  const build = (terminal) => {
+    let result;
+    const component = new VisualReviewWizard(
+      { requestRender: () => {}, terminal },
+      plainTheme,
+      chromeReview(),
+      process.cwd(),
+      (value) => { result = value; },
+    );
+    return { component, get result() { return result; } };
+  };
+
+  it("numbers every row so the list is scannable and the footer can name one", () => {
+    const { component } = build({ rows: 40 });
+    const text = component.render(110).join("\n");
+    assert.match(text, /> 1\. Transit airy/, "the selected row is numbered");
+    assert.match(text, /\n\s+2\. Transit split/);
+    // The action rows are numbered too, so "press 4" is answerable.
+    assert.match(text, /\n\s+3\. Type something\./);
+    assert.match(text, /\n\s+4\. Request revision/);
+    component.dispose();
+  });
+
+  it("keeps one line per row beside an image, and spells the option out with its preview", async () => {
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const { fileURLToPath } = await import("node:url");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    try {
+      const fixture = fileURLToPath(new URL("./fixtures/tiny.png", import.meta.url));
+      const review = normalizeReview({
+        reviewId: "side-by-side",
+        stages: [{
+          id: "one", header: "One", prompt: "Pick a treatment",
+          options: [
+            { id: "a", label: "Transit airy", description: "Favors quick orientation; trade-off: less detail in secondary states.", image: { path: fixture, alt: "Fixture" } },
+            { id: "b", label: "Transit split", description: "Favors balanced context; trade-off: more visual density to scan.", image: { path: fixture, alt: "Fixture" } },
+          ],
+        }],
+      });
+      let result;
+      const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 40 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 50));
+      assert.ok(component.loadedImages.size > 0, "the fixture image must load or this proves nothing about the side-by-side layout");
+      const frame = component.render(110);
+      // Side by side, every terminal line carries the left column and the
+      // preview, so the column is read as the leading slice of each line.
+      const leftColumn = frame.map((line) => line.slice(0, 45));
+      const rightColumn = frame.map((line) => line.slice(45));
+      assert.equal(leftColumn.filter((line) => line.includes("1. Transit airy")).length, 1, "an option is one row, not a label plus three wrapped lines");
+      assert.ok(!leftColumn.some((line) => line.includes("Favors quick orientation")), "the description must not wrap into the narrow column");
+      assert.ok(rightColumn.some((line) => line.includes("Favors quick orientation")), "the description is spelled out with the preview");
+      // The image really is inline.
+      assert.ok(frame.some((line) => line.includes("\u001b_G")), "the preview carries the graphics escape");
+      component.dispose();
+    } finally {
+      if (previous) setCapabilities(previous);
+    }
+  });
+
+  it("says why there is no picture instead of printing a bare file path", async () => {
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const previous = setCapabilities({ images: null, trueColor: true, hyperlinks: false });
+    try {
+      const review = normalizeReview({
+        reviewId: "no-images",
+        stages: [{ id: "one", header: "One", prompt: "Pick", options: [
+          { id: "a", label: "A", image: { path: "/nowhere/missing.png" } },
+          { id: "b", label: "B", image: { path: "/nowhere/also-missing.png" } },
+        ] }],
+      });
+      let result;
+      const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 40 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+      await new Promise((r) => setTimeout(r, 200));
+      const text = component.render(110).join("\n");
+      assert.match(text, /cannot draw inline images/, "a host that cannot render images must say so");
+      assert.match(text, /PI_IMAGE_PROTOCOL=kitty/, "and must name the switch that turns it on");
+      component.dispose();
+    } finally {
+      if (previous) setCapabilities(previous);
+    }
+  });
+});

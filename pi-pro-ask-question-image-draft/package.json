@@ -26,6 +26,7 @@
     "smoke:runtime": "node scripts/smoke-runtime.mjs",
     "smoke:tui": "node scripts/verify-tui.mjs",
     "smoke:live": "node scripts/benchmark/smoke-live.mjs",
+    "shot:review": "node scripts/benchmark/review-shot.mjs",
     "verify:activation": "node scripts/verify-activation.mjs",
     "benchmark:corpus": "node scripts/benchmark/corpus.mjs",
     "benchmark:corpus:validate": "node scripts/benchmark/corpus.mjs --validate",

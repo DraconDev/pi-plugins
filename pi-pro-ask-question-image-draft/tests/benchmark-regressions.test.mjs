@@ -460,8 +460,8 @@ describe("ledger: measurement-condition defects", () => {
     const { renderTextArm, wrapText } = await import("../scripts/benchmark/text-arm.mjs");
     const review = VISUAL_SCENARIO.canonicalInput;
     const lines = renderTextArm(review, { columns: 110 });
-    assert.ok(lines.includes("> Error recovery Inline"), "the selected row carries the TUI's selection marker");
-    assert.ok(lines.includes("  Error recovery Toast"), "unselected rows keep the TUI's two-space indent");
+    assert.ok(lines.includes("> 1. Error recovery Inline"), "the selected row carries the TUI's selection marker and row number");
+    assert.ok(lines.includes("  2. Error recovery Toast"), "unselected rows keep the TUI's two-space indent");
     assert.ok(lines.some((line) => line.startsWith("     An inline notice")), "descriptions keep the TUI's five-space indent");
     assert.ok(lines.includes("Preview: Error recovery Inline"), "the selected option's preview block is present");
     assert.ok(lines.includes("No inline preview supplied."), "an option with no preview says so, as fallbackPreview does");

@@ -407,7 +407,11 @@ try {
   const activeRow = () => {
     for (const line of frame().split("\n").map(plain)) {
       const match = /(?:^|\s)>\s?(\S[^│]{0,48}?)\s{2,}/.exec(line) ?? /(?:^|\s)>\s?(\S.*)$/.exec(line);
-      if (match) return match[1].trim();
+      if (!match) continue;
+      // Rows are numbered for the reader ("1. Transit airy"); navigation talks
+      // about the label, so the number is stripped rather than repeated in
+      // every row the driver is asked to find.
+      return match[1].trim().replace(/^(?:\d+\.|✓)\s*/, "").trim();
     }
     return null;
   };

@@ -208,6 +208,12 @@ function fallbackPreview(option: NormalizedOption, loaded: LoadedOption | undefi
   if (source) {
     const label = loaded?.error ? `Image unavailable: ${loaded.error}` : `Image: ${imageFileLink(source)}`;
     lines.push(...wrapTextWithAnsi(theme.fg("muted", label), width));
+    // A terminal that cannot draw an inline image is a property of the host, not
+    // of the option. Saying so - with the switch that fixes it - is the
+    // difference between "why is there no picture?" and an answer.
+    if (!canRenderImages()) {
+      lines.push(...wrapTextWithAnsi(theme.fg("dim", "This terminal cannot draw inline images. Inside tmux that is the default: start Pi with PI_IMAGE_PROTOCOL=kitty and let tmux pass graphics through (allow-passthrough on, terminal-features Kitty)."), width));
+    }
   }
   if (option.image?.alt) lines.push(...wrapTextWithAnsi(theme.fg("dim", `Alt: ${option.image.alt}`), width));
   if (option.preview) {
@@ -653,16 +659,19 @@ export class VisualReviewWizard implements Component, Focusable {
     } else {
       this.editor.focused = false;
       const rows = this.currentRows();
-      const leftWidth = this.imageMode && stage && safeWidth >= 88 ? Math.min(36, Math.max(26, Math.floor(safeWidth * 0.3))) : safeWidth - 2;
-      const listLines = stage ? this.renderRows(stage, rows, leftWidth) : this.renderRowsForReview(rows, leftWidth);
-      if (this.imageMode && stage && safeWidth >= 88) {
+      const sideBySide = Boolean(this.imageMode && stage && safeWidth >= 88);
+      const leftWidth = sideBySide ? Math.min(44, Math.max(30, Math.floor(safeWidth * 0.34))) : safeWidth - 2;
+      // Beside an image the column is too narrow for wrapped descriptions, so
+      // the selected option's own sentence is rendered with its preview instead.
+      const listLines = stage ? this.renderRows(stage, rows, leftWidth, { describe: !sideBySide }) : this.renderRowsForReview(rows, leftWidth);
+      if (sideBySide) {
         const rightWidth = Math.max(1, safeWidth - leftWidth - 5);
         const left = new LinesComponent(listLines);
         const selected = rows[this.selectedIndex];
         const rightLines = selected?.kind === "option" && stage ? this.renderSelectedVisual(selected.option, rightWidth) : [
-          this.theme.fg("dim", "Select an option to inspect its image."),
+          this.theme.fg("dim", "Select an option to see its preview."),
           "",
-          ...(stage?.options.slice(0, 2).flatMap((option) => [`${option.label}: ${option.description ?? ""}`]) ?? []),
+          ...(stage?.options.slice(0, 3).flatMap((option) => [`${option.label}: ${option.description ?? ""}`]) ?? []),
         ];
         const right = new LinesComponent(rightLines);
         // Image.render() returns protocol lines which must not be wrapped or padded as text.
@@ -811,24 +820,36 @@ export class VisualReviewWizard implements Component, Focusable {
       const active = index === this.selectedIndex;
       const prefix = active ? this.theme.fg("accent", "> ") : "  ";
       lines.push(...wrapTextWithAnsi(`${prefix}${rowLabel(row)}`, Math.max(1, width)));
-      if (rowDescription(row)) {
-        for (const line of wrapTextWithAnsi(this.theme.fg("muted", `     ${rowDescription(row)}`), Math.max(1, width))) lines.push(line);
+      const description = row.kind === "globalNote" ? rowDescription(row) : undefined;
+      if (description) {
+        for (const line of wrapTextWithAnsi(this.theme.fg("muted", `     ${description}`), Math.max(1, width))) lines.push(line);
       }
     });
     return lines;
   }
 
-  private renderRows(stage: NormalizedStage, rows: readonly Row[], width: number): string[] {
+  /**
+   * The stage rows.
+   *
+   * Numbered like the reference dialog, one line per row, and the per-row
+   * description is only spelled out when the list has the width for it: in the
+   * side-by-side layout a 36-cell column turned every description into three
+   * ragged lines, which is what made this look unfinished next to the
+   * reference. Action rows say what they are in their label, so their
+   * descriptions are not repeated underneath.
+   */
+  private renderRows(stage: NormalizedStage, rows: readonly Row[], width: number, { describe = true } = {}): string[] {
     const lines: string[] = [];
     const selected = this.selection(stage.id);
     rows.forEach((row, index) => {
       const active = index === this.selectedIndex;
       const marker = row.kind === "option" && stage.multiSelect ? (selected.has(row.option.id) ? "✓ " : "  ") : "";
       const prefix = active ? this.theme.fg("accent", "> ") : "  ";
-      const label = `${marker}${rowLabel(row)}`;
+      const label = `${marker}${index + 1}. ${rowLabel(row)}`;
       lines.push(...wrapTextWithAnsi(`${prefix}${label}`, Math.max(1, width)));
-      if (rowDescription(row)) {
-        for (const line of wrapTextWithAnsi(this.theme.fg("muted", `     ${rowDescription(row)}`), Math.max(1, width))) lines.push(line);
+      const description = row.kind === "option" || row.kind === "globalNote" ? rowDescription(row) : undefined;
+      if (describe && description) {
+        for (const line of wrapTextWithAnsi(this.theme.fg("muted", `     ${description}`), Math.max(1, width))) lines.push(line);
       }
     });
     return lines;
@@ -838,10 +859,32 @@ export class VisualReviewWizard implements Component, Focusable {
     const stage = this.review.stages[this.stageIndex];
     const key = `${stage.id}:${option.id}`;
     const loaded = this.loadedImages.get(key);
-    if (this.imageMode && loaded?.image) {
-      return [this.theme.fg("accent", `Preview: ${option.label}`), "", ...imageLines(loaded.image, this.theme, width)];
+    // The description belongs where the room is. In the side-by-side layout the
+    // list is a narrow column, so the option's own sentence is spelled out with
+    // its preview rather than wrapped three times beside it.
+    const lines = [this.theme.fg("accent", `Preview: ${option.label}`), ""];
+    if (option.description) {
+      for (const line of wrapTextWithAnsi(this.theme.fg("muted", option.description), Math.max(1, width))) lines.push(line);
+      lines.push("");
     }
-    return [this.theme.fg("accent", `Preview: ${option.label}`), "", ...fallbackPreview(option, loaded, this.theme, Math.max(1, width))];
+    if (this.imageMode && loaded?.image) {
+      lines.push(...imageLines(loaded.image, this.theme, width, this.previewRows()));
+      return lines;
+    }
+    return [...lines, ...fallbackPreview(option, loaded, this.theme, Math.max(1, width))];
+  }
+
+  /**
+   * How many rows the inline preview may take.
+   *
+   * This was a fixed 16, which drew a square image as a ~32 x 16 block inside a
+   * pane nearly twice as wide: the art was legible and the screen was mostly
+   * empty. The preview now grows with the terminal it is drawn in.
+   */
+  private previewRows(): number {
+    const terminalRows = this.tui.terminal?.rows ?? 0;
+    if (!Number.isFinite(terminalRows) || terminalRows <= 0) return 16;
+    return Math.max(16, Math.min(28, Math.floor(terminalRows * 0.5)));
   }
 
   private submitEditor(value: string): void {
