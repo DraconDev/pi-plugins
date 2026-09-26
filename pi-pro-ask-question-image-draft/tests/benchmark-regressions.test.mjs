@@ -447,7 +447,7 @@ describe("ledger: measurement-condition defects", () => {
     assert.ok(wrapText("   indented words here", 40)[0].startsWith("   "), "indent survives wrapping");
   });
 
-  it("JUDGE-005: severe failure is attributed through the label map, so the 2% cap is measurable", async () => {
+  it("VISUAL-004: severe failure is attributed through the label map, so the 2% cap is measurable", async () => {
     const { attributeSevereFailure } = await import("../scripts/benchmark/judge.mjs");
     // The judge names arms; the summary used to look for "candidate", so the
     // rate was structurally zero no matter what the judge reported.
