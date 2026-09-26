@@ -435,3 +435,96 @@ export const DISPLAY_NEGATIVE_PROMPT = Object.freeze([
   "gradients, drop shadows, 3d rendering, isometric view, perspective, photo texture, noise",
   "device bezel, browser chrome, hands, people, poster layout, marketing copy",
 ].join(", "));
+
+/**
+ * Domain marks: the oversized, recognisable pictograms a screen is about.
+ *
+ * Legibility alone is not the gate. The first display-budget pilot produced
+ * clean, high-contrast block compositions and the judge still charged them as
+ * severe failures, with the same words every time: "abstract placeholder-like
+ * symbols", "contain no identifiable route, delay, or action information",
+ * "do not depict a recognizable safety sign". A diagram can be perfectly legible
+ * and still be unusable when the question is "find the most delayed route" or
+ * "spot a wet-floor hazard" - the answer has to be *of* the subject, and at
+ * 279 pixels the only marks that survive are the iconic ones. A warning
+ * triangle, a clock face, a map pin and a tick are unmistakable at postage-stamp
+ * size; a sentence, a table row and a data label are not.
+ *
+ * All three treatments of a scenario get the same marks, because the treatments
+ * differ in arrangement and not in subject - that is what makes the three images
+ * comparable, and it is what the judged question is about.
+ */
+export const DOMAIN_MARKS = Object.freeze([
+  [/map|route|zone|region|network|topology|territor|wayfinding|transit|rail|metro|campus|basin|field|journey|path|lineage|topolog/i,
+    ["a large map pin", "a very thick winding path", "a large compass rose"]],
+  [/heat ?map|density|capacity|coverage|per ?cent|utili[sz]ation|cluster|segment|reach/i,
+    ["a large magnifying glass", "a grid of nine large squares", "a large target bullseye"]],
+  [/trend|curve|retention|forecast|load|spread|distribution|signal|correlation|calibration|case curve|season|monthly|weekly|cycle|rhythm|pace|histogram|sample/i,
+    ["a large rising line graph", "a large bar chart", "a large target bullseye"]],
+  [/gauge|oee|meter|readiness|health|instrument|telescope/i,
+    ["a large gauge dial", "a large clock face", "a large tick mark"]],
+  [/queue|incident|ticket|alert|inbox|triage|backlog|dispatch|support|escalation|delivery|ci |pipeline|runbook/i,
+    ["a large clock face", "a large warning triangle", "a large envelope"]],
+  [/clinic|patient|care|health|medic|hospital|appointment|therap|wellness|protein|cell|heart|dose|lab\b/i,
+    ["a large medical cross", "a large clock face", "a large heart shape"]],
+  [/stock|inventory|bin|warehouse|reorder|shelf|pick|parcel|package|pack|fulfil|supply/i,
+    ["a large open box", "a large downward arrow", "a large warning triangle"]],
+  [/schedule|shift|calendar|booking|planning|gantt|kanban|board|progress|launch|release|migration|rollout|sprint|vacation/i,
+    ["a large calendar page", "a large tick", "a large clock face"]],
+  [/flow|pipeline|sequence|state machine|decision|steps|stage|process|onboarding|wizard|first run|setup|transition|handoff/i,
+    ["three large boxes joined by thick arrows", "a large tick", "a large warning triangle"]],
+  [/poster|sign|placard|plaque|signage|banner|label|tag|cover|menu|board display|layout|wireframe|composition|spacing|hierarchy|contrast|emphasis|readab/i,
+    ["a large rectangular sign board", "a large tick", "a large warning triangle"]],
+  [/icon|pictogram|symbol|illustration|glyph|marker|indicator|status|cue|recogni|accesible|waymark/i,
+    ["a large bold ring", "a large filled disc", "a large triangle"]],
+  [/risk|threat|trust|secur|access|permission|consent|complian|audit|attack|vulnerab|attack|attack/i,
+    ["a large padlock", "a large warning triangle", "a large key"]],
+  [/weather|condition|forecast|rain|sun|storm|climate|energy|solar|wind|carbon|emission/i,
+    ["a large sun disc", "a large cloud", "a large rain droplet"]],
+  [/money|budget|price|cost|spend|financ|revenue|invoice|checkout|cart|order|payment|purchase|commerce/i,
+    ["a large coin", "a large bar chart", "a large shopping basket"]],
+  [/food|cafe|menu|recipe|ingredient|coffee|meal|kitchen|table service/i,
+    ["a large cup", "a large plate", "a large tick"]],
+  [/experiment|science|chemi|lab|titration|force|physics|forest|habitat|animal|ecolog|water|planet|orbit|telescope|space|sky|astronom/i,
+    ["a large ringed planet", "a large beaker", "a large leaf"]],
+  [/safe|safety|hazard|wet|slip|evacuat|exit|fire|emergency|permit|inspect|accesible|accessib|waymark|legib|sign readab/i,
+    ["a large warning triangle", "a large tick in a ring", "a large running figure"]],
+  [/mobile|phone|thumb|one-hand|app icon|pwa|portrait screen|elevator|panel|kiosk|device|tv\b/i,
+    ["a large phone outline", "a large circular button", "a large home bar"]],
+  [/story|article|reading|lesson|card|cardset|note|lesson|documentation|guide/i,
+    ["a large page", "a large ring", "a large tick"]],
+  [/accessib|waymark|legib|safe|safety|hazard|wet|slip|sign readab/i,
+    ["a large warning triangle", "a large slipping figure", "a large droplet"]],
+]);
+
+/** Titles the table above does not name, added after the pilot showed them falling through. */
+const EXTRA_MARKS = Object.freeze([
+  [/permit|review|desk|surface|playbook|posture|adoption|preview|validation|scenario|protocol|lifecycle|consent|experiment/i,
+    ["a large document page", "a large tick", "a large warning triangle"]],
+  [/model|entity|schema|diff|pyramid|topology|graph|architecture|protocol layout|library/i,
+    ["three large connected boxes", "a large key", "a large database cylinder"]],
+  [/ranking|rank|driver|metric|drilldown|funnel|interval|band|gantt|timeline|approval|trial|result/i,
+    ["a large bar chart", "a large target bullseye", "a large clock face"]],
+  [/compare|comparison|tradeoff|layer|gap|point focus|family|friendly|geometry|consistency|store|planogram|gallery|catalog/i,
+    ["two large panels side by side", "a large magnifying glass", "a large tick"]],
+  [/badge|impact|set\b|collection|gallery|icon set|symbol set/i,
+    ["a large bold ring", "a large filled disc", "a large triangle"]],
+  [/project|query|view\b|plan\b|desk|console|board\b/i,
+    ["a large magnifying glass", "a large gear", "a large clock face"]],
+]);
+
+/** The recognisable marks used when a title names no domain the table knows. */
+export const DEFAULT_MARKS = Object.freeze(["a large magnifying glass", "a large gear", "a large clock face"]);
+
+/**
+ * The marks for one scenario's subject. Deterministic and table-driven, like
+ * the surface subject: the same title always yields the same marks, so the
+ * prompt stays a pure function of the scenario.
+ */
+export function domainMarks(title) {
+  const text = String(title ?? "");
+  for (const [pattern, marks] of [...DOMAIN_MARKS, ...EXTRA_MARKS]) {
+    if (pattern.test(text)) return marks;
+  }
+  return DEFAULT_MARKS;
+}

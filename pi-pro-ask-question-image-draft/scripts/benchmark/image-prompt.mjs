@@ -37,6 +37,7 @@ import {
   compositionSentence,
   DISPLAY_NEGATIVE_PROMPT,
   DISPLAY_STYLE,
+  domainMarks,
   treatmentKey,
 } from "./composition.mjs";
 
@@ -132,6 +133,7 @@ export function optionPrompt(scenario, option, { siblings } = {}) {
   const concept = String(scenario?.visualPrompt?.prompt ?? "").trim();
   if (!concept) throw new Error(`${scenario?.id} has no visual prompt.`);
   const { subject } = surfaceSubject(scenario);
+  const marks = domainMarks(titleOf(scenario));
   const others = siblings ?? (scenario?.canonicalInput?.stages ?? [])
     .flatMap((stage) => stage.options ?? [])
     .filter((candidate) => candidate !== option);
@@ -143,6 +145,7 @@ export function optionPrompt(scenario, option, { siblings } = {}) {
   return [
     `The screen shows ${subject}.`,
     `Draw this composition and nothing else: ${composition.sentence}`,
+    `Inside it place two or three oversized, clearly recognisable pictograms from this subject: ${marks.join(", ")}. They must be recognisable as ${subject} even at postage-stamp size, drawn as plain bold shapes with no detail inside them.`,
     description ? `What this treatment is for: ${description}` : "",
     `It must support this decision: ${concept}`,
     "The three candidate treatments for this decision differ only in arrangement, so the arrangement must be unmistakable from the shapes alone.",
