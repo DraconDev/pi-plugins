@@ -902,14 +902,14 @@ describe("COMPARE-001: every envelope mismatch is recorded and classified", () =
     // A question the other envelope never reports at all is still a capability
     // difference, and the reason names the side that has the extra answer.
     const three = classifyEnvelopeDifference(
-      'First question="A". Second question="B". ',
-      'First question="A". ',
+      '"First question"="A". "Second question"="B". ',
+      '"First question"="A". ',
     );
     assert.equal(three.kind, "capability");
     assert.match(three.reason, /reference envelope reports an answer/);
     const four = classifyEnvelopeDifference(
-      'First question="A". ',
-      'First question="A". Second question="B". ',
+      '"First question"="A". ',
+      '"First question"="A". "Second question"="B". ',
     );
     assert.match(four.reason, /local envelope reports an answer/);
   });

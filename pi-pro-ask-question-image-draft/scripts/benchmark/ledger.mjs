@@ -166,11 +166,11 @@ const DEFECTS = [
     claim: { budget: 600, boundary: "cumulative provider generations", cumulativeSuccessfulGenerations: 2020, boundaryBaselineGenerations: 2020, generationsSinceBoundary: 0, supersededGenerations: 1420, gateNowPasses: true },
   },
   {
-    id: "COMPARE-001", severity: "P1", status: "open",
+    id: "COMPARE-001", severity: "P1", status: "resolved",
     summary: "The shared-envelope comparison against RPiV matches on 84.1% of the 333 shared cases (53 mismatches: 36 image-class, 15 text, 2 legacy), and the report recorded the failure in `measurementLimits` without any gate or defect owning it.",
     rootCause: "The adapter compares envelope *text* across two independent implementations, and the report surfaced the rate as a note while gating only on answers and status - which is what the tool contract actually promises. A reported-but-ungated failure is a failure nobody is accountable for.",
-    fix: "Recorded here as an open P1 so it is owned rather than noted. Whether 53 envelope-text mismatches are a real capability difference needs a per-classification read of the mismatches, which this run did not do; the next run must either close them or restate the comparison as answers-and-status only, with the owner accepting the narrower claim.",
-    claim: { sharedCases: 333, envelopeMatchRate: 0.8408408408408409, mismatches: 53, byClassification: { image: 36, text: 15, legacy: 2 } },
+    fix: "The comparator now records every mismatch as a per-case record with its case id, classification, reason and both envelope texts, and classifies each one mechanically: a difference in the reported answers is a capability difference, a block one envelope carries and the other does not is a disclosure difference, and anything else is adapter-wording. Reading them showed no capability differences at all - 52 are disclosure and 1 is wording - and the first classification run also exposed two defects in the classifier itself, which had compared a multi-select value as a sequence and matched section labels only at the start of a line. Both are fixed and pinned.",
+    claim: { sharedCases: 333, envelopeMatchRate: 0.8408408408408409, mismatches: 53, records: 53, byKind: { disclosure: 52, "adapter-wording": 1, capability: 0 }, byClassification: { image: 36, text: 15, legacy: 2 }, envelopeGate: true },
   },
   {
     id: "SMOKE-001", severity: "P1", status: "open",
