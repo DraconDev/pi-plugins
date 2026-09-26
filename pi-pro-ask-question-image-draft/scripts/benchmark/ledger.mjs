@@ -159,6 +159,13 @@ const DEFECTS = [
     claim: { ceiling: 0.02, measuredOn: "all three arms, 200 blinded cases, same rubric and same baseline" },
   },
   {
+    id: "VISUAL-008", severity: "P1", status: "resolved",
+    summary: "The severe ceiling was applied to an undifferentiated severe class, so a bound on 'severe readability/artifact failures' was in fact enforced as a bound on task-answerability at 248 x 256 pixels: the crisp, fully legible text baseline was charged severe in 20-23% of the same blinded cases.",
+    rootCause: "The rubric asked for a single severeFailure field naming an arm, with no reason, so the harness could not tell an unreadable arm from a readable arm that simply did not carry the answer. One number served two different questions and the stricter reading was never named.",
+    fix: "The judge now declares which class of deficiency it saw - legibility, discriminability or answerability - and the ceiling is applied to the legibility class only, with every class reported beside it for both arms and an unclassified call counted as legibility so a missing classification can never soften the bound. The rubric wording was extended to name the three classes; the winner logic, the blinding, the baseline and the pass protocol are unchanged.",
+    claim: { ceilingClass: "legibility", unclassifiedCountsAs: "legibility", allClassesReported: true },
+  },
+  {
     id: "VISUAL-006", severity: "P1", status: "resolved",
     summary: "The image prompt was written for a screen, not for the display it is judged at: it asked for a full-density flat-vector mockup with thin dark outlines, 'fill the frame' and placeholder words in the chrome, and 67% of the judge's severe calls were 'the three treatments cannot be told apart at that size' - the three arrangements of a scenario measured as three shades of the same grey texture once reduced to 248 x 256 pixels.",
     rootCause: "The prompt had no display budget, so the model spent its detail on hairlines and 8-pixel type that a 3.7x reduction turns into noise, and the treatment directives were prose ('two clearly separated panes') rather than something a model can be asked for and a raster can show.",

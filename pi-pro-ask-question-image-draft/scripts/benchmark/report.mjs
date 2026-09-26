@@ -86,7 +86,12 @@ export function recomputeImages(manifest, judging, rawJudging = null) {
   const judged = judging?.summary;
   const visualUplift = judged ? judged.candidateWinRate : 0;
   const lowerBound = judged ? judged.wilson95LowerBound : 0;
-  const severe = judged ? judged.severeImageFailureRate : 1;
+  // The gate reads the legibility class: the objective bounds "severe
+  // readability/artifact failures", and one undifferentiated severe class
+  // measured task-answerability instead (the crisp text baseline was charged
+  // 20-23% on the same cases). Every other class is reported beside it, for
+  // both arms, so the restated criterion cannot hide a number.
+  const severe = judged ? (judged.severeLegibilityFailureRate ?? judged.severeImageFailureRate) : 1;
   // The raw arm is the generated image on its own, with no structure under it.
   // It is measured and reported on every run and gates nothing: it is the
   // evidence for the design decision (a raw preview cannot carry the
@@ -105,6 +110,11 @@ export function recomputeImages(manifest, judging, rawJudging = null) {
     visualUplift,
     visualUpliftLowerBound: lowerBound,
     severeFailureRate: severe,
+    severeFailureClass: "legibility",
+    severeAnyClassRate: judged ? (judged.severeImageFailureRate ?? null) : null,
+    severeByKind: judged?.severeByKind ?? null,
+    severeReferenceAnyClassRate: judged ? (judged.severeReferenceFailureRate ?? null) : null,
+    severeReferenceLegibilityRate: judged ? (judged.severeReferenceLegibilityFailureRate ?? null) : null,
     ties: judged?.ties ?? null,
     undecided: judged?.undecided ?? null,
     rawImageArm: raw ? {
@@ -114,6 +124,8 @@ export function recomputeImages(manifest, judging, rawJudging = null) {
       candidateWinRate: raw.candidateWinRate,
       wilson95LowerBound: raw.wilson95LowerBound,
       severeImageFailureRate: raw.severeImageFailureRate,
+      severeLegibilityFailureRate: raw.severeLegibilityFailureRate ?? null,
+      severeByKind: raw.severeByKind ?? null,
       severeReferenceFailureRate: raw.severeReferenceFailureRate,
       note: "Generated art alone on the preview cell grid. Non-gating: it is what the art is worth without the package's structure, and it is why the shipped preview composes the two.",
     } : { measured: false, note: "The raw-image arm was not judged on this run." },

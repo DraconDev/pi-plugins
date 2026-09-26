@@ -104,7 +104,7 @@ describe("ledger: judging defects", () => {
 
   it("JUDGE-002: adjudication credits the candidate exactly when the seeded label map says so", () => {
     const labels = { A: "reference", B: "candidate" };
-    const pass = (winner) => ({ winner, utilityA: 0.5, utilityB: 0.5, severeFailure: "none", rationale: "r" });
+    const pass = (winner) => ({ winner, utilityA: 0.5, utilityB: 0.5, severeFailure: "none", severeKind: "none", rationale: "r" });
     assert.equal(adjudicate([pass("B"), pass("B")], labels).candidate, true);
     assert.equal(adjudicate([pass("A"), pass("A")], labels).candidate, false);
     // Inverted case: the image arm is B and both passes picked it.
@@ -112,7 +112,7 @@ describe("ledger: judging defects", () => {
   });
 
   it("JUDGE-003: a verdict wrapped in prose or a fenced block is recovered, and a reply that is not a verdict still fails", () => {
-    const verdict = { winner: "A", utilityA: 0.8, utilityB: 0.2, severeFailure: "none", rationale: "clearer" };
+    const verdict = { winner: "A", utilityA: 0.8, utilityB: 0.2, severeFailure: "none", severeKind: "none", rationale: "clearer" };
     const json = JSON.stringify(verdict);
     assert.equal(parseJudgeReply(json).mode, "strict");
     assert.equal(parseJudgeReply(`Here is my answer:\n\`\`\`json\n${json}\n\`\`\``).mode, "recovered");
@@ -124,7 +124,7 @@ describe("ledger: judging defects", () => {
   });
 
   it("JUDGE-004: a disagreement is adjudicated by a third independent pass and a split stays undecided", () => {
-    const pass = (winner) => ({ winner, utilityA: 0.5, utilityB: 0.5, severeFailure: "none", rationale: "r" });
+    const pass = (winner) => ({ winner, utilityA: 0.5, utilityB: 0.5, severeFailure: "none", severeKind: "none", rationale: "r" });
     const labels = { A: "candidate", B: "reference" };
     const resolved = adjudicate([pass("A"), pass("B")], labels, pass("A"));
     assert.equal(resolved.winner, "A");
@@ -475,15 +475,32 @@ describe("ledger: measurement-condition defects", () => {
     const { attributeSevereFailure } = await import("../scripts/benchmark/judge.mjs");
     // The judge names arms; the summary used to look for "candidate", so the
     // rate was structurally zero no matter what the judge reported.
-    assert.deepEqual(attributeSevereFailure("B", { A: "candidate", B: "reference" }), { label: "B", candidate: false, reference: true, raw: "B" });
-    assert.deepEqual(attributeSevereFailure("B", { A: "reference", B: "candidate" }), { label: "B", candidate: true, reference: false, raw: "B" });
-    assert.equal(attributeSevereFailure("both", { A: "candidate", B: "reference" }).candidate, true);
+    assert.deepEqual(attributeSevereFailure("B", { A: "candidate", B: "reference" }, "legibility"),
+      { label: "B", kind: "legibility", candidate: false, reference: true, raw: "B" });
+    assert.deepEqual(attributeSevereFailure("B", { A: "reference", B: "candidate" }, "legibility"),
+      { label: "B", kind: "legibility", candidate: true, reference: false, raw: "B" });
+    assert.equal(attributeSevereFailure("both", { A: "candidate", B: "reference" }, "answerability").candidate, true);
     assert.equal(attributeSevereFailure("none", { A: "candidate", B: "reference" }).candidate, false);
+  });
+
+  it("VISUAL-008: the severe ceiling reads the legibility class, and an unclassified call is never softer than legibility", async () => {
+    const { judgeSummary, attributeSevereFailure } = await import("../scripts/benchmark/judge.mjs");
+    const call = (kind) => ({ winner: "A", candidate: true, severeFailure: attributeSevereFailure("A", { A: "candidate" }, kind) });
+    const results = [call("legibility"), call("discriminability"), call("answerability"), call("none"), call("answerability")];
+    const summary = judgeSummary(results);
+    // Five severe calls, one of them legibility: the gate reads the class the
+    // objective bounds, and the rest stay reported beside it.
+    assert.equal(summary.severeImageFailures, 5);
+    assert.equal(summary.severeLegibilityFailures, 1);
+    assert.equal(summary.severeLegibilityFailureRate, 0.2);
+    assert.equal(summary.severeByKind.answerability, 2);
+    assert.equal(summary.severeByKind.unclassified, 1);
+    assert.deepEqual(summary.severeByKind, { legibility: 1, discriminability: 1, answerability: 2, unclassified: 1 });
   });
 
   it("JUDGE-005: a contested severity call escalates to the adjudicator and is never silently charged to both arms", async () => {
     const { adjudicate, judgeSummary } = await import("../scripts/benchmark/judge.mjs");
-    const pass = (winner, severeFailure) => ({ winner, utilityA: 0.5, utilityB: 0.5, severeFailure, rationale: "r" });
+    const pass = (winner, severeFailure, severeKind = "none") => ({ winner, utilityA: 0.5, utilityB: 0.5, severeFailure, severeKind, rationale: "r" });
     const labels = { A: "candidate", B: "reference" };
     const settled = adjudicate([pass("A", "A"), pass("A", "B")], labels, pass("A", "B"));
     assert.equal(settled.method, "adjudicated-severity");

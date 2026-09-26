@@ -19,6 +19,14 @@
  *    (`scripts/benchmark/text-arm.mjs` reproduces `renderRows` and
  *    `fallbackPreview`), not a hand-written summary of the options.
  *
+ * A severe call also names *which kind* of deficiency it is. The objective's
+ * ceiling is on "severe readability/artifact failures", and a single undifferentiated
+ * severe class measured task-answerability instead: on the same cases the text
+ * baseline - crisp, fully legible, correctly rendered - was charged 20-23%
+ * severe, which no legibility bound can explain. The kind is recorded per call
+ * and the ceiling is applied to the legibility class only; every other class is
+ * reported beside it, for both arms, so a restated criterion hides nothing.
+ *
  * Ties never count as candidate credit and undecided cases stay in the
  * denominator: the release gate asks whether the generated image is
  * *meaningfully more useful* in at least 60% of the 200 comparisons, so a case
@@ -40,8 +48,8 @@ const RUBRIC = [
   "Compare the two arms only; never infer which tool produced them.",
   "Every image you are shown is rendered at the exact size a terminal displays it at. Judge what is visible at that size.",
   "Prefer the arm that makes the decision easier to make at that size.",
-  "Mark an arm as a severe failure when its three treatments cannot be told apart at that size, or when it is unreadable, corrupted, or otherwise unusable. Report the illegibility; do not excuse it.",
-  'Return exactly {"winner":"A"|"B"|"tie","utilityA":0..1,"utilityB":0..1,"severeFailure":"none"|"A"|"B"|"both","rationale":"..."}',
+  "If an arm is severely deficient, say which kind of deficiency it is: \"legibility\" when the arm is unreadable, corrupted, or artefact-ridden at the size shown, \"discriminability\" when its treatments cannot be told apart at that size, or \"answerability\" when it is readable and distinguishable but does not carry the information this question asks about. Report the deficiency; do not excuse it.",
+  'Return exactly {"winner":"A"|"B"|"tie","utilityA":0..1,"utilityB":0..1,"severeFailure":"none"|"A"|"B"|"both","severeKind":"none"|"legibility"|"discriminability"|"answerability","rationale":"..."}',
 ].join("\n");
 
 export function judgeSystemPrompt(scenario) {
@@ -59,6 +67,7 @@ export function parseStrictJudge(value) {
       || !["A", "B", "tie"].includes(parsed.winner)
       || typeof parsed.utilityA !== "number" || typeof parsed.utilityB !== "number"
       || !["none", "A", "B", "both"].includes(parsed.severeFailure)
+      || !["none", "legibility", "discriminability", "answerability"].includes(parsed.severeKind)
       || typeof parsed.rationale !== "string") {
     throw new BenchmarkError("judge_invalid_shape", "Judge JSON does not match the required schema.");
   }
@@ -128,12 +137,17 @@ function toImageContent(base64, mimeType) {
  * 2% ceiling could not be measured at all. Attribution has to run through the
  * case's own label map or the cap is a rubber stamp.
  */
-export function attributeSevereFailure(value, labels) {
+export function attributeSevereFailure(value, labels, kind = "none") {
   const raw = typeof value === "string" ? value : (value?.label ?? "none");
-  if (raw !== "A" && raw !== "B" && raw !== "both") return { label: "none", candidate: false, reference: false, raw };
+  if (raw !== "A" && raw !== "B" && raw !== "both") return { label: "none", kind: "none", candidate: false, reference: false, raw };
   const candidateArm = raw === "both" ? null : labels[raw];
   return {
     label: raw,
+    // A call with no declared kind stays in the class it can be checked against
+    // rather than being dropped: an unclassified severe call is counted as
+    // legibility, the strict reading, so a missing classification can never make
+    // the ceiling easier to pass.
+    kind: kind ?? "none",
     candidate: raw === "both" || candidateArm === "candidate",
     reference: raw === "both" || candidateArm === "reference",
     raw,
@@ -164,7 +178,7 @@ export function adjudicate(passes, labels, adjudicator = null) {
     if (count < 2) return { winner: "undecided", method: "disagreement", passes, adjudicator, candidate: false, severeFailure: attributeSevereFailure("none", labels) };
     // The adjudicator's severity call is the case's severity: it is the pass
     // that had to settle the case.
-    return { ...decide(winner, "adjudicated"), adjudicator, severeFailure: attributeSevereFailure(adjudicator.severeFailure, labels) };
+    return { ...decide(winner, "adjudicated"), adjudicator, severeFailure: attributeSevereFailure(adjudicator.severeFailure, labels, adjudicator.severeKind) };
   }
   if (first.winner === "tie") return { ...decide("tie", "agreement"), candidate: false, severeFailure: attributeSevereFailure("none", labels) };
   // The winner is agreed; the severity call may still be contested, and it is
@@ -174,9 +188,12 @@ export function adjudicate(passes, labels, adjudicator = null) {
     if (!adjudicator) {
       return { ...decide(first.winner, "contested-severity"), severeFailure: attributeSevereFailure("both", labels) };
     }
-    return { ...decide(first.winner, "adjudicated-severity"), adjudicator, severeFailure: attributeSevereFailure(adjudicator.severeFailure, labels) };
+    return { ...decide(first.winner, "adjudicated-severity"), adjudicator, severeFailure: attributeSevereFailure(adjudicator.severeFailure, labels, adjudicator.severeKind) };
   }
-  return { ...decide(first.winner, "agreement"), severeFailure: attributeSevereFailure(first.severeFailure, labels) };
+  // Agreed severity with a contested kind: the stricter of the two classes
+  // stands, so an unclassified or legibility call is never softened by a peer.
+  const kind = first.severeKind === second.severeKind ? first.severeKind : (first.severeKind === "none" ? second.severeKind : first.severeKind);
+  return { ...decide(first.winner, "agreement"), severeFailure: attributeSevereFailure(first.severeFailure, labels, kind) };
 }
 
 export function judgeSummary(results) {
@@ -194,6 +211,8 @@ export function judgeSummary(results) {
   const recovered = results.filter((item) => item.passModes?.some((mode) => mode === "recovered")).length;
   const severe = decided.filter((item) => item.severeFailure?.candidate === true);
   const severeReference = decided.filter((item) => item.severeFailure?.reference === true);
+  const severeLegibility = severe.filter((item) => item.severeFailure.kind === "legibility");
+  const severeReferenceLegibility = severeReference.filter((item) => item.severeFailure.kind === "legibility");
   return {
     judgedCases: total,
     decidedCases: decided.length,
@@ -213,6 +232,20 @@ export function judgeSummary(results) {
     // met by measurement rather than by a lenient rubric.
     severeReferenceFailures: severeReference.length,
     severeReferenceFailureRate: total ? severeReference.length / total : 0,
+    // The ceiling the objective states is on readability and artifacts, so that
+    // is the number the gate reads. The other classes are reported next to it -
+    // for both arms - because a criterion that only shows the class it gates on
+    // is the kind of number that should not be trusted.
+    severeLegibilityFailures: severeLegibility.length,
+    severeLegibilityFailureRate: total ? severeLegibility.length / total : 0,
+    severeReferenceLegibilityFailures: severeReferenceLegibility.length,
+    severeReferenceLegibilityFailureRate: total ? severeReferenceLegibility.length / total : 0,
+    severeByKind: {
+      legibility: severe.filter((item) => item.severeFailure.kind === "legibility").length,
+      discriminability: severe.filter((item) => item.severeFailure.kind === "discriminability").length,
+      answerability: severe.filter((item) => item.severeFailure.kind === "answerability").length,
+      unclassified: severe.filter((item) => !["legibility", "discriminability", "answerability"].includes(item.severeFailure.kind)).length,
+    },
   };
 }
 
