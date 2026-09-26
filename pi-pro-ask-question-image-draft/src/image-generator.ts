@@ -4,7 +4,9 @@ import { join } from "node:path";
 
 import { getAgentDir, readStoredCredential } from "@earendil-works/pi-coding-agent";
 
-import type { NormalizedImageGeneration, NormalizedOption, NormalizedReview } from "./schema.ts";
+import type { MockupSpec, NormalizedImageGeneration, NormalizedOption, NormalizedReview } from "./schema.ts";
+
+import { DEFAULT_MOCKUP_CELLS, renderMockup } from "./mockup-renderer.ts";
 
 export const DEFAULT_IMAGE_PROVIDER = "agnes";
 export const DEFAULT_IMAGE_MODEL = "agnes-image-2.5-flash";
@@ -46,7 +48,7 @@ export interface ImageGeneratorOptions {
 }
 
 export class ImageGenerationError extends Error {
-  readonly code: "unsupported_provider" | "missing_credential" | "invalid_model" | "request_failed" | "invalid_response" | "aborted" | "io_error";
+  readonly code: "unsupported_provider" | "missing_credential" | "invalid_model" | "request_failed" | "invalid_response" | "aborted" | "io_error" | "invalid_request";
 
   constructor(code: ImageGenerationError["code"], message: string, options?: { cause?: unknown }) {
     super(message, options);
@@ -330,14 +332,55 @@ export interface GeneratedReviewImages {
   images: GeneratedImage[];
 }
 
-/** Generate only explicitly requested option images; existing image references are never overwritten. */
+/**
+ * Draw an option's deterministic mockup.
+ *
+ * No provider is involved: the bytes come from the option's own content, so the
+ * same spec renders the same image on every machine and nothing is sampled.
+ */
+export async function renderOptionMockup(
+  option: NormalizedOption,
+  options: ImageGeneratorOptions,
+): Promise<GeneratedImage> {
+  const spec = option.mockup;
+  if (!spec) throw new ImageGenerationError("invalid_request", "Option has no mockup to render.");
+  const now = options.now ?? Date.now;
+  const id = (options.randomId ?? randomUUID)();
+  const stem = `mockup-${safePart(option.id, "option")}-${now()}-${safePart(id, "mockup")}`;
+  const directory = options.outputDir ?? join(options.cwd, ".pi", "generated-images");
+  const path = join(directory, `${stem}.png`);
+  const rendered = renderMockup(spec as MockupSpec, {
+    widthCells: spec.widthCells ?? DEFAULT_MOCKUP_CELLS.widthCells,
+    heightCells: spec.heightCells ?? DEFAULT_MOCKUP_CELLS.heightCells,
+  });
+  try {
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await writeFile(path, rendered.png, { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    throw new ImageGenerationError("io_error", `Unable to save mockup image: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+  }
+  return {
+    path,
+    mimeType: "image/png",
+    provider: "mockup",
+    model: "deterministic-cell-renderer",
+    prompt: `mockup:${option.id}`,
+    byteCount: rendered.png.length,
+  };
+}
+
+/**
+ * Resolve every option's requested image: a deterministic mockup is drawn
+ * locally, a `generate` request goes to the configured provider, and an existing
+ * image reference is never overwritten.
+ */
 export async function generateReviewImages(
   review: NormalizedReview,
   options: ImageGeneratorOptions,
 ): Promise<GeneratedReviewImages> {
   const requested = review.stages.flatMap((stage) =>
     stage.options
-      .filter((option) => option.generate !== undefined)
+      .filter((option) => option.generate !== undefined || option.mockup !== undefined)
       .map((option) => ({ stage, option })),
   );
   if (requested.length === 0) return { review, images: [] };
@@ -346,6 +389,13 @@ export async function generateReviewImages(
   const generatedByKey = new Map<string, GeneratedImage>();
   for (const [index, item] of requested.entries()) {
     if (options.signal?.aborted) throw new ImageGenerationError("aborted", "Image generation was cancelled.");
+    if (item.option.mockup !== undefined) {
+      const mockup = await renderOptionMockup(item.option, options);
+      images.push(mockup);
+      generatedByKey.set(`${item.stage.id}:${item.option.id}`, mockup);
+      options.onProgress?.({ completed: index + 1, total: requested.length, option: item.option, image: mockup });
+      continue;
+    }
     const request = effectiveGeneration(review, item.option);
     if (!request) continue;
     const provider = endpointFor(request.provider ?? DEFAULT_IMAGE_PROVIDER);
@@ -365,6 +415,7 @@ export async function generateReviewImages(
         ...option,
         image: { path: image.path, mimeType: image.mimeType, alt: option.image?.alt ?? `Generated preview for ${option.label}` },
         generate: undefined,
+        mockup: undefined,
       };
     }),
   }));

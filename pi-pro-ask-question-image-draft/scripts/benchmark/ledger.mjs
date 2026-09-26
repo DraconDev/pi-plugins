@@ -152,6 +152,13 @@ const DEFECTS = [
     fix: "The image pipeline writes the canonical alias itself (the first visual scenario's options, in order) and a missing requested path is now a hard failure with no substitution.",
   },
   {
+    id: "VISUAL-005", severity: "P1", status: "open",
+    summary: "The severe readability ceiling is not reachable with a generative image path: measured at terminal dimensions the generated images fail 34.5% of blinded cases and the text baseline 23.0%, against a 2% ceiling. A control run that doubled the inline preview from 16 to 32 rows moved the candidate's rate only from 15/40 to 13/40 and the baseline from 23% to 45%, so the preview budget is not the lever either.",
+    rootCause: "A diffusion model asked for a full interface mockup cannot also deliver legible text and resolvable structure at 31 x 16 cells, and the option descriptions the corpus carries are one sentence each, so the text arm cannot always distinguish the three treatments either.",
+    fix: "Needs a product decision, not a measurement change: either the package stops relying on a generative model for the information-bearing part of a preview and renders the mockup deterministically, or the objective's ceiling is revised. The harness is now correct and the number is reproducible; tuning the rubric to pass was rejected.",
+    claim: { severeCandidate: 0.345, severeReference: 0.23, ceiling: 0.02 },
+  },
+  {
     id: "VISUAL-003", severity: "P0", status: "resolved",
     summary: "The visual gate was not measured at the condition the objective states: the judge was handed the untouched 1024x1024 PNGs while the prompt asserted in prose that they were 'at terminal size', so it scored detail no terminal user could resolve.",
     rootCause: "encodeImages attached the source file and the rubric described the measurement instead of performing it.",

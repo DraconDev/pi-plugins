@@ -77,6 +77,37 @@ export const ImageGenerationSchema = Type.Object(
   { description: "Generate this option's image before opening the review. The tool returns a local path." },
 );
 
+/**
+ * A deterministic mockup: the option's own content, drawn by the package rather
+ * than sampled from a provider. It exists because a generated image cannot be
+ * read at terminal size - 34.5% of generated previews were judged severely
+ * unreadable on a 31 x 16 cell grid - while a mockup drawn on that grid is.
+ */
+export const MockupRowSchema = Type.Object({
+  status: Type.Optional(Type.Union([
+    Type.Literal("danger"), Type.Literal("warn"), Type.Literal("ok"), Type.Literal("accent"), Type.Literal("muted"),
+  ], { description: "Colour of the status chip drawn beside the row." })),
+  code: Type.Optional(Type.String({ maxLength: 6, description: "Two or three characters of dense content, like a badge." })),
+  label: Type.String({ maxLength: 120, description: "The row's visible label." }),
+  value: Type.Optional(Type.Number({ description: "0..1, drawn as a bar." })),
+  detail: Type.Optional(Type.String({ maxLength: 200 })),
+}, { description: "One row of mockup content." });
+
+export const MockupSchema = Type.Object({
+  layout: Type.Optional(Type.Union([
+    Type.Literal("list"), Type.Literal("airy"), Type.Literal("split"), Type.Literal("dense"), Type.Literal("rail"),
+    Type.Literal("board"), Type.Literal("chart"), Type.Literal("overlay"), Type.Literal("steps"), Type.Literal("tiles"),
+  ], { description: "The arrangement to draw. This is the decision a reviewer is comparing." })),
+  title: Type.Optional(Type.String({ maxLength: 80, description: "Title bar text. Omit to keep a comparison blind." })),
+  emphasis: Type.Optional(Type.Union([
+    Type.Literal("dialog"), Type.Literal("banner"), Type.Literal("toast"), Type.Literal("sheet"), Type.Literal("highlight"),
+  ])),
+  headers: Type.Optional(Type.Array(Type.String({ maxLength: 20 }), { maxItems: 4 })),
+  rows: Type.Array(MockupRowSchema, { minItems: 1, maxItems: 32, description: "Content to draw, top to bottom." }),
+  widthCells: Type.Optional(Type.Number({ description: "Preview width in character cells; defaults to the TUI's panel width." })),
+  heightCells: Type.Optional(Type.Number({ description: "Preview height in character cells; defaults to the TUI's image height." })),
+}, { description: "Draw this option's image deterministically instead of generating it." });
+
 export const ReviewOptionSchema = Type.Object({
   id: Type.Optional(Type.String({ maxLength: MAX_STAGE_ID_LENGTH, description: "Stable option identifier." })),
   label: Type.String({ maxLength: MAX_LABEL_LENGTH, description: "Concise option label (1-5 words is recommended)." }),
@@ -85,6 +116,7 @@ export const ReviewOptionSchema = Type.Object({
   preview: Type.Optional(PreviewSchema),
   image: Type.Optional(ImageInputSchema),
   generate: Type.Optional(ImageGenerationSchema),
+  mockup: Type.Optional(MockupSchema),
 });
 
 export const ReviewStageSchema = Type.Object({
@@ -161,6 +193,8 @@ export type ImageReference = Static<typeof ImageReferenceSchema>;
 export type ImageInput = Static<typeof ImageInputSchema>;
 export type ImageGeneration = Static<typeof ImageGenerationSchema>;
 export type ReviewOption = Static<typeof ReviewOptionSchema>;
+export type MockupRow = Static<typeof MockupRowSchema>;
+export type MockupSpec = Static<typeof MockupSchema>;
 export type ReviewStage = Static<typeof ReviewStageSchema>;
 export type ReviewParams = Static<typeof ReviewParamsSchema>;
 export type GenerationSpec = Static<typeof GenerationSpecSchema>;
@@ -181,6 +215,7 @@ export interface NormalizedOption {
   preview?: string;
   image?: ImageReference;
   generate?: NormalizedImageGeneration;
+  mockup?: MockupSpec;
 }
 
 export interface NormalizedStage {
@@ -329,6 +364,39 @@ function assertRawOption(value: unknown, stageIndex: number, optionIndex: number
   if (value.generate !== undefined) normalizeImageGeneration(value.generate, `Stage ${stageIndex + 1} option ${optionIndex + 1}`);
 }
 
+function normalizeMockup(value: unknown, field: string): MockupSpec {
+  if (!isRecord(value)) throw new Error(`${field}.mockup must be an object.`);
+  const rows = value.rows;
+  if (!Array.isArray(rows) || rows.length < 1 || rows.length > 32) {
+    throw new Error(`${field}.mockup.rows must be an array of 1 through 32 rows.`);
+  }
+  const normalizedRows = rows.map((row, index) => {
+    if (!isRecord(row)) throw new Error(`${field}.mockup.rows[${index}] must be an object.`);
+    const label = optionalText(row.label, `${field}.mockup.rows[${index}].label`);
+    if (!label) throw new Error(`${field}.mockup.rows[${index}].label must be a non-empty string.`);
+    if (label.length > 120) throw new Error(`${field}.mockup.rows[${index}].label is too long.`);
+    if (row.value !== undefined && (typeof row.value !== "number" || row.value < 0 || row.value > 1)) {
+      throw new Error(`${field}.mockup.rows[${index}].value must be a number between 0 and 1.`);
+    }
+    return {
+      status: row.status as MockupSpec["rows"][number]["status"],
+      code: optionalText(row.code, `${field}.mockup.rows[${index}].code`),
+      label,
+      value: row.value as number | undefined,
+      detail: optionalText(row.detail, `${field}.mockup.rows[${index}].detail`),
+    };
+  });
+  return {
+    layout: value.layout as MockupSpec["layout"],
+    title: optionalText(value.title, `${field}.mockup.title`),
+    emphasis: value.emphasis as MockupSpec["emphasis"],
+    headers: Array.isArray(value.headers) ? value.headers.map((header) => String(header)) : undefined,
+    rows: normalizedRows,
+    widthCells: typeof value.widthCells === "number" ? value.widthCells : undefined,
+    heightCells: typeof value.heightCells === "number" ? value.heightCells : undefined,
+  };
+}
+
 function normalizeImageGeneration(value: unknown, field: string): NormalizedImageGeneration {
   if (!isRecord(value)) throw new Error(`${field}.generate must be an object.`);
   const prompt = optionalText(value.prompt, `${field}.generate.prompt`);
@@ -448,6 +516,9 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
         generate: option.generate === undefined
           ? undefined
           : normalizeImageGeneration(option.generate, `Stage ${id} option ${optionId}`),
+        mockup: option.mockup === undefined
+          ? undefined
+          : normalizeMockup(option.mockup, `Stage ${id} option ${optionId}`),
       } satisfies NormalizedOption;
     });
 
@@ -597,6 +668,19 @@ export function validateReview(review: NormalizedReview): void {
       if (option.preview && option.preview.length > 20_000) throw new Error(`Preview for option ${option.id} is too long.`);
       if (option.value && option.value.length > 2_000) throw new Error(`Value for option ${option.id} is too long.`);
       if (option.image) validateImage(option.image, option.id);
+      if (option.mockup) {
+        if (option.image) throw new Error(`Option ${option.id} cannot provide both image and mockup; choose one source.`);
+        if (option.generate) throw new Error(`Option ${option.id} cannot provide both generate and mockup; choose one source.`);
+        if (option.mockup.title !== undefined && option.mockup.title.length > 80) {
+          throw new Error(`Mockup title for option ${option.id} is too long.`);
+        }
+        for (const [index, row] of (option.mockup.rows ?? []).entries()) {
+          if (row.label.length > 120) throw new Error(`Mockup row ${index} label for option ${option.id} is too long.`);
+          if (row.value !== undefined && (row.value < 0 || row.value > 1)) {
+            throw new Error(`Mockup row ${index} value for option ${option.id} must be between 0 and 1.`);
+          }
+        }
+      }
       if (option.generate) {
         if (option.image) throw new Error(`Option ${option.id} cannot provide both image and generate; choose one source.`);
         if (option.generate.prompt.length > MAX_GENERATION_PROMPT_LENGTH) {
