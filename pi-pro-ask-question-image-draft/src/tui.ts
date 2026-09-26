@@ -205,17 +205,32 @@ export function collapseGraphicsChunks(sequence: string): string {
  * Pass inline graphics through tmux.
  *
  * tmux does not forward an application's raw Kitty escape: it parses its own
- * terminal grammar, and an image escape is not in it, so the review showed a
- * file path and the terminal never received a byte of the picture. What tmux
- * *does* forward is anything wrapped in its passthrough envelope
- * (`DCS tmux; <sequence> ST`), the same envelope Ghostty uses for itself. The
- * chunked escape is collapsed first, because the envelope ends at the first
- * `ESC \` inside it. Measured on tmux 3.6a: unwrapped, 0 of 703,088 payload
- * bytes reached the client; this way all 527,315 bytes of the PNG did.
+ * terminal grammar, and an image escape is not in it. Measured on tmux 3.6a,
+ * a frame carrying a 527,315-byte PNG reached the attached terminal with
+ * **zero** of its 703,088 payload bytes. What tmux *does* forward is anything
+ * wrapped in its passthrough envelope (`DCS tmux; <sequence> ST`), the same
+ * envelope Ghostty uses for itself; the chunked escape is collapsed first,
+ * because the envelope ends at the first `ESC \` inside it. With both, the
+ * terminal receives the whole image, byte for byte.
+ *
+ * What that does *not* fix: a full-screen TUI under tmux. tmux repaints its own
+ * grid and the terminal discards graphics tmux does not own, so a picture can
+ * still be erased by the next repaint. Bytes arriving is necessary, not
+ * sufficient - the configuration that reliably shows images is to run Pi
+ * outside tmux (`env -u TMUX pi`), where the transmit and display escapes
+ * reach the terminal directly. This wrapper is kept because it is the
+ * difference between the payload being dropped and the terminal having it, and
+ * it costs one string operation per line.
  */
 export function passthroughGraphicsForHost(line: string, { tmux = Boolean(process.env.TMUX) } = {}): string {
   if (!tmux || !isImageLine(line)) return line;
-  return line.replace(/\u001b_G[\s\S]*?\u001b\\|\u001b\]1337;File=[^\u07\x1b]*(?:\x07|\u001b\\)/g, (sequence) => `\u001bPtmux;${collapseGraphicsChunks(sequence)}\u001b\\`);
+  // A run of consecutive chunk escapes is one image and must become *one*
+  // envelope: matching them one at a time wraps each chunk separately and
+  // leaves a terminated escape in the middle of every envelope.
+  // The data section is optional: pi-tui's display command (`a=d,d=I,i=<id>`)
+  // carries no payload and still has to travel inside the envelope.
+  const runs = /(?:\u001b_G[^;]*(?:;[^\u001b]*)?\u001b\\)+|\u001b\]1337;File=[^\x07\x1b]*(?:\x07|\u001b\\)/g;
+  return line.replace(runs, (sequence) => `\u001bPtmux;${collapseGraphicsChunks(sequence)}\u001b\\`);
 }
 
 function fitLine(line: string, width: number): string {
@@ -752,7 +767,7 @@ export class VisualReviewWizard implements Component, Focusable {
     lines.push("");
     lines.push(border("─".repeat(safeWidth)));
     const bounded = lines.map((line) => isImageLine(line) ? line : fitLine(line, safeWidth));
-    const visible = this.visibleLines(bounded.map(passthroughGraphicsForHost));
+    const visible = this.visibleLines(bounded.map((line) => passthroughGraphicsForHost(line)));
     this.cachedWidth = width;
     this.cachedHeight = terminalRows ?? -1;
     this.cachedLines = visible;

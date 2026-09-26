@@ -120,29 +120,29 @@ An option's image is drawn inline, through the Kitty graphics protocol, in a
 pane beside the list. Two things silently stop that, and both are properties of
 the *host*, not of the option:
 
-- **tmux** disables inline images by default - pi-tui refuses to emit them
-  whenever `TMUX` is set, because passthrough is unreliable there. The review
-  then shows the file path and, since this pass, a line naming the fix.
-- **Terminals with no graphics protocol** (Windows Terminal, plain `screen`,
-  most emulators) fall back to text, for the same reason.
+- **tmux is the big one.** pi-tui writes the image escape straight to the pty,
+  and tmux does not forward an escape it does not understand: measured on tmux
+  3.6a, a frame carrying a 527,315-byte PNG reached the terminal with **zero**
+  of its payload bytes. This package now wraps graphics in tmux's passthrough
+  envelope (`allow-passthrough on`), which does get the whole image to the
+  terminal - but a full-screen TUI under tmux still repaints over pictures tmux
+  does not own. **The configuration that reliably shows images is to run Pi
+  outside tmux:**
 
-To get pictures in tmux on a Kitty-protocol terminal (Ghostty, kitty, WezTerm,
-Warp):
+  ```sh
+  env -u TMUX pi          # or just launch pi directly in Ghostty/kitty/WezTerm
+  ```
+
+  `~/.tmux.conf` cannot fix this; it is a property of how tmux composites.
+- **Terminals with no graphics protocol** (Windows Terminal, plain `screen`)
+  fall back to text, and the review says so in the preview pane rather than
+  printing a bare file path.
+
+If you want to try the passthrough path anyway, in tmux 3.3+:
 
 ```sh
-tmux set -g allow-passthrough on
-tmux set -as terminal-features ',xterm-ghostty*:Kitty'   # adjust to your terminal
-# detach and reattach so the client picks the feature up, then:
-PI_IMAGE_PROTOCOL=kitty pi
-```
-
-Put the two `tmux set` lines in `~/.tmux.conf` to make them stick. Verify the
-environment is what you think it is:
-
-```sh
-# images: "kitty" means inline graphics are on; null means the review will
-# fall back to text and say so.
-PI_IMAGE_PROTOCOL=kitty node -e "import('@earendil-works/pi-tui').then(t=>console.log(t.getCapabilities()))"
+tmux set -g allow-passthrough all
+# and start Pi with PI_IMAGE_PROTOCOL=kitty so the escape is emitted at all
 ```
 
 To look at the dialog without using a terminal at all - the real wizard frame
@@ -151,6 +151,7 @@ with the real image, rasterised to a PNG:
 ```sh
 npm run shot:review -- --image .pi/benchmark/images/visual-001-option-1.png --out .pi/benchmark/shots/review.png
 npm run shot:review -- --honour-host --out .pi/benchmark/shots/tmux-fallback.png   # what tmux shows today
+npm run shot:review -- --emit --hold 60                                            # paint it into a real terminal
 ```
 
 ## Benchmark infrastructure

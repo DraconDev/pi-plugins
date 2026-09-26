@@ -248,3 +248,52 @@ describe("TUI chrome: rows, the preview pane and image-host honesty", () => {
     }
   });
 });
+
+/**
+ * tmux passthrough for inline graphics.
+ *
+ * Measured on tmux 3.6a: a frame carrying a 527,315-byte PNG reached the
+ * attached terminal with *zero* payload bytes, because tmux does not forward
+ * an escape it does not parse. Wrapping in the passthrough envelope - with the
+ * chunked escape collapsed first, because the envelope ends at the first ST
+ * inside it - delivered the whole image. These pin that transformation, and
+ * pin that it stays inert everywhere else.
+ */
+describe("tmux passthrough: the image escape has to survive the multiplexer", () => {
+  const chunked = [
+    "\u001b_Ga=T,f=100,c=30,r=20,i=7,m=1;AAAA",
+    "\u001b_Gm=1;BBBB",
+    "\u001b_Gm=0;CCCC",
+  ].join("\u001b\\") + "\u001b\\";
+
+  it("collapses a chunked kitty escape into one, keeping every byte of the payload", async () => {
+    const { collapseGraphicsChunks } = await import("../src/tui.ts");
+    const collapsed = collapseGraphicsChunks(chunked);
+    assert.ok(collapsed.includes("AAAA"), "the first chunk survives");
+    assert.ok(collapsed.includes("CCCC"), "the last chunk survives");
+    assert.equal((collapsed.match(/\u001b_G/g) ?? []).length, 1, "one escape, not four");
+    assert.equal((collapsed.match(/\u001b\\/g) ?? []).length, 1, "one terminator, so the passthrough envelope is not cut short");
+    assert.equal(/[;,]m=\d/.test(collapsed), false, "the continuation flags are gone with the chunks");
+    assert.equal(collapseGraphicsChunks("  1. Transit airy"), "  1. Transit airy", "text is never touched");
+  });
+
+  it("wraps graphics in the tmux envelope inside tmux, and nowhere else", async () => {
+    const { collapseGraphicsChunks, passthroughGraphicsForHost } = await import("../src/tui.ts");
+    const wrapped = passthroughGraphicsForHost(chunked, { tmux: true });
+    const open = "\u001bPtmux;";
+    assert.ok(wrapped.startsWith(open), "the envelope tmux forwards is present");
+    assert.ok(wrapped.endsWith("\u001b\\"), "and it is closed");
+    // The envelope ends at the first ST, so the payload it carries must contain
+    // exactly one - the terminator of the single collapsed escape.
+    const inner = wrapped.slice(open.length, -"\u001b\\".length);
+    assert.equal(inner, collapseGraphicsChunks(chunked), "the envelope carries the collapsed escape and nothing else");
+    assert.equal((inner.match(/\u001b\\/g) ?? []).length, 1, "one terminator inside the envelope");
+    assert.equal((wrapped.match(/\u001bPtmux;/g) ?? []).length, 1, "one envelope per image, not one per chunk");
+    assert.equal(passthroughGraphicsForHost(chunked, { tmux: false }), chunked, "outside tmux the escape is untouched");
+    assert.equal(passthroughGraphicsForHost("Preview: Transit airy", { tmux: true }), "Preview: Transit airy", "a text line is untouched");
+    // The display command pi-tui sends after the payload is an image line too,
+    // and it has to travel inside the envelope as well.
+    const display = "\u001b_Ga=d,d=I,i=7,q=2\u001b\\";
+    assert.equal(passthroughGraphicsForHost(display, { tmux: true }), `${open}${display}\u001b\\`);
+  });
+});
