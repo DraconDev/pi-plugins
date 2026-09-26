@@ -35,6 +35,7 @@ export const MIRRORED = Object.freeze([
   ["defects.json", ".pi/benchmark/defects.json"],
   ["activation.json", ".pi/benchmark/activation.json"],
   ["generations.json", ".pi/benchmark/generations.json"],
+  ["preview-size-experiment.json", ".pi/benchmark/preview-size-experiment.json"],
 ]);
 
 async function exists(path) {

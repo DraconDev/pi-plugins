@@ -1,0 +1,1619 @@
+{
+  "schemaVersion": 1,
+  "kind": "benchmark-visual-judging",
+  "model": {
+    "provider": "openrouter",
+    "model": "stealth/space-bunny-alpha"
+  },
+  "seed": 20260925,
+  "blinded": true,
+  "condition": {
+    "imageArm": "generated image resampled to the inline preview cell grid",
+    "terminalColumns": 110,
+    "grid": {
+      "columns": 110,
+      "panelColumns": 33,
+      "widthCells": 31,
+      "heightCells": 32,
+      "pixelWidth": 248,
+      "pixelHeight": 512
+    },
+    "renderedArtifacts": ".pi/benchmark/terminal-renders",
+    "baselineArm": "the text/ASCII presentation src/tui.ts renders when no inline image is available"
+  },
+  "tieIsNotCredit": true,
+  "plannedCases": 40,
+  "skippedCases": 0,
+  "skipped": [],
+  "summary": {
+    "judgedCases": 40,
+    "decidedCases": 33,
+    "candidateWins": 27,
+    "ties": 0,
+    "undecided": 7,
+    "judgeErrors": 2,
+    "adjudicated": 6,
+    "recoveredPasses": 0,
+    "candidateWinRate": 0.675,
+    "wilson95LowerBound": 0.5201774618987768,
+    "decidedWinRate": 0.8181818181818182,
+    "decidedWilson95LowerBound": 0.6561176836533009,
+    "severeImageFailures": 13,
+    "severeImageFailureRate": 0.325,
+    "severeReferenceFailures": 18,
+    "severeReferenceFailureRate": 0.45
+  },
+  "results": [
+    {
+      "id": "visual-a-001",
+      "winner": "undecided",
+      "method": "disagreement",
+      "passes": [
+        {
+          "winner": "B",
+          "utilityA": 0.08,
+          "utilityB": 0.48,
+          "severeFailure": "B",
+          "rationale": "B provides actual side-by-side dashboard treatments, while A offers only generic trade-off text and a missing preview. In B, the delayed route is easiest to identify in the airy and especially split layouts, with colored status cues supporting next-action scanning. However, the dense treatment is severely illegible at terminal size, so B still contains an unusable treatment."
+        },
+        {
+          "winner": "A",
+          "utilityA": 0.28,
+          "utilityB": 0.12,
+          "severeFailure": "B",
+          "rationale": "Arm A is readable and clearly summarizes each treatment\u2019s intended trade-off, but it supplies no inline dashboard preview or route data, so an operator cannot identify the most delayed route or its next action. Arm B provides visibly different layouts, yet the images do not show recognizable bus routes, delay badges, or next actions; the dense treatment is especially illegible at terminal size. Thus A is marginally more useful for making the design decision, while B fails the task."
+        }
+      ],
+      "candidate": false,
+      "severeFailure": {
+        "label": "none",
+        "candidate": false,
+        "reference": false,
+        "raw": "none"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.08,
+        "b": 0.48
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-002",
+      "winner": "A",
+      "method": "adjudicated",
+      "passes": [
+        {
+          "winner": "A",
+          "utilityA": 0.62,
+          "utilityB": 0.05,
+          "severeFailure": "B",
+          "rationale": "Arm A presents all three layouts side by side at the terminal\u2019s exact display size, allowing the coordinator to compare spatial density, room separation, and appointment context; the dense treatment is especially crowded and difficult to scan. Arm B provides only abstract trade-off descriptions and explicitly has no inline preview, so it cannot reveal or help spot any room conflict or compare the three scheduling treatments."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.08,
+          "utilityB": 0.12,
+          "severeFailure": "both",
+          "rationale": "Both arms are unusable for judging room-conflict detection. Arm A shows three distinguishable wireframe-like images, but they are blank or illegible and provide no readable appointments, room labels, waiting count, or conflict cue. Arm B clearly names the three treatments and summarizes their intended tradeoffs, but offers no actual day-view preview, so a coordinator still cannot spot a conflict or verify appointment context."
+        }
+      ],
+      "candidate": true,
+      "adjudicator": {
+        "winner": "A",
+        "utilityA": 0.72,
+        "utilityB": 0.34,
+        "severeFailure": "none",
+        "rationale": "Arm A presents the three layouts side by side, making differences in spacing, context retention, and conflict salience visible; the dense treatment in particular exposes overlapping red appointment/room boundaries. Arm B is readable but provides only generic trade-off descriptions and no inline previews, so it does not let the coordinator compare actual conflict visibility or retained appointment context quickly."
+      },
+      "severeFailure": {
+        "label": "none",
+        "candidate": false,
+        "reference": false,
+        "raw": "none"
+      },
+      "passModes": [
+        "strict",
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.62,
+        "b": 0.05
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-003",
+      "winner": "B",
+      "method": "contested-severity",
+      "passes": [
+        {
+          "winner": "B",
+          "utilityA": 0.05,
+          "utilityB": 0.3,
+          "severeFailure": "both",
+          "rationale": "Arm A provides only generic trade-off descriptions and no visual previews, so it cannot support identification of replenishment needs. Arm B clearly distinguishes airy, split, and dense layouts, but labels, quantities, thresholds, and status cues are too small to read at terminal size, preventing reliable bin decisions."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.04,
+          "utilityB": 0.62,
+          "severeFailure": "A",
+          "rationale": "Arm A provides only generic treatment descriptions and no bin-level inventory, thresholds, or replenishment cues, so it is unusable for the picking task. Arm B visibly distinguishes all three treatments and provides location-level status through bars, panel layouts, and highlighted bins; however, the tiny labels and low contrast make exact bin/status interpretation slower than ideal."
+        }
+      ],
+      "candidate": true,
+      "severeFailure": {
+        "label": "both",
+        "candidate": true,
+        "reference": true,
+        "raw": "both"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.05,
+        "b": 0.3
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-004",
+      "winner": "A",
+      "method": "contested-severity",
+      "passes": [
+        {
+          "winner": "A",
+          "utilityA": 0.78,
+          "utilityB": 0.12,
+          "severeFailure": "B",
+          "rationale": "Arm A provides three concrete dashboard treatments with visible status colors, crew/work information, and differing layouts, allowing blocked versus proceed work to be compared at a glance. Arm B only describes abstract trade-offs and supplies no dashboard preview or status data, so it does not support the requested distinction."
+        },
+        {
+          "winner": "A",
+          "utilityA": 0.48,
+          "utilityB": 0.12,
+          "severeFailure": "both",
+          "rationale": "Arm A at least shows two readable dashboard treatments with visible labels, colored state bars, and clear differences between airy and split layouts, although the dense treatment is unusably small at terminal size. Arm B provides only generic design tradeoffs and no inline dashboard preview, so a site lead cannot inspect how either treatment communicates blocked versus proceedable work."
+        }
+      ],
+      "candidate": true,
+      "severeFailure": {
+        "label": "both",
+        "candidate": true,
+        "reference": true,
+        "raw": "both"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.78,
+        "b": 0.12
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-005",
+      "winner": "B",
+      "method": "agreement",
+      "passes": [
+        {
+          "winner": "B",
+          "utilityA": 0.2,
+          "utilityB": 0.82,
+          "severeFailure": "none",
+          "rationale": "Arm B lets the agent compare the actual three layouts and immediately distinguish the airy, split, and dense treatments by card size, spacing, and information density. The split treatment is especially readable, while the airy and dense previews are small but remain structurally distinguishable. Arm A provides only generic trade-off descriptions and no inline preview, so it cannot support meaningful comparison of next-conversation selection or visibility of response-time context."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.2,
+          "utilityB": 0.9,
+          "severeFailure": "none",
+          "rationale": "Arm B makes the three treatments immediately distinguishable at the terminal size, showing how card size, columns, density, and response-time context affect scanning and choice. Arm A only describes the treatments abstractly and provides no visual preview, so it offers little help for judging the agent's choice speed or context protection."
+        }
+      ],
+      "candidate": true,
+      "severeFailure": {
+        "label": "none",
+        "candidate": false,
+        "reference": false,
+        "raw": "none"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.2,
+        "b": 0.82
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-006",
+      "winner": "B",
+      "method": "agreement",
+      "passes": [
+        {
+          "winner": "B",
+          "utilityA": 0.28,
+          "utilityB": 0.62,
+          "severeFailure": "A",
+          "rationale": "Arm B clearly names the airy, split, and dense treatments and pairs each with a concise trade-off, making their differences and the orientation-versus-detail decision understandable. Arm A shows some visual structure, but the dense treatment is unreadable at terminal size, and the other previews do not clearly identify the next practice step or explain why the layout distinction matters."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.18,
+          "utilityB": 0.58,
+          "severeFailure": "A",
+          "rationale": "Arm A\u2019s three images are visibly distinct as airy, split, and dense layouts, but nearly all labels, values, and next-step cues are illegible at terminal size; the dense treatment is especially unusable for comparison. Arm B is readable and names each treatment\u2019s primary benefit and tradeoff, so it supports a faster comparison, but it still falls short of clearly identifying the learner\u2019s next practice step, explaining why that step matters, or providing substantive previews."
+        }
+      ],
+      "candidate": false,
+      "severeFailure": {
+        "label": "A",
+        "candidate": true,
+        "reference": false,
+        "raw": "A"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.28,
+        "b": 0.62
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-007",
+      "winner": "B",
+      "method": "adjudicated-severity",
+      "passes": [
+        {
+          "winner": "B",
+          "utilityA": 0.1,
+          "utilityB": 0.62,
+          "severeFailure": "A",
+          "rationale": "Arm A provides only brief prose descriptions and no inline previews, so users cannot actually compare the three dashboard treatments or assess how quickly planned versus actual spending and privacy would be understood. Arm B shows all three layouts and makes the airy, split, and dense differences visible at a glance. However, the dashboard text and most values are very small at terminal size, limiting detailed comparison."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.18,
+          "utilityB": 0.87,
+          "severeFailure": "none",
+          "rationale": "Arm B lets the user immediately distinguish airy, split, and dense layouts at the displayed size, enabling a real comparison of scanning load and context. The split treatment offers the clearest side-by-side budget structure, while the dense treatment communicates its tradeoff despite small text. Arm A provides only generic trade-off claims and no visual previews, so it does not support a meaningful comparison of planned versus actual spending or privacy presentation."
+        }
+      ],
+      "candidate": true,
+      "adjudicator": {
+        "winner": "B",
+        "utilityA": 0.08,
+        "utilityB": 0.3,
+        "severeFailure": "both",
+        "rationale": "A provides only terse trade-off descriptions and no inline previews, so it cannot support comparison of planned versus actual spending. B exposes recognizable differences in spacing and density, and its split treatment is partially readable, but the dense treatment is unusably small and the airy treatment is largely a skeleton without meaningful spending comparisons. Thus both are severe failures, though B offers more decision utility."
+      },
+      "severeFailure": {
+        "label": "both",
+        "candidate": true,
+        "reference": true,
+        "raw": "both"
+      },
+      "passModes": [
+        "strict",
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.1,
+        "b": 0.62
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-008",
+      "winner": "A",
+      "method": "adjudicated-severity",
+      "passes": [
+        {
+          "winner": "A",
+          "utilityA": 0.35,
+          "utilityB": 0.1,
+          "severeFailure": "both",
+          "rationale": "Arm A at least shows three visibly distinct dashboard treatments, but their vehicle details are too small or blank to identify which vehicle cannot take its next route reliably at the displayed size. Arm B provides only generic descriptions and no dashboard preview, making the decision impossible."
+        },
+        {
+          "winner": "A",
+          "utilityA": 0.48,
+          "utilityB": 0.03,
+          "severeFailure": "B",
+          "rationale": "Arm A presents three visibly distinct dashboard treatments and exposes color-coded vehicle/status cues that can be scanned quickly, although the labels are very small and route-incompatibility evidence is not prominent. Arm B provides only generic treatment descriptions and no preview or vehicle-level data, so a dispatcher cannot identify which vehicle cannot take its next route."
+        }
+      ],
+      "candidate": true,
+      "adjudicator": {
+        "winner": "A",
+        "utilityA": 0.58,
+        "utilityB": 0.03,
+        "severeFailure": "B",
+        "rationale": "Arm A clearly distinguishes airy, split, and dense layouts and provides some visible status cues, though the labels and the specific route-blocking vehicle remain hard to identify at terminal size. Arm B contains only abstract trade-off descriptions and says no preview was supplied, so it cannot support the required dispatch decision."
+      },
+      "severeFailure": {
+        "label": "B",
+        "candidate": false,
+        "reference": true,
+        "raw": "B"
+      },
+      "passModes": [
+        "strict",
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.35,
+        "b": 0.1
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-009",
+      "winner": "B",
+      "method": "agreement",
+      "passes": [
+        {
+          "winner": "B",
+          "utilityA": 0.18,
+          "utilityB": 0.63,
+          "severeFailure": "A",
+          "rationale": "Arm B makes the airy, split, and dense layouts immediately distinguishable at terminal size and exposes the available status cues, supporting comparison of review states. Arm A provides only generic descriptions and trade-offs; with no inline previews or application-state examples, it cannot help a reviewer determine which treatment distinguishes ready applications from those needing more evidence."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.05,
+          "utilityB": 0.55,
+          "severeFailure": "A",
+          "rationale": "Arm A is readable prose but provides no actual dashboard treatment, so a reviewer cannot visually compare readiness or evidence states across the three options. Arm B makes the airy, split, and dense treatments clearly distinguishable and shows status-like color cues, though the small terminal rendering makes detailed evidence comparison slow."
+        }
+      ],
+      "candidate": true,
+      "severeFailure": {
+        "label": "A",
+        "candidate": false,
+        "reference": true,
+        "raw": "A"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.18,
+        "b": 0.63
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-010",
+      "winner": "B",
+      "method": "agreement",
+      "passes": [
+        {
+          "winner": "B",
+          "utilityA": 0.25,
+          "utilityB": 0.72,
+          "severeFailure": "A",
+          "rationale": "Arm B makes the three capacity treatments immediately distinguishable through spacing, split layout, and density, enabling faster side-by-side comparison, though the dense view's tiny labels are difficult to read. Arm A provides readable tradeoff descriptions but no actual previews or capacity values, so it cannot support the requested comparison."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.12,
+          "utilityB": 0.62,
+          "severeFailure": "A",
+          "rationale": "B makes the three capacity strategies immediately distinguishable: airy has substantial visible whitespace, split provides medium-sized grouped rows, and dense exposes many narrow entries. Fine labels and occupancy details\u2014especially in the dense view\u2014are too small for confident reading. A is readable prose but supplies no actual previews or comparable occupancy, facing, and reorder data, so it is unusable for making this visual-treatment decision."
+        }
+      ],
+      "candidate": true,
+      "severeFailure": {
+        "label": "A",
+        "candidate": false,
+        "reference": true,
+        "raw": "A"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.25,
+        "b": 0.72
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-011",
+      "winner": "undecided",
+      "method": "disagreement",
+      "passes": [
+        {
+          "winner": "A",
+          "utilityA": 0.82,
+          "utilityB": 0.12,
+          "severeFailure": "B",
+          "rationale": "Arm A provides three actual line-chart treatments with visible series, confidence bands, and marked dates, allowing the reader to compare changes against normal variation visually. Although the charts are small, their trends and treatment differences remain discernible. Arm B only describes trade-offs and supplies no inline chart preview, so it cannot support the requested judgment."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.12,
+          "utilityB": 0.68,
+          "severeFailure": "A",
+          "rationale": "Arm A does not present three identifiable treatments of the same chart; the attachments are unrelated collections of charts and icons, and the tiny multi-chart overview is unreadable at terminal size. Arm B clearly names all three treatments and states their comparative strengths and tradeoffs, making the intended distinctions understandable, although the absence of inline previews prevents direct evaluation of confidence bands and intervention change."
+        }
+      ],
+      "candidate": false,
+      "severeFailure": {
+        "label": "none",
+        "candidate": false,
+        "reference": false,
+        "raw": "none"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.82,
+        "b": 0.12
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-012",
+      "winner": "B",
+      "method": "adjudicated-severity",
+      "passes": [
+        {
+          "winner": "B",
+          "utilityA": 0.12,
+          "utilityB": 0.72,
+          "severeFailure": "none",
+          "rationale": "B shows all three treatments simultaneously, making their highest bars and relative margins directly comparable despite the small terminal size. A provides only descriptions and no inline preview or actual bars, so it does not support the requested visual comparison."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.03,
+          "utilityB": 0.99,
+          "severeFailure": "A",
+          "rationale": "Arm B provides three visible side-by-side chart treatments whose bar heights and peak margins can be compared directly. Arm A contains only treatment descriptions and no inline previews, so the required visual comparison is impossible."
+        }
+      ],
+      "candidate": true,
+      "adjudicator": {
+        "winner": "B",
+        "utilityA": 0.08,
+        "utilityB": 0.88,
+        "severeFailure": "none",
+        "rationale": "B directly shows the three treatments at terminal size, making the bar heights and their margins visually comparable, especially in the first chart. A only describes the options and provides no preview, so the highest block and margin cannot be reliably compared."
+      },
+      "severeFailure": {
+        "label": "none",
+        "candidate": false,
+        "reference": false,
+        "raw": "none"
+      },
+      "passModes": [
+        "strict",
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.12,
+        "b": 0.72
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-013",
+      "winner": "A",
+      "method": "agreement",
+      "passes": [
+        {
+          "winner": "A",
+          "utilityA": 0.78,
+          "utilityB": 0.18,
+          "severeFailure": "B",
+          "rationale": "Arm A makes the stacked areas directly comparable: total volume is visible from the overall silhouette and supply mix from the colored bands, though some axis and annotation text is too small to read. Arm B provides only descriptions of expected tradeoffs and no inline chart, so it cannot support the requested visual comparison of total volume and changing mix."
+        },
+        {
+          "winner": "A",
+          "utilityA": 0.84,
+          "utilityB": 0.18,
+          "severeFailure": "B",
+          "rationale": "Arm A shows all three treatments at terminal size, making the overall stacked silhouette and the shifting colored bands directly comparable despite very small labels. Arm B names and describes the treatments but supplies no visual previews, so the requested differences in total volume and supply mix cannot actually be assessed."
+        }
+      ],
+      "candidate": true,
+      "severeFailure": {
+        "label": "B",
+        "candidate": false,
+        "reference": true,
+        "raw": "B"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.78,
+        "b": 0.18
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-014",
+      "winner": "B",
+      "method": "adjudicated",
+      "passes": [
+        {
+          "winner": "A",
+          "utilityA": 0.18,
+          "utilityB": 0.1,
+          "severeFailure": "both",
+          "rationale": "A provides readable treatment names and concise tradeoffs, but it gives no actual scatter-plot preview and does not support judging cluster separation or outliers. B supplies visuals, yet at terminal size the labels and marks are largely unreadable and the panels do not clearly present the same scatter plot, so the treatments cannot be reliably distinguished for the stated task."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.24,
+          "utilityB": 0.62,
+          "severeFailure": "none",
+          "rationale": "B presents three visibly distinct renderings that can be compared side by side for separation, grouping, and anomalous points, although fine labels are mostly illegible at terminal size. A only describes intended trade-offs and explicitly provides no preview, so it offers almost no evidence for judging visual separation or outliers."
+        }
+      ],
+      "candidate": true,
+      "adjudicator": {
+        "winner": "B",
+        "utilityA": 0.05,
+        "utilityB": 0.72,
+        "severeFailure": "A",
+        "rationale": "Arm A provides only generic textual trade-offs and no plot preview, so it cannot support comparison of cluster separation or outliers. Arm B presents three visibly distinct visual treatments at terminal size, making their layouts and potential differences directly inspectable, although some fine marks and labels remain difficult to resolve."
+      },
+      "severeFailure": {
+        "label": "A",
+        "candidate": false,
+        "reference": true,
+        "raw": "A"
+      },
+      "passModes": [
+        "strict",
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.18,
+        "b": 0.1
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-015",
+      "winner": "A",
+      "method": "adjudicated-severity",
+      "passes": [
+        {
+          "winner": "A",
+          "utilityA": 0.78,
+          "utilityB": 0.32,
+          "severeFailure": "none",
+          "rationale": "Arm A shows all three actual heatmap treatments at terminal size, making their differences in width, pairing, and cell density directly comparable and allowing overloaded regions to be visually identified. Arm B provides only generic descriptions and a preview for Heat wide, so it does not support the requested cross-treatment visual comparison."
+        },
+        {
+          "winner": "A",
+          "utilityA": 0.72,
+          "utilityB": 0.05,
+          "severeFailure": "B",
+          "rationale": "Arm A provides three visually distinct heatmap layouts, allowing overloaded cells and differences in density/color intensity to be compared directly, although the exact layout is very dense at terminal size. Arm B gives only prose descriptions and no inline previews, so the user cannot assess which layout makes overload apparent."
+        }
+      ],
+      "candidate": true,
+      "adjudicator": {
+        "winner": "A",
+        "utilityA": 0.82,
+        "utilityB": 0.24,
+        "severeFailure": "B",
+        "rationale": "Arm A exposes the actual trade-offs at terminal size: Heat wide makes high-load cells immediately visible, Heat paired is more alignment-dependent, and Heat exact visibly becomes crowded. Arm B provides only generic claims and names a preview without showing the three treatments, so it cannot support a grounded visual comparison."
+      },
+      "severeFailure": {
+        "label": "B",
+        "candidate": false,
+        "reference": true,
+        "raw": "B"
+      },
+      "passModes": [
+        "strict",
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.78,
+        "b": 0.32
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-016",
+      "winner": "B",
+      "method": "adjudicated-severity",
+      "passes": [
+        {
+          "winner": "B",
+          "utilityA": 0.18,
+          "utilityB": 0.62,
+          "severeFailure": "none",
+          "rationale": "Arm A is readable as text but provides no inline visual, so it cannot support rapid comparison of the threshold-crossing tail or its magnitude. Arm B shows the three treatments visually and preserves the relevant histogram structure, making differences in tail shape and size easier to inspect, although the dense small labels and the largely empty first view limit precision at terminal size."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.05,
+          "utilityB": 0.95,
+          "severeFailure": "A",
+          "rationale": "B directly shows the three histogram treatments at terminal size, making the threshold line, tail shape, and relative tail size visually comparable. A provides only prose and explicitly has no inline preview, so it does not let the engineer perform the requested visual comparison."
+        }
+      ],
+      "candidate": true,
+      "adjudicator": {
+        "winner": "B",
+        "utilityA": 0.24,
+        "utilityB": 0.61,
+        "severeFailure": "B",
+        "rationale": "Arm A supplies treatment names and qualitative trade-offs but no actual histogram preview, so the engineer cannot directly judge either the threshold-crossing tail or its size. Arm B\u2019s paired histogram makes the tail and relative magnitude immediately visible, and the exact table supports detailed inspection, though it is dense at terminal size. The wide treatment is effectively unusable because its plotting area is blank and the threshold/tail cannot be read, a severe failure for that image."
+      },
+      "severeFailure": {
+        "label": "B",
+        "candidate": true,
+        "reference": false,
+        "raw": "B"
+      },
+      "passModes": [
+        "strict",
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.18,
+        "b": 0.62
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-017",
+      "winner": "A",
+      "method": "agreement",
+      "passes": [
+        {
+          "winner": "A",
+          "utilityA": 0.82,
+          "utilityB": 0.18,
+          "severeFailure": "none",
+          "rationale": "Arm A provides visibly different treatments: a clean curve view, small-multiple cohort panels, and a dense exact-value table. The middle panel supports direct comparison across cohorts and plans, while the table permits value inspection; some labels are too small to read, but the treatment purposes remain distinguishable. Arm B only states each treatment's intended trade-off and supplies no chart or preview, so it does not let the reader determine whether newer cohorts actually retain better."
+        },
+        {
+          "winner": "A",
+          "utilityA": 0.82,
+          "utilityB": 0.18,
+          "severeFailure": "none",
+          "rationale": "Arm A provides actual visual treatments, making the cohort patterns and differences in retention immediately comparable despite the small terminal size. Arm B is readable text but only describes the treatments and supplies no inline chart, so it does not support the requested comparison."
+        }
+      ],
+      "candidate": true,
+      "severeFailure": {
+        "label": "none",
+        "candidate": false,
+        "reference": false,
+        "raw": "none"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.82,
+        "b": 0.18
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-018",
+      "winner": "B",
+      "method": "contested-severity",
+      "passes": [
+        {
+          "winner": "B",
+          "utilityA": 0.22,
+          "utilityB": 0.82,
+          "severeFailure": "A",
+          "rationale": "Arm A provides only generic descriptions and no actual gauges, values, or bottleneck evidence, so it cannot support the requested comparison. Arm B visibly distinguishes the three treatments and provides gauge views plus KPI/value detail, making relative weak dimensions and their associated patterns much easier to identify at terminal size."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.32,
+          "utilityB": 0.78,
+          "severeFailure": "none",
+          "rationale": "Arm B provides the actual visual treatments, making relative gauge states, highlighted weak dimensions, and bottleneck indicators directly visible at terminal size. Arm A only describes the trade-offs and supplies no gauge or KPI values, so the weakest dimension and bottleneck cannot be determined from it."
+        }
+      ],
+      "candidate": true,
+      "severeFailure": {
+        "label": "both",
+        "candidate": true,
+        "reference": true,
+        "raw": "both"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.22,
+        "b": 0.82
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-019",
+      "winner": "A",
+      "method": "agreement",
+      "passes": [
+        {
+          "winner": "A",
+          "utilityA": 0.68,
+          "utilityB": 0.18,
+          "severeFailure": "none",
+          "rationale": "Arm A provides actual map previews, so geographic context and the visual differences among the treatments are inspectable; the wide and exact maps are readable, though the paired treatment is extremely crowded and difficult to decipher at terminal size. Arm B clearly summarizes each treatment\u2019s intended tradeoff, but without inline previews it cannot support comparison of the actual zones or geographic context."
+        },
+        {
+          "winner": "A",
+          "utilityA": 0.68,
+          "utilityB": 0.15,
+          "severeFailure": "none",
+          "rationale": "Arm A presents all three actual map treatments, allowing direct comparison of marked zones and surrounding geography. The wide and exact maps remain reasonably legible, though the paired view is too dense and its labels are largely unreadable at terminal size. Arm B provides only brief prose trade-offs and no inline previews, so it cannot support a direct geographic or zone-level comparison."
+        }
+      ],
+      "candidate": true,
+      "severeFailure": {
+        "label": "none",
+        "candidate": false,
+        "reference": false,
+        "raw": "none"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.68,
+        "b": 0.18
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-020",
+      "winner": "A",
+      "method": "adjudicated-severity",
+      "passes": [
+        {
+          "winner": "A",
+          "utilityA": 0.38,
+          "utilityB": 0.1,
+          "severeFailure": "both",
+          "rationale": "Arm A at least provides two visibly comparable chart treatments: the wide chart supports quick magnitude comparison, while the paired treatment makes the forecast and historical baselines somewhat easier to compare, though uncertainty bands and the likely next value remain difficult to read at terminal size. The exact treatment is severely unusable because its dense numeric grid is illegible. Arm B is also severely unusable for this task: it contains only a prose menu and no inline charts, so it communicates neither uncertainty nor the most likely next value across the three treatments."
+        },
+        {
+          "winner": "A",
+          "utilityA": 0.68,
+          "utilityB": 0.52,
+          "severeFailure": "A",
+          "rationale": "Arm A allows direct comparison of the uncertainty band, median/forecast line, and baseline summaries across the three treatments. The paired treatment makes cross-treatment alignment and the likely next value easiest to inspect, while the wide treatment gives a quicker overview. However, the exact treatment is effectively unreadable at terminal size. Arm B is readable and mentions the trade-offs, but it provides no actual previews and does not let the user judge uncertainty or the most likely next value."
+        }
+      ],
+      "candidate": true,
+      "adjudicator": {
+        "winner": "A",
+        "utilityA": 0.72,
+        "utilityB": 0.02,
+        "severeFailure": "B",
+        "rationale": "Arm A visibly presents all three treatments at terminal size, allowing comparison of the orange forecast paths, endpoint values, and uncertainty bands. The wide chart communicates range and likely endpoint most directly, paired charts support baseline comparison, and the exact table offers numbers but is densely packed and hard to scan. Arm B provides only generic prose trade-offs and explicitly says no inline preview exists, so it does not let the user inspect or honestly compare uncertainty or the most likely next value."
+      },
+      "severeFailure": {
+        "label": "B",
+        "candidate": false,
+        "reference": true,
+        "raw": "B"
+      },
+      "passModes": [
+        "strict",
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.38,
+        "b": 0.1
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-021",
+      "winner": "undecided",
+      "method": "disagreement",
+      "passes": [
+        {
+          "winner": "B",
+          "utilityA": 0.08,
+          "utilityB": 0.25,
+          "severeFailure": "both",
+          "rationale": "Arm A provides only treatment names and generic trade-offs, with no diagram or payment/failure-boundary information, so it cannot support the requested tracing. Arm B shows three visibly distinct rendered treatments, but the first two appear as map-like visuals rather than software architecture and the third is an extremely dense, mostly unreadable grid at terminal size; none makes the payment path or failure boundary reliably traceable. Arm B is slightly more useful because it at least exposes visual differences, but both are severe failures."
+        },
+        {
+          "winner": "A",
+          "utilityA": 0.25,
+          "utilityB": 0.3,
+          "severeFailure": "B",
+          "rationale": "Arm A is readable and clearly distinguishes the three treatments, but provides only generic trade-offs and no actual payment path or failure boundary. Arm B shows visibly different treatments, yet the exact-size images are largely unreadable\u2014especially the third\u2014and the sparse/map-like diagrams do not make the request flow or failure boundary traceable; its third treatment is an unusable severe failure."
+        }
+      ],
+      "candidate": false,
+      "severeFailure": {
+        "label": "none",
+        "candidate": false,
+        "reference": false,
+        "raw": "none"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.08,
+        "b": 0.25
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-022",
+      "winner": "A",
+      "method": "adjudicated-severity",
+      "passes": [
+        {
+          "winner": "A",
+          "utilityA": 0.72,
+          "utilityB": 0.43,
+          "severeFailure": "none",
+          "rationale": "Arm A directly exposes the actual happy paths and exception branches across all three treatments, making their reading order and branch prominence comparable despite the very small diagrams. Arm B is readable, but only summarizes each treatment's trade-off and supplies no inline preview, so it cannot support a grounded comparison of how easily either branch can be followed."
+        },
+        {
+          "winner": "A",
+          "utilityA": 0.62,
+          "utilityB": 0.15,
+          "severeFailure": "both",
+          "rationale": "Arm A at least exposes all three layouts, and the simple and traceable treatments show distinct, visible flow structures, though labels are very small and the complete treatment is unusably dense and illegible at terminal size. Arm B provides only treatment descriptions and no flowchart preview, so it does not support judging whether the happy path and exception branch are equally easy to follow."
+        }
+      ],
+      "candidate": true,
+      "adjudicator": {
+        "winner": "A",
+        "utilityA": 0.72,
+        "utilityB": 0.12,
+        "severeFailure": "B",
+        "rationale": "A presents three visibly distinct flowchart treatments with enough connector and branch structure to compare the main and exception paths, although node labels are mostly too small to read. B is readable but provides only brief trade-off descriptions and no flow or preview, so it cannot support comparison of happy-path and exception-branch readability."
+      },
+      "severeFailure": {
+        "label": "B",
+        "candidate": false,
+        "reference": true,
+        "raw": "B"
+      },
+      "passModes": [
+        "strict",
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.72,
+        "b": 0.43
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-023",
+      "winner": "undecided",
+      "method": "disagreement",
+      "passes": [
+        {
+          "winner": "A",
+          "utilityA": 0.58,
+          "utilityB": 0.32,
+          "severeFailure": "B",
+          "rationale": "Arm A is readable and clearly distinguishes the three treatments by naming their intended emphasis, though it does not visibly reveal the redundant path or single point of failure. Arm B includes one topology where colored routes and nodes are discernible, but the other two treatment images are extremely small, dense, and effectively unreadable at terminal size. Because the three treatments cannot be meaningfully compared at that size, Arm B is a severe failure."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.05,
+          "utilityB": 0.72,
+          "severeFailure": "A",
+          "rationale": "A provides only treatment descriptions and no topology preview, so the operator cannot see either the redundant path or the single point of failure. B shows all three actual treatments; the traceable diagram most clearly exposes the colored alternate path and central failure point, though the simple treatment is faint and the complete treatment is too dense for fast comparison."
+        }
+      ],
+      "candidate": false,
+      "severeFailure": {
+        "label": "none",
+        "candidate": false,
+        "reference": false,
+        "raw": "none"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.58,
+        "b": 0.32
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-024",
+      "winner": "A",
+      "method": "adjudicated-severity",
+      "passes": [
+        {
+          "winner": "A",
+          "utilityA": 0.78,
+          "utilityB": 0.28,
+          "severeFailure": "none",
+          "rationale": "Arm A presents all three treatments as actual diagrams, allowing visual comparison of message direction, sequence, retries, and participant ownership. Although the exact-size rendering makes some labels difficult to read, the layouts remain distinguishable and structurally traceable. Arm B provides only treatment names and trade-off summaries, with no sequence content or inline preview, so it does not support the requested comparison of order, retries, or ownership."
+        },
+        {
+          "winner": "A",
+          "utilityA": 0.62,
+          "utilityB": 0.08,
+          "severeFailure": "B",
+          "rationale": "Arm A presents three visibly distinct diagram treatments, allowing the reader to compare path structure, participant lanes, and color-coded dependencies, though labels are very small and retries are not readily verifiable. Arm B lists abstract trade-offs but supplies no sequence-diagram previews, so message order, retries, and ownership cannot actually be compared."
+        }
+      ],
+      "candidate": true,
+      "adjudicator": {
+        "winner": "A",
+        "utilityA": 0.62,
+        "utilityB": 0.03,
+        "severeFailure": "B",
+        "rationale": "Arm A at least presents all three distinct sequence-diagram treatments in order, so vertical message progression, lifelines, and participant regions can be compared visually. However, annotations in the traceable treatment and most content in the complete treatment are too small to read reliably at the displayed terminal size. Arm B supplies only abstract trade-off statements and explicitly has no inline preview, so it does not show message order, retries, or ownership for any treatment and is unusable for the requested comparison."
+      },
+      "severeFailure": {
+        "label": "B",
+        "candidate": false,
+        "reference": true,
+        "raw": "B"
+      },
+      "passModes": [
+        "strict",
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.78,
+        "b": 0.28
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-025",
+      "winner": "B",
+      "method": "agreement",
+      "passes": [
+        {
+          "winner": "B",
+          "utilityA": 0.05,
+          "utilityB": 0.55,
+          "severeFailure": "A",
+          "rationale": "Arm A provides only generic trade-off text and no diagram, so users cannot verify entity relationships, cardinalities, or required fields. Arm B at least exposes the diagrams visually, making connection structure more directly inspectable, although labels and required-field markers remain very small and difficult to read at terminal size."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.03,
+          "utilityB": 0.76,
+          "severeFailure": "A",
+          "rationale": "Arm B visibly presents all three ERD treatments and makes their shared structure, one-to-many connectors, and required-field markers directly comparable, though some labels are very small at terminal size. Arm A provides only generic trade-off descriptions and explicitly says no inline preview was supplied, so it does not expose the relationships or required fields needed for the decision."
+        }
+      ],
+      "candidate": true,
+      "severeFailure": {
+        "label": "A",
+        "candidate": false,
+        "reference": true,
+        "raw": "A"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.05,
+        "b": 0.55
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-026",
+      "winner": "undecided",
+      "candidate": false,
+      "method": "judge_error",
+      "passModes": [
+        "strict"
+      ],
+      "error": "Judge did not return strict JSON."
+    },
+    {
+      "id": "visual-a-027",
+      "winner": "B",
+      "method": "adjudicated-severity",
+      "passes": [
+        {
+          "winner": "B",
+          "utilityA": 0.2,
+          "utilityB": 0.4,
+          "severeFailure": "both",
+          "rationale": "Arm B at least exposes three distinct decision-tree layouts and uses prominent colored paths to make the risk-bearing branches visually salient. However, node labels and supporting evidence are too small to read at terminal size, so the required evidence cannot actually be verified. Arm A provides only high-level treatment descriptions and no diagram or preview, making it impossible to identify the highest-risk decision or compare its evidence across treatments."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.18,
+          "utilityB": 0.52,
+          "severeFailure": "none",
+          "rationale": "B at least shows the three decision-tree treatments and makes their differing structures, branching patterns, and evidence groupings visually comparable, even though the node labels are too small to read reliably at terminal size. A is readable but provides only generic claims about each treatment and no diagram or preview, so the highest-risk decision and its supporting evidence cannot be located or verified."
+        }
+      ],
+      "candidate": true,
+      "adjudicator": {
+        "winner": "B",
+        "utilityA": 0.12,
+        "utilityB": 0.28,
+        "severeFailure": "both",
+        "rationale": "Arm A is readable prose, but it omits all three diagrams and provides no visible decision node or evidence, so the requested comparison cannot be made. Arm B at least exposes the three layouts and shows color-coded branches, but the node text is illegible at terminal size in every treatment; therefore the highest-risk decision and its supporting evidence cannot be reliably identified."
+      },
+      "severeFailure": {
+        "label": "both",
+        "candidate": true,
+        "reference": true,
+        "raw": "both"
+      },
+      "passModes": [
+        "strict",
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.2,
+        "b": 0.4
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-028",
+      "winner": "A",
+      "method": "agreement",
+      "passes": [
+        {
+          "winner": "A",
+          "utilityA": 0.38,
+          "utilityB": 0.04,
+          "severeFailure": "B",
+          "rationale": "Arm A at least presents three visibly distinct chart treatments with spatial grouping, connector structure, and color/icon cues that can be compared, though labels and lead-to-team relationships remain very hard to read at terminal size. Arm B provides only generic treatment descriptions, shows a single simple preview with no actual inline chart, and therefore does not expose team ownership or each lead\u2019s span; its text is insufficient for the stated decision."
+        },
+        {
+          "winner": "A",
+          "utilityA": 0.46,
+          "utilityB": 0.05,
+          "severeFailure": "B",
+          "rationale": "Arm A at least presents three visibly distinct treatments, allowing comparison of sparse regional grouping, dense card-based tracing, and a complete grid; however, none makes team ownership or lead spans consistently clear, and much of the small text is unreadable. Arm B provides only abstract trade-off descriptions and explicitly has no previews, so the reader cannot inspect or reliably compare ownership and span across the treatments."
+        }
+      ],
+      "candidate": true,
+      "severeFailure": {
+        "label": "B",
+        "candidate": false,
+        "reference": true,
+        "raw": "B"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.38,
+        "b": 0.04
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-029",
+      "winner": "B",
+      "method": "adjudicated-severity",
+      "passes": [
+        {
+          "winner": "B",
+          "utilityA": 0.05,
+          "utilityB": 0.55,
+          "severeFailure": "A",
+          "rationale": "Arm A provides only a prompt, prose tradeoffs, and a missing preview; it does not show the state machine, legal transitions, or blocked states, so the required comparison is impossible. Arm B visibly supplies three distinct diagram treatments with node/arrow structures, making the layouts distinguishable at terminal size, although the labels and transition semantics are too small to read reliably."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.1,
+          "utilityB": 0.4,
+          "severeFailure": "both",
+          "rationale": "B at least exposes the distinct layouts and makes the simple versus bidirectional transition patterns visible, but the complete treatment is unusably dense and its labels and blocked-state distinctions are illegible at terminal size. A provides only generic trade-off text and no state diagram, legal edges, or blocked-state markers, so it cannot support the requested comparison at all."
+        }
+      ],
+      "candidate": true,
+      "adjudicator": {
+        "winner": "B",
+        "utilityA": 0.08,
+        "utilityB": 0.34,
+        "severeFailure": "both",
+        "rationale": "B provides visibly different layouts and some arrow structure, making the first two treatments more comparable, though the complete treatment is unusably dense and no blocked-state encoding is clear. A contains only abstract tradeoffs and no state machine transitions or blocked states, so the required comparison cannot be made."
+      },
+      "severeFailure": {
+        "label": "both",
+        "candidate": true,
+        "reference": true,
+        "raw": "both"
+      },
+      "passModes": [
+        "strict",
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.05,
+        "b": 0.55
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-030",
+      "winner": "undecided",
+      "candidate": false,
+      "method": "judge_error",
+      "passModes": [
+        "strict"
+      ],
+      "error": "Judge did not return strict JSON."
+    },
+    {
+      "id": "visual-a-031",
+      "winner": "B",
+      "method": "adjudicated-severity",
+      "passes": [
+        {
+          "winner": "B",
+          "utilityA": 0.08,
+          "utilityB": 0.72,
+          "severeFailure": "A",
+          "rationale": "Arm A is effectively unreadable at terminal size: the poster content and action steps are blank, and the three treatments cannot be meaningfully compared at viewing distance. Arm B clearly distinguishes the treatments and provides relevant distance-reading tradeoffs, especially identifying Shade bold as favoring instant recognition and Shade explained as harder to read from afar, though it lacks inline visual previews."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.1,
+          "utilityB": 0.25,
+          "severeFailure": "both",
+          "rationale": "Both arms fail the core visual-comparison task. Arm A shows three distinguishable wireframe-like layouts, but they contain no readable poster content or action steps, so distance readability cannot be assessed. Arm B provides readable treatment names and brief tradeoffs, including a warning that Shade explained is harder to read at a distance, but supplies no actual visual previews for the three compositions. B is marginally more useful because it preserves some decision-relevant distinctions in text."
+        }
+      ],
+      "candidate": false,
+      "adjudicator": {
+        "winner": "B",
+        "utilityA": 0.05,
+        "utilityB": 0.68,
+        "severeFailure": "A",
+        "rationale": "Arm A\u2019s three image treatments are effectively blank or corrupted: the compositions cannot be compared, and no action steps are readable at terminal size. Arm B clearly distinguishes the treatments and gives relevant distance-readability trade-offs, especially identifying the explained treatment as hardest to read and the bold treatment as best for instant recognition."
+      },
+      "severeFailure": {
+        "label": "A",
+        "candidate": true,
+        "reference": false,
+        "raw": "A"
+      },
+      "passModes": [
+        "strict",
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.08,
+        "b": 0.72
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-032",
+      "winner": "B",
+      "method": "agreement",
+      "passes": [
+        {
+          "winner": "B",
+          "utilityA": 0.38,
+          "utilityB": 0.67,
+          "severeFailure": "none",
+          "rationale": "Arm A provides readable trade-off descriptions but no inline previews, so it cannot support a grounded comparison of the three visual hierarchies. Arm B exposes the treatments' structural differences\u2014prominent versus secondary blocks, layering, and explanatory sections\u2014although the fine copy is too small to inspect; the contrasting outlines and spatial emphasis still make the comparison more useful at terminal size."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.43,
+          "utilityB": 0.74,
+          "severeFailure": "none",
+          "rationale": "B makes the three hierarchy treatments visually distinguishable and lets the user compare title prominence, information density, and competing blocks directly at terminal size. Some poster copy is too small to read, but the structural differences remain useful. A provides concise tradeoffs, yet its missing previews force reliance on labels and generic descriptions rather than showing how the event name and visit details are actually organized."
+        }
+      ],
+      "candidate": true,
+      "severeFailure": {
+        "label": "none",
+        "candidate": false,
+        "reference": false,
+        "raw": "none"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.38,
+        "b": 0.67
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-033",
+      "winner": "B",
+      "method": "agreement",
+      "passes": [
+        {
+          "winner": "B",
+          "utilityA": 0.08,
+          "utilityB": 0.57,
+          "severeFailure": "A",
+          "rationale": "Arm A\u2019s three previews are not usable at terminal size: they appear as tiny, mostly blank wireframes or form-like interfaces, with the relevant date, location, and family-activity details too small or absent to compare. Arm B is readable and clearly distinguishes the treatments by their decision tradeoffs\u2014bold for instant recognition, layered for narrative emphasis, and explained for depth\u2014though it still requires the user to infer that bold is best for quick scanning."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.12,
+          "utilityB": 0.68,
+          "severeFailure": "A",
+          "rationale": "Arm A\u2019s three previews are too small and visually dense to read the date, location, or family activities at the displayed terminal size; the tiny text is largely illegible. Arm B clearly distinguishes the three treatments and states their relevant trade-offs, even though it does not provide inline poster previews."
+        }
+      ],
+      "candidate": false,
+      "severeFailure": {
+        "label": "A",
+        "candidate": true,
+        "reference": false,
+        "raw": "A"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.08,
+        "b": 0.57
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-034",
+      "winner": "A",
+      "method": "adjudicated",
+      "passes": [
+        {
+          "winner": "A",
+          "utilityA": 0.42,
+          "utilityB": 0.12,
+          "severeFailure": "B",
+          "rationale": "A provides readable treatment names and concise tradeoffs, allowing a limited comparison. B does not present comparable sign layouts: the attached panels are visually inconsistent and largely unreadable at terminal size, with no clear slipping-person, wet-floor, or distance-legibility evidence."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.15,
+          "utilityB": 0.74,
+          "severeFailure": "none",
+          "rationale": "Arm B is substantially more useful because it presents the three treatments as actual images, allowing the reader to compare visual prominence, hierarchy, and distance legibility directly. The first and third treatments have strong high-contrast hazard messaging, while the second is visibly much smaller and less legible up close, which is itself useful comparison information. Arm A provides only names and trade-off descriptions, with no inline previews, so it does not support a meaningful visual comparison."
+        }
+      ],
+      "candidate": false,
+      "adjudicator": {
+        "winner": "A",
+        "utilityA": 0.48,
+        "utilityB": 0.05,
+        "severeFailure": "B",
+        "rationale": "A at least provides a readable, treatment-by-treatment comparison of the intended communication tradeoffs, though the absence of visual previews limits assessment of distance legibility. B's three images are inconsistent, largely corrupted or illegible at terminal size, and do not show the same recognizable safety sign clearly enough to compare hazard recognition."
+      },
+      "severeFailure": {
+        "label": "B",
+        "candidate": true,
+        "reference": false,
+        "raw": "B"
+      },
+      "passModes": [
+        "strict",
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.42,
+        "b": 0.12
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-035",
+      "winner": "undecided",
+      "method": "disagreement",
+      "passes": [
+        {
+          "winner": "A",
+          "utilityA": 0.58,
+          "utilityB": 0.24,
+          "severeFailure": "none",
+          "rationale": "Arm A exposes the three actual infographic treatments together, so their structural differences\u2014especially the prominent colored emergency bars versus paler background sections\u2014are visible at a glance, although the small body text is largely unreadable and two supplied images appear empty or incomplete. Arm B is readable but only describes general trade-offs and supplies no inline previews, so it does not support a grounded visual comparison of layout separation."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.25,
+          "utilityB": 0.56,
+          "severeFailure": "A",
+          "rationale": "Arm A\u2019s first two treatment images are effectively empty or unreadable at terminal size, so the three-way visual comparison cannot be made; only \u201cSigns explained\u201d is sufficiently visible. Arm B is readable and clearly summarizes each treatment\u2019s hierarchy and trade-off, making it more decision-useful, though the lack of an inline visual preview limits confidence about actual glanceability."
+        }
+      ],
+      "candidate": false,
+      "severeFailure": {
+        "label": "none",
+        "candidate": false,
+        "reference": false,
+        "raw": "none"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.58,
+        "b": 0.24
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-036",
+      "winner": "B",
+      "method": "adjudicated",
+      "passes": [
+        {
+          "winner": "B",
+          "utilityA": 0.1,
+          "utilityB": 0.78,
+          "severeFailure": "A",
+          "rationale": "Arm B provides three actual visual treatments at terminal size, allowing direct comparison of lineup, setting, and schedule organization, despite some differences in clarity. Arm A only describes trade-offs in text and supplies no inline previews, so it does not support judging the visual treatments themselves."
+        },
+        {
+          "winner": "A",
+          "utilityA": 0.62,
+          "utilityB": 0.18,
+          "severeFailure": "B",
+          "rationale": "Arm A provides a legible, directly comparable summary of each treatment\u2019s emphasis and tradeoff, although it lacks previews and uses awkward, generic descriptions. Arm B shows visibly different treatments, but at terminal size they are largely unreadable or contentless: the first is an empty wireframe collage, the second relies on a photo beneath competing overlays, and the third\u2019s lineup and schedule text is too small to read. Thus B does not support a reliable decision about lineup, setting, and schedule."
+        }
+      ],
+      "candidate": true,
+      "adjudicator": {
+        "winner": "B",
+        "utilityA": 0.28,
+        "utilityB": 0.72,
+        "severeFailure": "none",
+        "rationale": "B presents all three treatments simultaneously at terminal size, making their differences in visual hierarchy, setting emphasis, and schedule/lineup allocation directly comparable. Its details are small, and no single treatment clearly communicates all three elements equally well, but it still supports the requested decision far better. A provides only terse trade-off descriptions, shows only one preview, and omits inline previews for the other treatments, forcing users to judge without seeing the actual visual competition."
+      },
+      "severeFailure": {
+        "label": "none",
+        "candidate": false,
+        "reference": false,
+        "raw": "none"
+      },
+      "passModes": [
+        "strict",
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.1,
+        "b": 0.78
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-037",
+      "winner": "B",
+      "method": "adjudicated",
+      "passes": [
+        {
+          "winner": "A",
+          "utilityA": 0.28,
+          "utilityB": 0.12,
+          "severeFailure": "none",
+          "rationale": "Arm A provides three visually distinct treatment previews, allowing some comparison of shelf-facing structures and pack-format cues, even though the tiny wireframe renderings do not clearly communicate flavor. Arm B supplies explanatory text but only a single preview and no visual comparison, so it makes the requested layout decision substantially harder."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.12,
+          "utilityB": 0.48,
+          "severeFailure": "A",
+          "rationale": "Arm A contains three visibly different wireframe-like arrangements, but none communicates recognizable beverage flavor, can pack format, or a shelf-facing design, making them unusable for this decision. Arm B clearly names and contrasts all three treatments and gives actionable hierarchy/readability tradeoffs, though the lack of previews limits confidence in visual assessment."
+        }
+      ],
+      "candidate": false,
+      "adjudicator": {
+        "winner": "B",
+        "utilityA": 0.18,
+        "utilityB": 0.76,
+        "severeFailure": "A",
+        "rationale": "Arm A consists mostly of tiny, unlabeled or empty wireframe placeholders; the three arrangements are visible, but flavor, pack format, and hierarchy cannot reliably be identified at terminal size. Arm B clearly names each treatment and provides an immediate distance-readability tradeoff, making the shelf option the most actionable choice even without a preview."
+      },
+      "severeFailure": {
+        "label": "A",
+        "candidate": true,
+        "reference": false,
+        "raw": "A"
+      },
+      "passModes": [
+        "strict",
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.28,
+        "b": 0.12
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-038",
+      "winner": "B",
+      "method": "adjudicated",
+      "passes": [
+        {
+          "winner": "A",
+          "utilityA": 0.62,
+          "utilityB": 0.08,
+          "severeFailure": "B",
+          "rationale": "Arm A provides a clear, readable comparison of the three named treatments and identifies Field shelf as the preview, though the lack of inline visuals limits confidence about title space. Arm B's three panels are unlabeled abstract wireframes and do not show the same book-cover mockup, so they provide no usable evidence about practical-reference-book feel or room for a title."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.57,
+          "utilityB": 0.88,
+          "severeFailure": "none",
+          "rationale": "Arm B makes the three treatments visibly distinct at terminal size and supports the decision directly: Field banner combines a broad upper title area with an orderly, shelf-like reference structure, while shelf is more compartmentalized and detail is too dense. Arm A is readable and names relevant trade-offs, but its only preview is Field shelf and it does not visually demonstrate how much title space each treatment leaves."
+        }
+      ],
+      "candidate": true,
+      "adjudicator": {
+        "winner": "B",
+        "utilityA": 0.68,
+        "utilityB": 0.91,
+        "severeFailure": "none",
+        "rationale": "Both arms distinguish the three treatments, but Arm B makes the comparison much more direct: the sparse single-column shelf, balanced banner grid, and dense detail layout are immediately visible and differ clearly in practical-reference character and apparent title space. Arm A provides useful tradeoff descriptions, but only names a preview for Field shelf and supplies no inline visuals, so the user must rely on text to assess room for a title."
+      },
+      "severeFailure": {
+        "label": "none",
+        "candidate": false,
+        "reference": false,
+        "raw": "none"
+      },
+      "passModes": [
+        "strict",
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.62,
+        "b": 0.08
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-039",
+      "winner": "A",
+      "method": "adjudicated-severity",
+      "passes": [
+        {
+          "winner": "A",
+          "utilityA": 0.52,
+          "utilityB": 0.18,
+          "severeFailure": "A",
+          "rationale": "Arm A provides actual side-by-side visual treatments, including a readable branch-oriented layout and a route diagram that supports choosing a branch before a fork. However, the third treatment is visibly corrupted and overlapping, making that treatment unusable at terminal size. Arm B is readable but only gives terse textual claims and no visual preview, so it does not support the requested cross-treatment wayfinding comparison effectively."
+        },
+        {
+          "winner": "A",
+          "utilityA": 0.62,
+          "utilityB": 0.2,
+          "severeFailure": "none",
+          "rationale": "Arm A exposes the actual layouts at terminal size, making differences in branch visibility, destination labeling, and pre-fork decision support directly assessable; the middle treatment is especially clear, while the first and third are weak or malformed but still distinguishable. Arm B provides only generic design trade-offs and explicitly has no inline preview, so it cannot support choosing the layout that helps a visitor select the correct branch before the fork."
+        }
+      ],
+      "candidate": true,
+      "adjudicator": {
+        "winner": "A",
+        "utilityA": 0.94,
+        "utilityB": 0.05,
+        "severeFailure": "B",
+        "rationale": "Arm A makes the three layouts directly comparable at terminal size, with distinct visual treatments and visible route/branch structures. Arm B provides only abstract labels and tradeoffs, and explicitly has no inline preview, so a visitor cannot evaluate which layout supports choosing the correct branch before the fork."
+      },
+      "severeFailure": {
+        "label": "B",
+        "candidate": false,
+        "reference": true,
+        "raw": "B"
+      },
+      "passModes": [
+        "strict",
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.52,
+        "b": 0.18
+      },
+      "images": 3
+    },
+    {
+      "id": "visual-a-040",
+      "winner": "B",
+      "method": "agreement",
+      "passes": [
+        {
+          "winner": "B",
+          "utilityA": 0.2,
+          "utilityB": 0.45,
+          "severeFailure": "A",
+          "rationale": "Arm B makes the three treatment names and their intended trade-offs readable and comparable, but it does not show the actual lifting sequence or escalation option. Arm A presents three distinguishable layouts, yet the instructional content is too small and placeholder-like at terminal size to assess either the correct sequence or the escalation option."
+        },
+        {
+          "winner": "B",
+          "utilityA": 0.12,
+          "utilityB": 0.52,
+          "severeFailure": "A",
+          "rationale": "Arm A\u2019s three poster treatments are not legible at terminal size and the first two are effectively indistinguishable, so sequence and escalation clarity cannot be compared. Arm B is readable and clearly distinguishes the treatments\u2019 intended strengths and tradeoffs, but its lack of an actual preview limits assessment of sequence versus escalation."
+        }
+      ],
+      "candidate": false,
+      "severeFailure": {
+        "label": "A",
+        "candidate": true,
+        "reference": false,
+        "raw": "A"
+      },
+      "passModes": [
+        "strict",
+        "strict"
+      ],
+      "utility": {
+        "a": 0.2,
+        "b": 0.45
+      },
+      "images": 3
+    }
+  ],
+  "note": "Control experiment: the same 40 cases judged with the inline preview doubled from 16 to 32 rows. The candidate severe rate moves 15/40 -> 13/40 and the text baseline moves 23% -> 45%, so the preview size is not what drives the severe-failure rate, and the 2% ceiling is not reachable by sizing."
+}

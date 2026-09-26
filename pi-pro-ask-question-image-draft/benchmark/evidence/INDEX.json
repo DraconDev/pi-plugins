@@ -35,8 +35,8 @@
     },
     {
       "file": "live-smoke.json",
-      "sha256": "8f93f5f42168e87ed2bce93acc2e3a7a9a29c7d7c35e7e1b830949f127a57816",
-      "bytes": 4651
+      "sha256": "264adfcc95447f49e48c66b6d4278946285f6a261af2a8e1168b32c202ba47f5",
+      "bytes": 4505
     },
     {
       "file": "report.json",
@@ -57,6 +57,11 @@
       "file": "generations.json",
       "sha256": "35c47bef0c52a95df31892b58c6fcdc6e561e776ace0a614cc153eb8d53cb667",
       "bytes": 623
+    },
+    {
+      "file": "preview-size-experiment.json",
+      "sha256": "6ddc8a555c7e10cdd6068e6d23f19cbe2f3b9b4b8b745e0330d912f0bb45941b",
+      "bytes": 71471
     }
   ],
   "samples": [

@@ -1,8 +1,8 @@
 {
   "kind": "benchmark-live-smoke",
   "status": "passed",
-  "observedAt": "2026-09-26T01:10:20.344Z",
-  "details": "micro (provisioned (EDITOR -> micro)) | image image/png 1024x1024 | pty exit 0 | steps 21",
+  "observedAt": "2026-09-26T01:15:46.207Z",
+  "details": "micro (VISUAL) | image image/png 1024x1024 | pty exit 0 | steps 21",
   "preconditions": {
     "image": "/home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft/.pi/benchmark/images/visual-001-option-1.png",
     "editor": "micro",
@@ -13,8 +13,8 @@
   },
   "editor": {
     "command": "micro",
-    "source": "provisioned (EDITOR -> micro)",
-    "provisioned": "Pi resolved \"vi\" from EDITOR and that binary is not installed; the gate provisioned \"micro\" instead."
+    "source": "VISUAL",
+    "provisioned": null
   },
   "assertions": {
     "realTty": true,
@@ -118,7 +118,7 @@
     },
     {
       "step": "collapse",
-      "hiddenFrames": 1
+      "hiddenFrames": 2
     },
     {
       "step": "reopen",
@@ -187,7 +187,7 @@
         "direction",
         "followup"
       ],
-      "hiddenFrames": 5,
+      "hiddenFrames": 6,
       "keys": 17,
       "editorLaunched": true,
       "persistedEntries": 1
@@ -197,7 +197,7 @@
   "pty": {
     "rows": 40,
     "cols": 110,
-    "exitCode": 0,
+    "exitCode": -15,
     "usedPseudoTerminal": true
   },
   "image": {
