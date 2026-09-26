@@ -577,7 +577,11 @@ export function renderMockupCanvas(spec: MockupSpec, { widthCells = 31, heightCe
     // how many rows they admit. Airy doubles the pitch so the same frame holds
     // half as many items with the air between them that its name promises -
     // which is exactly the difference a reader is being asked to judge.
-    const pitch = layout === "airy" ? 3 : Math.max(1, Math.min(3, Math.round(spec.rowPitch ?? 1)));
+    // Airy is pitch 3 on its own, which in a ten-row frame left two items on
+    // screen; it now takes the requested pitch and defaults to 2, so "airy"
+    // still has the air in its name without emptying the frame.
+    const requested = Math.max(1, Math.min(3, Math.round(spec.rowPitch ?? 1)));
+    const pitch = layout === "airy" ? Math.max(2, requested) : requested;
     const capacity = Math.max(0, Math.floor((rows - top) / pitch) - 1);
     const airyCap = Math.max(3, Math.floor((rows - top) / pitch) - 1);
     const count = Math.min(layout === "airy" ? 4 : airyCap, rowsToDraw.length, capacity);
