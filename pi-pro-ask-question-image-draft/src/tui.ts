@@ -665,9 +665,11 @@ export class VisualReviewWizard implements Component, Focusable {
     const stage = this.currentStage();
     const lines: string[] = [];
     const border = (text: string) => this.theme.fg("borderAccent", text);
-    const addWrapped = (text: string, indent = 1) => {
+    const addWrapped = (text: string, indent = 1): string[] => {
       const wrapped = wrapTextWithAnsi(text, Math.max(1, safeWidth - indent));
-      for (const line of wrapped) lines.push(`${" ".repeat(indent)}${line}`);
+      const added = wrapped.map((line) => `${" ".repeat(indent)}${line}`);
+      lines.push(...added);
+      return added;
     };
 
     lines.push(border("─".repeat(safeWidth)));
@@ -943,15 +945,19 @@ export class VisualReviewWizard implements Component, Focusable {
     const loaded = this.loadedImages.get(key);
     const hasImage = this.imageMode && Boolean(loaded?.image);
     const hasPreview = Boolean(option.preview?.trim());
-    // No picture and no preview is not a block worth three lines of "nothing to
+    // An option that carries an image but sits on a terminal that cannot draw
+    // it still has to say so - that is the case where the user is staring at a
+    // file path wondering why there is no picture.
+    const hasImageRef = Boolean(option.image?.path ?? option.image?.url ?? option.image?.dataUri);
+    // Nothing to show at all is not a block worth three lines of "nothing to
     // see here": the option's own sentence is the preview, and if it has none
     // either, the pane stays empty rather than saying so at the user.
-    if (!hasImage && !hasPreview && !option.description) return [];
+    if (!hasImage && !hasPreview && !hasImageRef && !option.description) return [];
     // The description belongs where the room is. In the side-by-side layout the
     // list is a narrow column, so the option's own sentence is spelled out with
     // its preview rather than wrapped three times beside it.
     const lines: string[] = [];
-    if (hasImage || hasPreview) lines.push(this.theme.fg("accent", `Preview: ${option.label}`));
+    if (hasImage || hasPreview || hasImageRef) lines.push(this.theme.fg("accent", `Preview: ${option.label}`));
     if (option.description) {
       if (lines.length) lines.push("");
       for (const line of wrapTextWithAnsi(this.theme.fg("muted", option.description), Math.max(1, width))) lines.push(line);
