@@ -399,8 +399,14 @@ function drawEmphasis(canvas: Canvas, spec: MockupSpec, style: MockupStyle): voi
   }
 }
 
-/** Render a mockup on a cell grid and return the PNG bytes. */
-export function renderMockup(spec: MockupSpec, { widthCells = 31, heightCells = 16 } = {}): { png: Buffer; width: number; height: number } {
+/**
+ * Draw a mockup on a cell grid and return the canvas.
+ *
+ * The canvas is exported separately from the PNG so a caller can compose into
+ * the same drawing - `src/preview-composer.ts` puts generated art inside the
+ * structure this function draws - without decoding the bytes again.
+ */
+export function renderMockupCanvas(spec: MockupSpec, { widthCells = 31, heightCells = 16 } = {}): Canvas {
   const style = { ...DEFAULT_STYLE, ...(spec.style ?? {}) };
   const canvas = new Canvas(widthCells * CELL_WIDTH, heightCells * CELL_HEIGHT, style.background);
   const columns = widthCells;
@@ -500,8 +506,13 @@ export function renderMockup(spec: MockupSpec, { widthCells = 31, heightCells = 
     }
   }
 
-  if (spec.emphasis && spec.emphasis !== "highlight") drawEmphasis(canvas, spec, style);
-  else if (spec.emphasis === "highlight") drawEmphasis(canvas, spec, style);
+  if (spec.emphasis) drawEmphasis(canvas, spec, style);
 
+  return canvas;
+}
+
+/** Render a mockup on a cell grid and return the PNG bytes. */
+export function renderMockup(spec: MockupSpec, options: { widthCells?: number; heightCells?: number } = {}): { png: Buffer; width: number; height: number } {
+  const canvas = renderMockupCanvas(spec, options);
   return { png: encodeCanvasPng(canvas), width: canvas.width, height: canvas.height };
 }
