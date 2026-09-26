@@ -85,6 +85,35 @@ Cancellation and rejection return their own result envelopes. If TUI/RPC interac
 
 Image previews are inline when the terminal supports them and otherwise use a safe path/URL/alt/preview text fallback. A failed or loading image never prevents answering the review. Explicit generation happens before the review opens, so the user sees the generated artifact in the same decision flow.
 
+### Composed previews: structure from the package, character from the art
+
+An option may carry a `mockup` spec, a `generate` request, or both. When it
+carries both, the package **composes** them into one preview
+(`src/preview-composer.ts`): the deterministic cell-grid structure is drawn
+first and the generated art is scaled to fill the frame, washed back by a
+bounded scrim, and the structure's ink is keyed on top of it.
+
+That split is not cosmetic, and it came out of measurement rather than taste. An
+option preview is 31 x 16 character cells - about 248 x 256 device pixels. A
+generated image judged on that raster can carry a *shape* and an *emphasis*; it
+cannot carry a sentence, and every question a visual review asks is answered by
+information (which route is late, which release is blocked, which bin is under
+its threshold). Left to stand alone, the generated preview was charged as a
+severe failure in 34.5% of blinded comparisons, with the judge's own words
+naming the same defect each time - "abstract placeholder-like symbols", "contain
+no identifiable route, delay, or action information". Neither a longer prompt nor
+a larger preview changed that: the display budget, not the model, is the
+constraint.
+
+So the information-bearing layer is drawn by the package, from the option's own
+content, on the exact cell grid the terminal shows - and the art supplies the
+visual character of the treatment inside it. The composition is a pure function
+of `(spec, art bytes)`, so the same inputs produce the same preview on every
+machine, and a preview is never less informative than the text presentation.
+`npm run benchmark:compose` runs that same product path over the whole visual
+stratum; the raw generated image is still generated, still judged, and still
+reported beside it as a non-gating diagnostic.
+
 ## Benchmark infrastructure
 
 The benchmark answers one question: **is this package ready to replace
@@ -110,8 +139,15 @@ npm run benchmark:images -- --max 600
 # Two real executions per case, head-to-head against RPiV on shared capability
 npm run benchmark:compare -- --blind --passes 2 --out .pi/benchmark/results.json
 
-# Blinded judging: two independent passes, a third adjudicating any disagreement
-npm run benchmark:judge -- --limit 200 --out .pi/benchmark/judge.json
+# Deterministic structures, then the shipped composed previews (no provider calls)
+npm run benchmark:mockups
+npm run benchmark:compose
+
+# Blinded judging: two independent passes, a third adjudicating any disagreement.
+# The gated arm is the preview the package renders; the raw generated image is
+# judged on the same cases as a non-gating diagnostic.
+npm run benchmark:judge -- --images .pi/benchmark/composed-manifest.json --limit 200 --out .pi/benchmark/judge.json
+npm run benchmark:judge -- --images .pi/benchmark/image-manifest.json --limit 200 --out .pi/benchmark/judge-raw-image.json
 npm run benchmark:images:report -- --out .pi/benchmark/image-report.json
 
 # Real-TTY live gate (self-provisioning pseudo-terminal)
