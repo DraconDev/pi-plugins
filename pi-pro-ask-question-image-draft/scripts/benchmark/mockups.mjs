@@ -135,7 +135,7 @@ export function mockupSpecFor(scenario, option) {
   return assembleSpec(scenario, option, layout, key, false);
 }
 
-function assembleSpec(scenario, option, layout, key, forcedLayout) {
+function assembleSpec(scenario, option, layout, key, adjusted) {
   const title = String(scenario.canonicalInput?.title ?? "");
   const emphasis = EMPHASIS[key] ?? (["banner", "toast", "dialog", "sheet"].includes(key) ? key : undefined);
   const headers = layout === "chart"
@@ -148,7 +148,10 @@ function assembleSpec(scenario, option, layout, key, forcedLayout) {
     emphasis,
     headers,
     rows: rowsFor(scenario, option, { layout }),
-    ...(forcedLayout ? { forcedLayout: true } : {}),
+    // Recorded per image: whether the arrangement came from the treatment's own
+    // vocabulary or was spread across a distinct one because a sibling would
+    // otherwise have been identical.
+    layoutSource: adjusted ? "spread" : "treatment",
   };
 }
 
@@ -208,7 +211,7 @@ export async function runMockups(corpus, {
           optionKey: option.key ?? option.id ?? option.label,
           optionLabel: option.label,
           layout: spec.layout,
-          forcedLayout: spec.forcedLayout === true,
+          layoutSource: spec.layoutSource,
           spec,
           hash: specHash(spec),
         });
@@ -239,7 +242,7 @@ export async function runMockups(corpus, {
       scenarioId: item.scenarioId,
       stratum: item.stratum,
       layout: item.layout,
-      forcedLayout: item.forcedLayout === true,
+      layoutSource: item.layoutSource,
       prompt: `mockup:${item.layout}:${item.hash.slice(0, 16)}`,
       hash: item.hash,
       path: target,
