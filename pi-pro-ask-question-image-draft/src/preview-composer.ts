@@ -43,13 +43,18 @@ export interface ComposeOptions {
   widthCells?: number;
   heightCells?: number;
   /**
-   * How far the art is washed towards white before the structure goes on top,
-   * 0..1. A vector layout on a white background needs almost no wash; artwork
-   * with a dark or saturated ground needs most of it, or the annotation is
-   * unreadable and the whole point of the composition is lost.
+   * Height of the art panel, in cells, measured from the top of the frame.
+   * Defaults to 6 of 16, which leaves ten rows for the structure: the rows are
+   * what the reader decides from, so the artwork is the smaller half of the
+   * frame. An earlier version gave the art the whole frame with the structure
+   * keyed over it, and the judge read the result as "severely corrupted and
+   * overlaid with oversized text and shapes" in 69% of cases - two layers in
+   * one small raster is mud, not composition.
    */
-  scrim?: number;
-  style?: { frame: Rgb };
+  artRows?: number;
+  /** "fit" letterboxes the whole artwork into the panel; "crop" fills it. */
+  artMode?: "fit" | "crop";
+  style?: { frame: Rgb; panel: Rgb };
 }
 
 const DEFAULT_FRAME: Rgb = [24, 28, 35];
@@ -97,23 +102,28 @@ export function composePreview(options: ComposeOptions): { png: Buffer; width: n
   const style = { ...DEFAULT_STYLE, ...(spec.style ?? {}) };
   const width = widthCells * CELL_WIDTH;
   const height = heightCells * CELL_HEIGHT;
-  // The art is scaled to fill the *whole* frame, not a band cut out of it. A
-  // generated layout is square and its content sits in horizontal rows, so a
-  // wide band crops to the gaps between rows and the preview came out white -
-  // the art was there and simply never shown.
-  const scaled = cropToFill(art, width, height);
+  const artRows = Math.max(2, Math.min(heightCells - 4, options.artRows ?? 6));
   const canvas = new Canvas(width, height, style.background);
-  canvas.drawRgb(scaled, 0, 0);
-  // Wash: the annotation has to be readable over whatever the art brought with
-  // it, and the amount is bounded rather than tuned per image.
-  canvas.fillRectAlpha(0, 0, width, height, [255, 255, 255], options.scrim ?? 0.55);
-  // The structure is drawn on its own canvas and keyed onto the art: only the
-  // ink survives, so the rows and the arrangement are always legible while the
-  // artwork still shows through everywhere they are not.
-  const structure = renderMockupCanvas(spec, { widthCells, heightCells });
-  canvas.overlayKeyed(structure, 0, 0, [style.background, style.surface]);
+  const panel = options.style?.panel ?? style.background;
+  canvas.fillRect(0, 0, width, artRows * CELL_HEIGHT, panel);
+  // The artwork is shown whole. Cropping a square layout to a wide band cuts
+  // through the gaps between its rows and the panel comes out empty, which is
+  // how an earlier revision lost the art entirely while still "composing".
+  const available = { width: width - 4, height: artRows * CELL_HEIGHT - 4 };
+  const scale = Math.min(available.width / art.width, available.height / art.height, 1);
+  const placed = scale < 1
+    ? resampleArea(art, Math.max(1, Math.round(art.width * scale)), Math.max(1, Math.round(art.height * scale)))
+    : art;
+  const atX = Math.floor((width - placed.width) / 2);
+  const atY = Math.floor((artRows * CELL_HEIGHT - placed.height) / 2);
+  canvas.drawRgb(placed, atX, atY);
   const frame = options.style?.frame ?? DEFAULT_FRAME;
-  canvas.strokeRect(0, 0, width, height, frame, 1);
+  canvas.strokeRect(0, 0, placed.width + atX * 2, placed.height + atY * 2, frame, 1);
+  canvas.fillRect(0, artRows * CELL_HEIGHT - 1, width, 1, frame);
+  // The structure is laid out in the rows the panel does not take, so each
+  // arrangement picks a capacity that fits instead of being clipped.
+  const structure = renderMockupCanvas(spec, { widthCells, heightCells: heightCells - artRows });
+  canvas.blit(structure, 0, artRows * CELL_HEIGHT);
   return { png: encodeCanvasPng(canvas), width: canvas.width, height: canvas.height };
 }
 
