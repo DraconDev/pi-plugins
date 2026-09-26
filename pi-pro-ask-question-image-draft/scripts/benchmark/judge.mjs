@@ -277,7 +277,7 @@ export async function buildCase(scenario, manifest, { seed, columns = 110 }) {
   };
 }
 
-export async function runJudging({ corpus, manifest, seed = corpus.seed, limit = 200, out = ".pi/benchmark/judge.json", concurrency = 4, dryRun = false, columns = 110, heightCells = 16, renderDir = TERMINAL_RENDER_DIR }) {
+export async function runJudging({ corpus, manifest, seed = corpus.seed, limit = 200, out = ".pi/benchmark/judge.json", concurrency = 4, dryRun = false, columns = 110, heightCells = 16, renderDir = TERMINAL_RENDER_DIR, manifestPath = null }) {
   const cases = corpus.scenarios.filter((scenario) => scenario.stratum === "visual").slice(0, limit);
   const built = [];
   for (const scenario of cases) built.push(await buildCase(scenario, manifest, { seed, columns }));
@@ -356,6 +356,8 @@ export async function runJudging({ corpus, manifest, seed = corpus.seed, limit =
     // detail: the cell grid the images were rendered to, the terminal width it
     // was derived from, and that the baseline is the package text rendering.
     condition: {
+      arm: manifest.arm ?? manifest.provider ?? "generated",
+      manifestPath: manifestPath ?? null,
       imageArm: "generated image resampled to the inline preview cell grid",
       terminalColumns: columns,
       grid: previewCellGrid({ columns, maxHeightCells: heightCells }),
@@ -374,7 +376,7 @@ export async function runJudging({ corpus, manifest, seed = corpus.seed, limit =
 }
 
 export async function main(argv = process.argv.slice(2)) {
-  const args = parseArgs(argv, { corpus: "string", images: "string", out: "string", limit: "number", seed: "number", concurrency: "number", "dry-run": "boolean", columns: "number", "height-cells": "number" });
+  const args = parseArgs(argv, { corpus: "string", images: "string", out: "string", limit: "number", seed: "number", concurrency: "number", "dry-run": "boolean", columns: "number", "height-cells": "number", "render-dir": "string" });
   const corpus = await readJson(args.corpus ?? ".pi/benchmark/corpus.json", "corpus_missing");
   const manifest = await readJson(args.images ?? ".pi/benchmark/image-manifest.json", "manifest_missing");
   const report = await runJudging({
@@ -382,6 +384,8 @@ export async function main(argv = process.argv.slice(2)) {
     out: args.out ?? ".pi/benchmark/judge.json", concurrency: args.concurrency ?? 4, dryRun: args["dry-run"] === true,
     columns: args.columns ?? 110,
     heightCells: args["height-cells"] ?? 16,
+    manifestPath: args.images ?? ".pi/benchmark/image-manifest.json",
+    renderDir: args["render-dir"] ?? TERMINAL_RENDER_DIR,
   });
   process.stdout.write(`${JSON.stringify({ judged: report.summary.judgedCases, wins: report.summary.candidateWins, winRate: report.summary.candidateWinRate, lowerBound: report.summary.wilson95LowerBound, ties: report.summary.ties, undecided: report.summary.undecided, skipped: report.skippedCases })}\n`);
 }
