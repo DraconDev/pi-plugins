@@ -70,12 +70,23 @@ and can never be reported as an RPiV loss.
 
 ## Live smoke (`benchmark-live-smoke`)
 
-- `status`, `observedAt`, `details`, `preconditions`, `assertions`, `steps`, and `pty`.
+- `status`, `observedAt`, `details`, `preconditions`, `assertions`, `steps`, `sessions`, `missingSessions`, and `pty`.
 - Produced by running the real extension through Pi's own loader on a real pi-tui
   screen inside a pseudo-terminal, with real raw keypresses and Pi's configured
   external editor. `preconditions` fails without a TTY, without a readable
   generated image, or without a configured editor; `pty.usedPseudoTerminal` must
   be true for a pass.
+- The gate runs **five sessions**, one per review, each on its own
+  pseudo-terminal: `happy` (the inline image, keyboard controls, stage advance,
+  Ctrl+] collapse/reopen, a custom answer, the external editor, the final
+  review) and `note`, `revision`, `reject` and `cancel`. Reject and cancel end a
+  review, so neither can share a walk with anything else.
+- `assertions` is the union: the happy path's eleven plus one named assertion
+  per behaviour session. A behaviour assertion is true only because that
+  session's own evidence produced it, and a session that did not run is a
+  failure (`missingSessions`), not an omission.
+- `--sessions a,b` re-runs a subset for debugging; a subset can produce
+  evidence but can never produce a pass.
 
 ## Aggregate report (`benchmark-aggregate-report`)
 
@@ -92,6 +103,11 @@ Gate thresholds: 100% deterministic accuracy, Wilson 95% lower bound ≥ 0.95,
 zero unstable cases, ≥ 200 judged visual cases with ≥ 60% candidate wins and a
 lower bound above 50%, severe image failure rate ≤ 2%, at most 600 images, a
 passed live TTY smoke, and no unresolved P0/P1.
+
+The evidence a release is judged on is chosen once and recorded in `sources`.
+`benchmark:report` and `benchmark:ledger` both adopt the recorded paths when no
+explicit source flag is given, so regenerating a release cannot quietly move a
+gate onto a different judging artifact; an explicit flag always wins.
 
 The verifier never infers or performs activation. An activation claim only
 verifies when the recomputed `releaseReady` is true.

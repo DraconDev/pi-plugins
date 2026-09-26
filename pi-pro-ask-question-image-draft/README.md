@@ -144,13 +144,13 @@ npm run benchmark:mockups
 npm run benchmark:compose
 
 # Blinded judging: two independent passes, a third adjudicating any disagreement.
-# The gated arm is the preview the package renders; the raw generated image is
-# judged on the same cases as a non-gating diagnostic.
+# Both arms are judged on the same cases; which one the release gate reads is
+# recorded in the report's `sources` and reused by later runs.
 npm run benchmark:judge -- --images .pi/benchmark/composed-manifest.json --limit 200 --out .pi/benchmark/judge.json
 npm run benchmark:judge -- --images .pi/benchmark/image-manifest.json --limit 200 --out .pi/benchmark/judge-raw-image.json
 npm run benchmark:images:report -- --out .pi/benchmark/image-report.json
 
-# Real-TTY live gate (self-provisioning pseudo-terminal)
+# Real-TTY live gate (self-provisioning pseudo-terminal; five sessions)
 npm run smoke:live -- --image .pi/benchmark/images/visual-001-option-1.png
 
 # Generated defect ledger, aggregate report, release gate, activation
@@ -198,11 +198,18 @@ threshold. The properties that matter for an audit:
   outcome in the results or the report is rejected.
 - **Shared scope is honest.** RPiV is compared only on legacy question reviews it
   implements, driven through its real RPC dialog protocol. A candidate failure is
-  reported separately and never charged to the reference. Envelope *text* still
-  differs on 53 of 333 shared cases; that rate is reported per classification and
-  is deliberately not a gate, because the tools document different response
-  contracts while the answers and status - what the tool contract does promise -
-  match on all of them.
+  reported separately and never charged to the reference. Envelope *text* differs
+  on 53 of 333 shared cases, and every one of them is now recorded by name -
+  case id, classification, reason and both texts - rather than counted: all 53
+  are `adapter-wording` (52 of them a block one envelope discloses and the other
+  does not), none is a `capability` difference, and only the latter is a gate.
+- **The live gate proves the decisions, not just the happy path.** `smoke:live`
+  runs five sessions, one per review, each on its own pseudo-terminal: the happy
+  path (inline image, keyboard, stage advance, Ctrl+] collapse/reopen, custom
+  answer, external editor, final review) plus note, revision, reject and cancel.
+  The revision session requests a change and then drives the round that change
+  asked for, so a revision is proven as a round rather than as a request. A
+  session that did not run fails the gate instead of being left out.
 - **The ledger is generated.** `npm run benchmark:ledger` writes it from its
   definitions plus the run's own artifacts, so a resolved defect must name a test
   that exists and mentions its id, and a measured claim cannot drift from the

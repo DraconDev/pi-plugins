@@ -603,6 +603,7 @@ try {
     // keys, and each one ends the way the behaviour ends: a note leaves the
     // review approvable, a revision hands control back to the model and the
     // next round is then driven, and a reject or a cancel end the review.
+    const keepRound = (summary) => { evidence.session.rounds.push(summary); evidence.session.result = summary; return summary; };
     if (plan.mode === "note") {
       await tick(800);
       await moveTo(plan.answer, "note-option");
@@ -618,18 +619,14 @@ try {
       await tabToReview("note-review");
       await moveTo(LABELS.approve, "note-approve-row");
       await press("\r", "approve the review with its note");
-      const result = await execution;
-      const summary = summarize(result);
-      evidence.session.result = summary;
-      evidence.session.rounds = [summary];
+      keepRound(summarize(await execution));
     } else if (plan.mode === "revision") {
       await tick(800);
       await moveTo(LABELS.revision, "revision-row");
       await press("\r", "request a revision", () => painted(LABELS.revisionPrompt), "revision-editor", 15000);
       await press(REVISION_FEEDBACK, "type the revision feedback", () => painted(REVISION_FEEDBACK), "revision-text", 15000);
       await press("\r", "submit the revision");
-      const first = summarize(await execution);
-      evidence.session.rounds = [first];
+      const first = keepRound(summarize(await execution));
       record("revision", {
         feedback: REVISION_FEEDBACK,
         status: first.status,
@@ -652,28 +649,20 @@ try {
       await press("\r", "answer the regenerated stage", () => painted(LABELS.approve), "round-two-answer");
       await moveTo(LABELS.approve, "round-two-approve-row");
       await press("\r", "approve round two");
-      const secondRound = summarize(await second);
-      evidence.session.rounds = [first, secondRound];
-      evidence.session.result = secondRound;
+      keepRound(summarize(await second));
     } else if (plan.mode === "reject") {
       await tick(800);
       await moveTo(plan.answer, "reject-option");
       await press("\r", "answer the stage", () => painted(LABELS.approve), "reject-answer");
       await moveTo(LABELS.reject, "reject-row");
       await press("\r", "reject the review");
-      const result = await execution;
-      const summary = summarize(result);
-      evidence.session.result = summary;
-      evidence.session.rounds = [summary];
+      const summary = keepRound(summarize(await execution));
       record("reject", { endedBy: "the Reject review row", status: summary.status, row: activeRow() });
     } else {
       // Cancel: Escape on a real terminal, mid-review, with nothing answered.
       await tick(800);
       await press("escape", "cancel the review with Escape", null, "cancel-escape", 25000);
-      const result = await execution;
-      const summary = summarize(result);
-      evidence.session.result = summary;
-      evidence.session.rounds = [summary];
+      const summary = keepRound(summarize(await execution));
       record("cancel", { endedBy: "Escape", status: summary.status, cancelled: summary.cancelled === true });
     }
     clearTimeout(timeoutGuard);
