@@ -484,12 +484,29 @@ export async function main(argv = process.argv.slice(2)) {
  * report and state the visual gate outcome.
  */
 export async function reportMain(argv = process.argv.slice(2)) {
-  const args = parseArgs(argv, { manifest: "string", judges: "string", out: "string", max: "number" });
+  const args = parseArgs(argv, { manifest: "string", judges: "string", "raw-judges": "string", previews: "string", out: "string", max: "number" });
   const max = parsePositiveLimit(args.max, IMAGE_BUDGET);
   const manifestPath = args.manifest ?? (await readCacheFile(DEFAULT_CACHE) ? DEFAULT_CACHE : DEFAULT_MANIFEST);
   const manifest = await readJson(manifestPath, "manifest_missing");
   const judges = args.judges ? await readJson(args.judges, "judge_results_missing") : await readCacheFile(".pi/benchmark/judge.json");
   const report = await buildImageReport({ manifest, judgeResults: undefined, max });
+  // Which arm was judged, on which previews. The image manifest is where the
+  // 600-image budget is counted; the judged arm is the preview the package
+  // actually renders, and the raw image is reported beside it.
+  report.manifestPath = manifestPath;
+  report.judgingPath = args.judges ?? ".pi/benchmark/judge.json";
+  report.arm = judges?.condition?.arm ?? manifest.arm ?? manifest.provider ?? "generated";
+  const previews = args.previews ? await readJson(args.previews, "manifest_missing") : await readCacheFile(".pi/benchmark/composed-manifest.json");
+  if (previews) report.previews = { path: args.previews ?? ".pi/benchmark/composed-manifest.json", count: (previews.images ?? []).length, arm: previews.arm ?? null };
+  const rawJudges = args["raw-judges"] ? await readJson(args["raw-judges"], "judge_results_missing") : await readCacheFile(".pi/benchmark/judge-raw-image.json");
+  if (rawJudges?.summary) {
+    const summary = rawJudges.summary;
+    report.rawImageArm = {
+      judgedCases: summary.judgedCases, candidateWins: summary.candidateWins, candidateWinRate: summary.candidateWinRate,
+      wilson95LowerBound: summary.wilson95LowerBound, severeImageFailureRate: summary.severeImageFailureRate,
+      note: "non-gating diagnostic: the generated image on the preview grid with no deterministic structure under it",
+    };
+  }
   if (judges) {
     const summary = judges.summary ?? judges;
     report.decisionUtility = {
