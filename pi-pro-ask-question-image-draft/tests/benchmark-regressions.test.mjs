@@ -900,7 +900,7 @@ describe("COMPARE-001: every envelope mismatch is recorded and classified", () =
     assert.match(two.reason, /different answers/);
     // A question the other envelope never reports at all is named explicitly.
     const three = classifyEnvelopeDifference(
-      `${envelope("A")} Other question="B"`,
+      `${envelope("A", 'Other question="B"')}`,
       envelope("A"),
     );
     assert.equal(three.kind, "capability");
