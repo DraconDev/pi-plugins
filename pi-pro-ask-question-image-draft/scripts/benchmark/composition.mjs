@@ -264,6 +264,39 @@ export const DESCRIPTION_CUES = Object.freeze([
 /** Families a description cue may not fall back to, worst legibility first. */
 const ROTATION = Object.freeze(["single", "tiles", "column", "split", "grid", "flow", "chart", "stages", "stack", "list", "band", "map"]);
 
+/**
+ * What an arrangement may become when it has to be spread.
+ *
+ * Order is semantic distance, not alphabet: spreading a *priority list* onto a
+ * map would make the three images distinguishable and the decision meaningless,
+ * which is a worse outcome than the collision it fixes. Each list starts with
+ * the arrangement most like its own and degrades towards the generic rotation.
+ */
+export const NEIGHBOURS = Object.freeze({
+  single: ["tiles", "band", "column", "split", "list", "stack", "chart"],
+  column: ["column4", "list", "stages", "flow", "single", "band", "split", "tiles", "grid"],
+  column2: ["column", "list", "stages", "single", "band", "split", "tiles", "grid"],
+  column4: ["column", "list", "stages", "flow", "tiles", "grid"],
+  split: ["tiles", "stages", "band", "grid", "rail", "column", "list"],
+  grid: ["matrix", "tiles", "list", "chart", "column", "flow", "stages"],
+  matrix: ["grid", "tiles", "list", "chart", "column", "stages"],
+  tiles: ["grid", "single", "band", "split", "list", "column", "matrix"],
+  band: ["split", "rail", "tiles", "stages", "single", "grid", "list"],
+  rail: ["split", "band", "column", "tiles", "stages", "list"],
+  overlay: ["stack", "single", "tiles", "split", "band", "column"],
+  stack: ["overlay", "tiles", "column", "single", "split", "grid"],
+  flow: ["stages", "timeline", "hub", "list", "column", "grid", "split"],
+  tree: ["hub", "flow", "stages", "list", "grid", "timeline"],
+  stages: ["flow", "column", "list", "band", "grid", "split", "timeline"],
+  list: ["column", "stages", "flow", "grid", "tiles", "band", "split"],
+  chart: ["grid", "matrix", "tiles", "list", "stages", "flow"],
+  gauge: ["tiles", "grid", "chart", "hub", "list"],
+  map: ["flow", "hub", "chart", "grid", "tiles", "stages"],
+  hub: ["map", "flow", "tree", "grid", "chart", "stages"],
+  timeline: ["flow", "stages", "list", "column", "chart", "grid"],
+  icon: ["tiles", "grid", "single", "band", "list"],
+});
+
 /** Stable 32-bit string hash; the last-resort composition has to be reproducible. */
 function hash32(value) {
   let hash = 0x811c9dc5;
@@ -290,27 +323,63 @@ export function treatmentKey(option) {
  * speaks does a stable hash of the option's own words pick a family, so the
  * three treatments of a scenario never collapse onto one identical composition
  * by accident. `source` records which step answered, and the report counts them.
- *
- * `siblings` are the other options of the same stage. A vocabulary key that two
- * of them share ("Chart" and "Chart") says nothing about how their arrangements
- * differ, so the shared key is demoted to the description and then to the
- * derived rotation: three identical compositions in one comparison is the one
- * outcome the judged question cannot survive.
  */
-export function compositionFor(option, siblings = []) {
+function baseComposition(option) {
   const key = treatmentKey(option);
-  const description = String(option?.description ?? "").trim();
   const table = TREATMENT_FAMILIES[key];
-  const sharedKey = Boolean(table) && siblings.some((sibling) => treatmentKey(sibling) === key);
-  if (table && !sharedKey) return { family: table, source: "table", key };
+  if (table) return { family: table, source: "table", key };
+  const description = String(option?.description ?? "").trim();
   for (const [pattern, family] of DESCRIPTION_CUES) {
     if (pattern.test(description)) return { family, source: "description", key };
   }
-  if (description) {
-    const family = ROTATION[hash32(description) % ROTATION.length];
-    return { family, source: "derived", key };
-  }
-  return { family: table ?? "single", source: table ? "table" : "default", key };
+  if (description) return { family: ROTATION[hash32(description) % ROTATION.length], source: "derived", key };
+  return { family: "single", source: "default", key };
+}
+
+/**
+ * Resolve every option of one stage, in order.
+ *
+ * Two options that resolve to the same family are a case nobody can decide from
+ * an image, whichever arm is being judged, so the second one is spread
+ * deterministically onto the next arrangement no sibling claimed. The spread is
+ * recorded in `source` ("<origin>+spread") rather than hidden, because an
+ * auditor has to be able to count the cases whose composition was forced.
+ */
+export function compositionsFor(options) {
+  const list = Array.isArray(options) ? options : [options];
+  const bases = list.map((option) => baseComposition(option));
+  const used = new Set();
+  return bases.map((base, index) => {
+    const others = bases.filter((_, other) => other !== index).map((item) => item.family);
+    if (!others.includes(base.family) && !used.has(base.family)) {
+      used.add(base.family);
+      return base;
+    }
+    const candidates = [...(NEIGHBOURS[base.family] ?? []), ...ROTATION].filter((family) => FAMILIES[family]);
+    const start = hash32(`${list[index]?.label ?? ""}|${treatmentKey(list[index])}|${index}`) % Math.max(1, candidates.length);
+    for (let step = 0; step < candidates.length; step += 1) {
+      const candidate = candidates[(start + step) % candidates.length];
+      if (candidate !== base.family && !others.includes(candidate) && !used.has(candidate)) {
+        used.add(candidate);
+        return { ...base, family: candidate, source: `${base.source}+spread` };
+      }
+    }
+    used.add(base.family);
+    return base;
+  });
+}
+
+/**
+ * Resolve one option's composition, with its siblings available for the spread.
+ *
+ * `siblings` are the other options of the same stage. A vocabulary key that two
+ * of them share ("Chart" and "Chart") says nothing about how their arrangements
+ * differ, so the spread is applied to the resolved families rather than to the
+ * keys.
+ */
+export function compositionFor(option, siblings = []) {
+  const list = [option, ...siblings.filter((sibling) => sibling !== option)];
+  return compositionsFor(list)[0];
 }
 
 /**
@@ -329,7 +398,9 @@ export function compositionSentence(option, siblings = []) {
       ? "The arrangement follows the treatment's own description"
       : source === "derived"
         ? "The treatment names no arrangement of its own, so the layout is chosen from its own wording"
-        : "The arrangement is not named by the treatment, so it is drawn as a plain balanced composition";
+        : source.endsWith("+spread")
+          ? "The treatment shares its arrangement with another option, so this one is drawn as a distinct layout instead"
+          : "The arrangement is not named by the treatment, so it is drawn as a plain balanced composition";
   return {
     family,
     source,
