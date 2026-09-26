@@ -32,15 +32,10 @@
  * machine, which is what lets the release gate be re-measured rather than
  * re-argued.
  */
-import { CELL_HEIGHT, CELL_WIDTH, DEFAULT_MOCKUP_CELLS, encodeCanvasPng, renderMockupCanvas, type MockupSpec, type Rgb } from "./mockup-renderer.ts";
-import { decodePng, encodePng, resampleArea } from "./terminal-image.ts";
+import { CELL_HEIGHT, DEFAULT_MOCKUP_CELLS, encodeCanvasPng, renderMockupCanvas, type MockupSpec, type Rgb } from "./mockup-renderer.ts";
+import { decodePng, resampleArea, type RgbImage } from "./png.ts";
 
-export interface DecodedImage {
-  width: number;
-  height: number;
-  /** RGB triplets, `width * height * 3` bytes. */
-  data: Buffer;
-}
+export type DecodedImage = RgbImage;
 
 export interface ComposeOptions {
   spec: MockupSpec;
@@ -97,8 +92,8 @@ export function decodeArt(bytes: Buffer): DecodedImage {
  */
 export function composePreview(options: ComposeOptions): { png: Buffer; width: number; height: number } {
   const { spec, art } = options;
-  const widthCells = options.widthCells ?? spec.widthCells ?? DEFAULT_MOCKUP_CELLS.widthCells;
-  const heightCells = options.heightCells ?? spec.heightCells ?? DEFAULT_MOCKUP_CELLS.heightCells;
+  const widthCells = options.widthCells ?? DEFAULT_MOCKUP_CELLS.widthCells;
+  const heightCells = options.heightCells ?? DEFAULT_MOCKUP_CELLS.heightCells;
   const canvas = renderMockupCanvas(spec, { widthCells, heightCells });
   const pixels = canvas.toRgb();
   const artRows = Math.max(1, Math.min(heightCells - 2, options.artRows ?? Math.max(3, Math.round(heightCells / 3))));
@@ -120,7 +115,6 @@ export function composePreview(options: ComposeOptions): { png: Buffer; width: n
   canvas.fillRect(0, (top + artRows) * CELL_HEIGHT - 1, canvas.width, 1, frame);
   canvas.fillRect(0, top * CELL_HEIGHT, 1, artRows * CELL_HEIGHT, frame);
   canvas.fillRect(canvas.width - 1, top * CELL_HEIGHT, 1, artRows * CELL_HEIGHT, frame);
-  void CELL_WIDTH;
   return { png: encodeCanvasPng(canvas), width: canvas.width, height: canvas.height };
 }
 
@@ -128,5 +122,3 @@ export function composePreview(options: ComposeOptions): { png: Buffer; width: n
 export function composePreviewFromPng(spec: MockupSpec, artPng: Buffer, options: Omit<ComposeOptions, "spec" | "art"> = {}): { png: Buffer; width: number; height: number } {
   return composePreview({ ...options, spec, art: decodeArt(artPng) });
 }
-
-export { encodePng };
