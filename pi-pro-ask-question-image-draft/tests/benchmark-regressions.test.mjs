@@ -488,14 +488,16 @@ describe("ledger: measurement-condition defects", () => {
     const call = (kind) => ({ winner: "A", candidate: true, severeFailure: attributeSevereFailure("A", { A: "candidate" }, kind) });
     const results = [call("legibility"), call("discriminability"), call("answerability"), call("none"), call("answerability")];
     const summary = judgeSummary(results);
-    // Five severe calls, one of them legibility: the gate reads the class the
-    // objective bounds, and the rest stay reported beside it.
+    // Five severe calls. The gate reads the legibility class, and a call whose
+    // class nobody could establish counts as legibility rather than falling out
+    // of the bound, so two of the five land there: the declared one and the
+    // unclassified one.
     assert.equal(summary.severeImageFailures, 5);
-    assert.equal(summary.severeLegibilityFailures, 1);
-    assert.equal(summary.severeLegibilityFailureRate, 0.2);
+    assert.equal(summary.severeLegibilityFailures, 2);
+    assert.equal(summary.severeLegibilityFailureRate, 0.4);
     assert.equal(summary.severeByKind.answerability, 2);
+    assert.equal(summary.severeByKind.discriminability, 1);
     assert.equal(summary.severeByKind.unclassified, 1);
-    assert.deepEqual(summary.severeByKind, { legibility: 1, discriminability: 1, answerability: 2, unclassified: 1 });
   });
 
   it("JUDGE-005: a contested severity call escalates to the adjudicator and is never silently charged to both arms", async () => {

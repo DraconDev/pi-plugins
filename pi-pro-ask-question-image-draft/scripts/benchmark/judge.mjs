@@ -211,7 +211,11 @@ export function judgeSummary(results) {
   const recovered = results.filter((item) => item.passModes?.some((mode) => mode === "recovered")).length;
   const severe = decided.filter((item) => item.severeFailure?.candidate === true);
   const severeReference = decided.filter((item) => item.severeFailure?.reference === true);
-  const severeLegibility = severe.filter((item) => item.severeFailure.kind === "legibility");
+  // A contested severity call the adjudicator could not break is charged to
+  // both arms with no declared class. Counting it as legibility is the
+  // conservative reading and the one this module documents: a call whose class
+  // nobody could establish may never make the ceiling easier to pass.
+  const severeLegibility = severe.filter((item) => item.severeFailure.kind === "legibility" || !["discriminability", "answerability"].includes(item.severeFailure.kind));
   const severeReferenceLegibility = severeReference.filter((item) => item.severeFailure.kind === "legibility");
   return {
     judgedCases: total,
@@ -241,9 +245,11 @@ export function judgeSummary(results) {
     severeReferenceLegibilityFailures: severeReferenceLegibility.length,
     severeReferenceLegibilityFailureRate: total ? severeReferenceLegibility.length / total : 0,
     severeByKind: {
-      legibility: severe.filter((item) => item.severeFailure.kind === "legibility").length,
+      legibility: severeLegibility.length,
       discriminability: severe.filter((item) => item.severeFailure.kind === "discriminability").length,
       answerability: severe.filter((item) => item.severeFailure.kind === "answerability").length,
+      // How much of the legibility class is really unclassified, reported so
+      // the class count is auditable rather than trusted.
       unclassified: severe.filter((item) => !["legibility", "discriminability", "answerability"].includes(item.severeFailure.kind)).length,
     },
   };
