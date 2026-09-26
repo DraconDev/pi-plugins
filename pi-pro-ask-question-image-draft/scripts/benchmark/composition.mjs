@@ -61,37 +61,37 @@ export const FAMILIES = Object.freeze({
   column: {
     blocks: 3,
     draw: "three wide blocks stacked in a single column, each the same width, separated by wide white gaps",
-    content: "each block holds one oversized pictogram, centred in the block, and the three pictograms differ from each other: one ring, one filled disc, one thick bar",
+    content: "each block holds one oversized status pictogram on the left and one thick horizontal bar on the right whose length differs from block to block, so the longest bar is obvious at a glance",
   },
   column2: {
     blocks: 2,
     draw: "two very wide blocks stacked in a single column, each the same width, separated by one wide white gap",
-    content: "each block holds one oversized pictogram, centred in the block, and the two pictograms differ from each other: one ring, one filled disc",
+    content: "each block holds one oversized status pictogram and one thick horizontal bar of a clearly different length from the other block",
   },
   column4: {
     blocks: 4,
     draw: "four wide blocks stacked in a single column, each the same width, separated by wide white gaps",
-    content: "each block holds one oversized pictogram, alternating between a filled disc and a thick bar",
+    content: "each block holds one oversized status pictogram and one thick horizontal bar, and the bar lengths step up from the top block to the bottom one",
   },
   split: {
     blocks: 2,
     draw: "two large panels side by side, each half the width and the full height, separated by one thick white gutter",
-    content: "each panel holds two oversized pictograms of different kinds, a filled disc and a thick bar, and the left panel is the accent colour",
+    content: "each panel holds two rows, and every row is one oversized status pictogram beside one thick horizontal bar of a clearly different length; the left panel is the accent colour",
   },
   grid: {
     blocks: 9,
     draw: "a three-by-three grid of nine large square cells with thick white gutters between them",
-    content: "each cell holds one oversized pictogram of a different kind - a ring, a disc, a triangle, a square, a bar - and six of the nine cells are the accent colour while three stay white",
+    content: "each cell holds one oversized status pictogram above one thick horizontal bar, the nine bar lengths are all different, and six of the nine cells are the accent colour while three stay white",
   },
   matrix: {
     blocks: 9,
     draw: "a three-by-three grid of nine large square cells with thick white gutters, and the cells are either solid black or pure white",
-    content: "each cell holds one oversized pictogram of a different kind, four cells are solid black, one cell is the accent colour, and the remaining cells are white outlines",
+    content: "each cell holds one oversized status pictogram, the filled cells are the important ones, and the remaining cells stay as white outlines",
   },
   tiles: {
     blocks: 4,
     draw: "a two-by-two grid of four large square tiles with thick white gutters between them",
-    content: "each tile holds one oversized pictogram of a different kind - a ring, a disc, a triangle, a square - and the top-left tile is the accent colour",
+    content: "each tile holds one oversized status pictogram beside one thick horizontal bar of a different length, and the top-left tile is the accent colour",
   },
   band: {
     blocks: 3,
@@ -116,7 +116,7 @@ export const FAMILIES = Object.freeze({
   flow: {
     blocks: 3,
     draw: "three large blocks in a single left-to-right row, joined by two thick arrows",
-    content: "each block holds one oversized pictogram of a different kind and the middle block is the accent colour",
+    content: "each block holds one oversized status pictogram above one thick horizontal bar, and the three bar lengths are all different so the middle one is not the largest",
   },
   tree: {
     blocks: 4,
@@ -126,12 +126,12 @@ export const FAMILIES = Object.freeze({
   stages: {
     blocks: 3,
     draw: "three wide vertical bands side by side, each the same width, separated by thick white gutters, the leftmost band noticeably shorter than the other two",
-    content: "each band holds one oversized pictogram of a different kind and the middle band is the accent colour",
+    content: "each band holds one oversized status pictogram and one thick horizontal bar, and the middle band is the accent colour",
   },
   list: {
     blocks: 4,
     draw: "four wide short blocks stacked in a single column with wide white gaps, each block starting with one large square marker on its left",
-    content: "each block holds one oversized pictogram of a different kind - a ring, a disc, a triangle, a square - and the first block is the accent colour",
+    content: "each block holds one oversized status pictogram on the left and one thick horizontal bar on the right whose length differs from row to row, so the longest bar is obvious at a glance, and the first block is the accent colour",
   },
   chart: {
     blocks: 5,
