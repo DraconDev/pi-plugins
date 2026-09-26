@@ -145,7 +145,7 @@ export function optionPrompt(scenario, option, { siblings } = {}) {
   return [
     `Draw exactly this composition and nothing else: ${composition.sentence}`,
     `The screen is about ${subject}.`,
-    `Place two or three oversized, clearly recognisable pictograms from that subject inside it: ${marks.join(", ")}. They must read as ${subject} at postage-stamp size, drawn as plain bold shapes with no detail inside them.`,
+    `Place two or three oversized, clearly recognisable pictograms from that subject inside it: ${marks.join(", ")}. They must read as ${subject} at postage-stamp size, drawn as plain bold shapes with no detail inside them. Add one thick reference line, axis or scale bar that shows the quantity being compared.`,
     description ? `This treatment exists to: ${description}` : "",
     `It must support this decision: ${concept}`,
     `The three candidate treatments differ only in arrangement, so the arrangement above must be unmistakable from the shapes alone.`,
