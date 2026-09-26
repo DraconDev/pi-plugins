@@ -65,6 +65,13 @@ export interface ComposeOptions {
   artRows?: number;
   /** "fit" letterboxes the whole artwork into the panel; "crop" fills it. */
   artMode?: "fit" | "crop";
+  /**
+   * Row pitch for the drawn structure, in cells. The composed preview defaults
+   * to 2: at 31 x 16 cells, pitch 1 draws eleven rows of 5x7 glyphs and the
+   * judge called the result pixelated, where the same arrangement at half the
+   * density reads as a layout.
+   */
+  rowPitch?: number;
   style?: { frame: Rgb; panel: Rgb };
 }
 
@@ -133,7 +140,7 @@ export function composePreview(options: ComposeOptions): { png: Buffer; width: n
   canvas.fillRect(0, artRows * CELL_HEIGHT - 1, width, 1, frame);
   // The structure is laid out in the rows the panel does not take, so each
   // arrangement picks a capacity that fits instead of being clipped.
-  const structure = renderMockupCanvas(spec, { widthCells, heightCells: heightCells - artRows });
+  const structure = renderMockupCanvas({ ...spec, rowPitch: options.rowPitch ?? 2 }, { widthCells, heightCells: heightCells - artRows });
   canvas.blit(structure, 0, artRows * CELL_HEIGHT);
   return { png: encodeCanvasPng(canvas), width: canvas.width, height: canvas.height };
 }

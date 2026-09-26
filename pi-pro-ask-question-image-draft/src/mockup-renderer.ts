@@ -190,6 +190,18 @@ export interface MockupSpec {
   emphasis?: "dialog" | "banner" | "toast" | "sheet" | "highlight";
   /** Short column headers for the chart and table arrangements. */
   headers?: string[];
+  /**
+   * Row pitch for the list arrangements, in cells. 1 packs the frame; 2 leaves
+   * a blank row between items.
+   *
+   * The judge charged the composed previews for reading as "pixelated" and
+   * "unreadable at terminal size" in 82 of 91 losses, and a 5x7 glyph in an 8x16
+   * cell is exactly what a terminal shows - the problem was how many of them
+   * there were. Half as many rows with a blank row between them is the same
+   * arrangement at half the density, and it is the difference between a preview
+   * that looks deliberate and one that looks like noise.
+   */
+  rowPitch?: number;
   rows: MockupRow[];
   style?: Partial<MockupStyle>;
 }
@@ -565,9 +577,10 @@ export function renderMockupCanvas(spec: MockupSpec, { widthCells = 31, heightCe
     // how many rows they admit. Airy doubles the pitch so the same frame holds
     // half as many items with the air between them that its name promises -
     // which is exactly the difference a reader is being asked to judge.
-    const pitch = layout === "airy" ? 3 : 1;
+    const pitch = layout === "airy" ? 3 : Math.max(1, Math.min(3, Math.round(spec.rowPitch ?? 1)));
     const capacity = Math.max(0, Math.floor((rows - top) / pitch) - 1);
-    const count = Math.min(layout === "airy" ? 4 : rowsToDraw.length, rowsToDraw.length, capacity);
+    const airyCap = Math.max(3, Math.floor((rows - top) / pitch) - 1);
+    const count = Math.min(layout === "airy" ? 4 : airyCap, rowsToDraw.length, capacity);
     for (let index = 0; index < count; index += 1) {
       const row = rowsToDraw[index];
       if (!row) break;

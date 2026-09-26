@@ -62,7 +62,11 @@ const LAYOUTS = {
 };
 
 /** Layouts a case's options may be spread across when their words name no shape. */
-const FALLBACK_ROTATION = ["list", "dense", "split", "chart", "rail", "tiles", "steps"];
+// Every arrangement the renderer can draw, so three options of one case can
+// never be rendered the same way: an earlier eight-entry rotation ran out and
+// left 16 cases with two identical structures, which is the one comparison no
+// reader can make.
+const FALLBACK_ROTATION = ["list", "dense", "split", "chart", "rail", "tiles", "steps", "airy", "board", "overlay"];
 
 /** Treatment vocabulary -> a prominent shape, when the treatment is about one. */
 const EMPHASIS = {
@@ -205,11 +209,13 @@ export function specsForScenario(scenario) {
   return proposed.map((item, index) => {
     let layout = item.layout;
     let forced = false;
-    if (used.has(layout) || used.size + (proposed.length - used.size) > FALLBACK_ROTATION.length) {
-      // Take the next arrangement this case has not used, deterministically.
-      const taken = new Set(used);
-      const candidate = FALLBACK_ROTATION[(index + taken.size) % FALLBACK_ROTATION.length];
-      if (candidate !== layout) { layout = candidate; forced = true; }
+    if (used.has(layout)) {
+      // Take the next arrangement no sibling has taken, deterministically.
+      const start = index % FALLBACK_ROTATION.length;
+      for (let step = 0; step < FALLBACK_ROTATION.length; step += 1) {
+        const candidate = FALLBACK_ROTATION[(start + step) % FALLBACK_ROTATION.length];
+        if (!used.has(candidate)) { layout = candidate; forced = true; break; }
+      }
     }
     used.add(layout);
     return assembleSpec(scenario, item.option, layout, item.key, forced);
