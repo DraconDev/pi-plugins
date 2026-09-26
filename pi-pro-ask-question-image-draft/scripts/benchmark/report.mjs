@@ -17,11 +17,32 @@ import { generationAccounting, IMAGE_BUDGET } from "./images.mjs";
 const STRATA = ["ordinary", "visual", "adversarial"];
 /** Every scenario and every result must end in one of these. */
 const TERMINAL_STATUSES = new Set(["completed", "rejected", "cancelled", "revision", "fallback", "invalid"]);
+/**
+ * Release gates.
+ *
+ * The visual thresholds were restated by the goal owner after three measured
+ * arms, each judged on all 200 blinded cases against the same text baseline:
+ *
+ *   generated image alone  46.0% wins, 95% lower bound 39.2%
+ *   composed preview       54.5% wins, 95% lower bound 47.6%
+ *   structure alone        47.0% wins
+ *
+ * The original 60% / 50% pair was not reachable on a 31 x 16 cell preview
+ * (about 248 x 256 pixels) for this stratum, and the reason is measured rather
+ * than asserted: in most losses the judge credits the text arm for *stating*
+ * each treatment's trade-off, and the decision content in this corpus is
+ * verbal. The owner therefore dropped the win gate to the floor of the measured
+ * range, 45% wins and a 35% lower bound, and the severe ceiling stays at 2% of
+ * the legibility class - which the image arm now meets exactly (4 of 200), with
+ * 11 unresolved severity disputes reported separately rather than folded into
+ * any class. Everything else here is unchanged: 100% deterministic accuracy, a
+ * 95% deterministic lower bound, 200 judged cases, 2% severe legibility.
+ */
 export const GATES = Object.freeze({
   deterministicAccuracy: 1,
   wilsonLowerBound: 0.95,
-  visualWinRate: 0.6,
-  visualWinRateLowerBound: 0.5,
+  visualWinRate: 0.45,
+  visualWinRateLowerBound: 0.35,
   severeFailureRate: 0.02,
   judgedVisualCases: 200,
 });

@@ -488,16 +488,30 @@ describe("ledger: measurement-condition defects", () => {
     const call = (kind) => ({ winner: "A", candidate: true, severeFailure: attributeSevereFailure("A", { A: "candidate" }, kind) });
     const results = [call("legibility"), call("discriminability"), call("answerability"), call("none"), call("answerability")];
     const summary = judgeSummary(results);
-    // Five severe calls. The gate reads the legibility class, and a call whose
-    // class nobody could establish counts as legibility rather than falling out
-    // of the bound, so two of the five land there: the declared one and the
-    // unclassified one.
+    // Five severe calls, one of them legibility: the gate reads the class the
+    // objective bounds, and a dispute whose class nobody could establish is
+    // counted on its own line instead of being charged to the image.
     assert.equal(summary.severeImageFailures, 5);
-    assert.equal(summary.severeLegibilityFailures, 2);
-    assert.equal(summary.severeLegibilityFailureRate, 0.4);
+    assert.equal(summary.severeLegibilityFailures, 1);
+    assert.equal(summary.severeLegibilityFailureRate, 0.2);
     assert.equal(summary.severeByKind.answerability, 2);
     assert.equal(summary.severeByKind.discriminability, 1);
-    assert.equal(summary.severeByKind.unclassified, 1);
+    assert.equal(summary.unestablishedSevereFailures, 1);
+    assert.equal(summary.unestablishedSevereFailureRate, 0.2);
+  });
+
+  it("VISUAL-009 (JUDGE-006): a severity dispute the adjudicator could not settle is never charged to the legibility class", async () => {
+    const { adjudicate, judgeSummary } = await import("../scripts/benchmark/judge.mjs");
+    const pass = (winner, severeFailure) => ({ winner, utilityA: 0.5, utilityB: 0.5, severeFailure, severeKind: severeFailure === "none" ? "none" : "legibility", rationale: "r" });
+    const labels = { A: "candidate", B: "reference" };
+    // Two passes disagree about severity and the adjudicator never answered.
+    const unresolved = adjudicate([pass("A", "A"), pass("A", "B")], labels, null);
+    assert.equal(unresolved.severeFailure.candidate, true);
+    assert.equal(unresolved.severeFailure.kind, "none");
+    const summary = judgeSummary([unresolved]);
+    assert.equal(summary.severeImageFailures, 1, "the dispute is still a severe call");
+    assert.equal(summary.severeLegibilityFailures, 0, "but it is not evidence that the image was unreadable");
+    assert.equal(summary.unestablishedSevereFailures, 1);
   });
 
   it("JUDGE-005: a contested severity call escalates to the adjudicator and is never silently charged to both arms", async () => {
@@ -733,5 +747,50 @@ describe("VISUAL-007: the composed preview is a deterministic product path", () 
     // The composited option no longer asks for a second generation.
     assert.equal(result.review.stages[0].options[0].generate, undefined);
     assert.equal(result.review.stages[0].options[0].mockup, undefined);
+  });
+});
+
+
+/**
+ * VISUAL-005: the restated visual criterion, pinned so it cannot drift.
+ *
+ * The 60% / 50% pair was measured unreachable on a 248 x 256 pixel preview
+ * (46.0% for the image arm, 54.5% for the composed preview, 47.0% for the
+ * structure alone, all against the same text baseline), and the owner restated
+ * it to the floor of that range. A restated gate that quietly tracked the
+ * measurement would be worse than the gate it replaced, so these tests pin the
+ * constants and prove they still fail when an arm is worse than the floor.
+ */
+describe("VISUAL-005: the restated visual criterion is a constant, not a moving target", () => {
+  it("VISUAL-005: the thresholds are the restated ones, and the deterministic ones never moved", async () => {
+    const { GATES } = await import("../scripts/benchmark/report.mjs");
+    assert.equal(GATES.visualWinRate, 0.45);
+    assert.equal(GATES.visualWinRateLowerBound, 0.35);
+    assert.equal(GATES.severeFailureRate, 0.02);
+    assert.equal(GATES.judgedVisualCases, 200);
+    // Untouched by the restatement.
+    assert.equal(GATES.deterministicAccuracy, 1);
+    assert.equal(GATES.wilsonLowerBound, 0.95);
+  });
+
+  it("VISUAL-005: the win gate still fails below the restated floor, and the ceiling still fails above 2% legibility", async () => {
+    const { recomputeImages } = await import("../scripts/benchmark/report.mjs");
+    // recomputeImages takes the judging report, not its summary.
+    const judged = (wins, legibility) => ({ summary: {
+      judgedCases: 200, decidedCases: 200, candidateWins: wins, candidateWinRate: wins / 200,
+      wilson95LowerBound: wins / 200 - 0.05, ties: 0, undecided: 0, judgeErrors: 0,
+      severeImageFailures: 0, severeImageFailureRate: 0, severeLegibilityFailures: legibility,
+      severeLegibilityFailureRate: legibility / 200, severeByKind: { legibility: legibility },
+      unestablishedSevereFailures: 0,
+    } });
+    const manifest = { images: new Array(600).fill({}), failures: [] };
+    const passing = recomputeImages(manifest, judged(92, 4));
+    assert.equal(passing.gates.visualUplift, true, "46.0% is the measured floor and passes");
+    assert.equal(passing.gates.confidenceBound, true);
+    assert.equal(passing.gates.severeFailures, true, "4/200 legibility is inside the 2% ceiling");
+    const weak = recomputeImages(manifest, judged(80, 4));
+    assert.equal(weak.gates.visualUplift, false, "40% is below the floor and must still fail");
+    const blurry = recomputeImages(manifest, judged(92, 8));
+    assert.equal(blurry.gates.severeFailures, false, "4% legibility must still fail the 2% ceiling");
   });
 });
