@@ -424,13 +424,14 @@ export const DISPLAY_STYLE = Object.freeze([
   "Flat vector shapes on a pure white background, seen straight on, filling the whole frame: solid fills only, thick black outlines at least 12 pixels wide, no thin lines, no hairlines, no grey tints, no gradients, no shadows, no 3D, no perspective, no device frame, no texture, no photography.",
   "At most nine shapes in the whole image, and every one of them at least a fifth of the frame across. Leave wide white gaps between neighbouring shapes so each keeps its own outline when the image is shrunk.",
   "Use three flat colours at most: black, white, and one bold accent colour.",
-  "No text of any kind: no letters, no words, no numbers, no captions, no labels, no logos, no placeholders, no watermarks.",
+  "Words: at most one very large uppercase word per block, and only from this list: LATE, OK, HOLD, DONE, NEW, ALERT, HOLD, PAID, SENT, WAIT, SAFE, LOW, HIGH. Each word is drawn in a heavy sans-serif and is at least a tenth of the image height, so it is still readable when the image is shrunk. Never write a treatment name, a product name, a title, a caption or a number.",
+  "Nothing else is written anywhere: no small text, no fine print, no logos, no placeholders, no watermarks.",
   "Every shape is a plain block or a simple disc, triangle or bar with straight edges, and each one is recognisable from its silhouette alone.",
 ].join(" "));
 
 /** The negative prompt sent alongside every generation. */
 export const DISPLAY_NEGATIVE_PROMPT = Object.freeze([
-  "text, letters, words, numbers, captions, labels, logos, watermarks, signature",
+  "small text, fine print, captions, titles, numbers, logos, watermarks, signature",
   "thin lines, hairlines, fine detail, small icons, tiny text, dense grids, clutter, many small elements",
   "gradients, drop shadows, 3d rendering, isometric view, perspective, photo texture, noise",
   "device bezel, browser chrome, hands, people, poster layout, marketing copy",
