@@ -233,8 +233,6 @@ try {
   evidence.observed.editor = { command: editor.command, source: editor.source, quitKeys: quit.quit };
   const notifications = [];
   const inputListeners = [];
-  let finish;
-  const finished = new Promise((resolveDone) => { finish = resolveDone; });
   const context = {
     mode: "tui",
     hasUI: true,
@@ -255,7 +253,13 @@ try {
        * extension's terminal-input listeners.
        */
       async custom(factory, options = {}) {
-        const component = await factory(tui, theme, keybindings, finish);
+        // One completion per overlay: a second round must resolve its *own*
+        // result, so this promise is created per call rather than once per
+        // session. Reusing a settled promise hands the next round the previous
+        // round's result.
+        let done;
+        const finished = new Promise((resolveDone) => { done = resolveDone; });
+        const component = await factory(tui, theme, keybindings, done);
         wizard = component;
         overlays += 1;
         overlayHandle = tui.showOverlay(component, typeof options.overlayOptions === "function" ? options.overlayOptions() : (options.overlayOptions ?? { anchor: "bottom-center", width: "100%", maxHeight: "100%" }));
@@ -569,6 +573,9 @@ try {
 
     const status = result.details?.result?.status ?? result.details?.status;
     const answers = result.details?.result?.answers?.map((answer) => answer.stageId) ?? [];
+    const summary = summarize(result);
+    evidence.session.result = summary;
+    evidence.session.rounds = [summary];
 
     if (status !== "completed") fail("complete", new Error(`unexpected status ${status}`));
     if (!answers.includes("direction")) fail("complete", new Error("the chosen option was not recorded"));
