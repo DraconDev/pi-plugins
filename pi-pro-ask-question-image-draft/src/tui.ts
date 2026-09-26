@@ -320,6 +320,10 @@ export class VisualReviewWizard implements Component, Focusable {
   private inputMode: "none" | "other" | "revision" | "note" | "globalNote" = "none";
   private inputStageIndex = 0;
   private globalNote = "";
+  /** A clamped stage prompt opens short; ctrl+r reads the rest. */
+  private promptExpanded = false;
+  /** Set once the option list has reached its action rows, so the rule prints once. */
+  private actionRule = false;
   private cachedWidth = -1;
   private cachedHeight = -1;
   private cachedLines: string[] | undefined;
@@ -470,6 +474,13 @@ export class VisualReviewWizard implements Component, Focusable {
     if (this.disposed || this.finished || this.signal?.aborted) return;
     if (matchesKey(data, Key.ctrl("]"))) {
       this.toggleCollapsed();
+      return;
+    }
+    // Ctrl+R reads a clamped stage prompt in full. It is a view toggle, so it
+    // never reaches the editor, and it is inert once the prompt already fits.
+    if (matchesKey(data, Key.ctrl("r")) && this.currentStage()) {
+      this.promptExpanded = !this.promptExpanded;
+      this.invalidate();
       return;
     }
 
@@ -674,7 +685,20 @@ export class VisualReviewWizard implements Component, Focusable {
     lines.push(` ${tabs.join(" ")} `);
     lines.push("");
     if (stage) {
-      addWrapped(stage.prompt);
+      // A prompt can be a paragraph. The reference dialog shows the question
+      // and gets out of the way; dumping a full page of model prose before the
+      // options pushed the list off the screen, so it is clamped to a few
+      // lines with the rest reachable on a keypress.
+      const promptLines = addWrapped(stage.prompt);
+      if (this.promptExpanded) {
+        promptLines.forEach((line) => lines.push(line));
+      } else {
+        const limit = 3;
+        for (const line of promptLines.slice(0, limit)) lines.push(line);
+        if (promptLines.length > limit) {
+          lines.push(this.theme.fg("dim", `  … ${promptLines.length - limit} more lines — press ctrl+r to read the whole prompt`));
+        }
+      }
       if (stage.description) {
         lines.push("");
         addWrapped(this.theme.fg("muted", stage.description));
@@ -896,8 +920,15 @@ export class VisualReviewWizard implements Component, Focusable {
       const active = index === this.selectedIndex;
       const marker = row.kind === "option" && stage.multiSelect ? (selected.has(row.option.id) ? "✓ " : "  ") : "";
       const prefix = active ? this.theme.fg("accent", "> ") : "  ";
+      // Answers and the actions that end or extend the review are not the same
+      // kind of thing, and the reference dialog keeps them apart: a rule before
+      // the action rows, and the actions themselves dimmed.
+      const action = !["option", "done"].includes(row.kind);
+      if (action && !this.actionRule) lines.push("");
+      if (action) this.actionRule = true;
       const label = `${marker}${index + 1}. ${rowLabel(row)}`;
-      lines.push(...wrapTextWithAnsi(`${prefix}${label}`, Math.max(1, width)));
+      const text = `${prefix}${label}`;
+      lines.push(...(action && !active ? wrapTextWithAnsi(this.theme.fg("muted", text), Math.max(1, width)) : wrapTextWithAnsi(text, Math.max(1, width))));
       const description = row.kind === "option" || row.kind === "globalNote" ? rowDescription(row) : undefined;
       if (describe && description) {
         for (const line of wrapTextWithAnsi(this.theme.fg("muted", `     ${description}`), Math.max(1, width))) lines.push(line);
@@ -910,16 +941,23 @@ export class VisualReviewWizard implements Component, Focusable {
     const stage = this.review.stages[this.stageIndex];
     const key = `${stage.id}:${option.id}`;
     const loaded = this.loadedImages.get(key);
+    const hasImage = this.imageMode && Boolean(loaded?.image);
+    const hasPreview = Boolean(option.preview?.trim());
+    // No picture and no preview is not a block worth three lines of "nothing to
+    // see here": the option's own sentence is the preview, and if it has none
+    // either, the pane stays empty rather than saying so at the user.
+    if (!hasImage && !hasPreview && !option.description) return [];
     // The description belongs where the room is. In the side-by-side layout the
     // list is a narrow column, so the option's own sentence is spelled out with
     // its preview rather than wrapped three times beside it.
-    const lines = [this.theme.fg("accent", `Preview: ${option.label}`), ""];
+    const lines: string[] = [];
+    if (hasImage || hasPreview) lines.push(this.theme.fg("accent", `Preview: ${option.label}`));
     if (option.description) {
+      if (lines.length) lines.push("");
       for (const line of wrapTextWithAnsi(this.theme.fg("muted", option.description), Math.max(1, width))) lines.push(line);
-      lines.push("");
     }
-    if (this.imageMode && loaded?.image) {
-      lines.push(...imageLines(loaded.image, this.theme, width, this.previewRows()));
+    if (hasImage) {
+      lines.push(...(lines.length ? [""] : []), ...imageLines(loaded!.image, this.theme, width, this.previewRows()));
       return lines;
     }
     return [...lines, ...fallbackPreview(option, loaded, this.theme, Math.max(1, width))];
