@@ -143,12 +143,12 @@ export function optionPrompt(scenario, option, { siblings } = {}) {
   // blinded, and a model that captions its image with the option label would
   // leak the treatment identity straight into the judge's view.
   return [
-    `The screen shows ${subject}.`,
-    `Draw this composition and nothing else: ${composition.sentence}`,
-    `Inside it place two or three oversized, clearly recognisable pictograms from this subject: ${marks.join(", ")}. They must be recognisable as ${subject} even at postage-stamp size, drawn as plain bold shapes with no detail inside them.`,
-    description ? `What this treatment is for: ${description}` : "",
+    `Draw exactly this composition and nothing else: ${composition.sentence}`,
+    `The screen is about ${subject}.`,
+    `Place two or three oversized, clearly recognisable pictograms from that subject inside it: ${marks.join(", ")}. They must read as ${subject} at postage-stamp size, drawn as plain bold shapes with no detail inside them.`,
+    description ? `This treatment exists to: ${description}` : "",
     `It must support this decision: ${concept}`,
-    "The three candidate treatments for this decision differ only in arrangement, so the arrangement must be unmistakable from the shapes alone.",
+    `The three candidate treatments differ only in arrangement, so the arrangement above must be unmistakable from the shapes alone.`,
     DISPLAY_STYLE,
   ].filter(Boolean).join(" ");
 }

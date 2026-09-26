@@ -420,13 +420,10 @@ export function compositionSentence(option, siblings = []) {
  * thing that keeps neighbouring shapes separate after a 3.7x reduction.
  */
 export const DISPLAY_STYLE = Object.freeze([
-  `Draw for the size it will be shown at: this image is displayed at about ${TERMINAL_DISPLAY.pixelWidth} by ${TERMINAL_DISPLAY.pixelHeight} pixels, smaller than a postage stamp, so it has to be read as shape and colour rather than as detail.`,
-  "Flat vector shapes on a pure white background, seen straight on, filling the whole frame: solid fills only, thick black outlines at least 12 pixels wide, no thin lines, no hairlines, no grey tints, no gradients, no shadows, no 3D, no perspective, no device frame, no texture, no photography.",
-  "At most nine shapes in the whole image, and every one of them at least a fifth of the frame across. Leave wide white gaps between neighbouring shapes so each keeps its own outline when the image is shrunk.",
-  "Use three flat colours at most: black, white, and one bold accent colour.",
-  "Words: at most one very large uppercase word per block, and only from this list: LATE, OK, HOLD, DONE, NEW, ALERT, HOLD, PAID, SENT, WAIT, SAFE, LOW, HIGH. Each word is drawn in a heavy sans-serif and is at least a tenth of the image height, so it is still readable when the image is shrunk. Never write a treatment name, a product name, a title, a caption or a number.",
-  "Nothing else is written anywhere: no small text, no fine print, no logos, no placeholders, no watermarks.",
-  "Every shape is a plain block or a simple disc, triangle or bar with straight edges, and each one is recognisable from its silhouette alone.",
+  `Style: flat vector shapes, seen straight on, filling the whole frame, on a pure white background. Solid fills, thick black outlines at least 12 pixels wide, no thin lines, no grey tints, no gradients, no shadows, no 3D, no perspective, no photo, no device frame, no texture.`,
+  "Budget: at most nine shapes in the whole image, each at least a fifth of the frame across, with wide white gaps between neighbouring shapes so each keeps its own outline when the image is shrunk.",
+  "Colours: three flat colours at most - black, white, and one bold accent colour.",
+  "Text: at most one very large uppercase word per block, drawn in a heavy sans-serif, and only from this list: LATE, OK, HOLD, DONE, NEW, ALERT, PAID, SENT, WAIT, SAFE, LOW, HIGH. Each word is at least a tenth of the image height so it is still readable when the image is shrunk. Never write a treatment name, a product name, a title, a caption or a number, and never write anything smaller.",
 ].join(" "));
 
 /** The negative prompt sent alongside every generation. */
