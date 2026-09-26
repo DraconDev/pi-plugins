@@ -75,10 +75,10 @@ describe("ledger: judging defects", () => {
       const labels = blindLabels(7, id);
       // The prompt must describe the image arm with the letter the label map
       // calls the candidate; a hard-coded "A" inverted half of all cases.
-      assert.match(item.prompt, new RegExp(`Arm ${item.imageSide}: the three treatments rendered as images`));
+      assert.match(item.prompt, new RegExp(`Arm ${item.imageSide}: the three treatments as images`));
       assert.equal(labels[item.imageSide], "candidate");
       const other = item.imageSide === "A" ? "B" : "A";
-      assert.match(item.prompt, new RegExp(`Arm ${other}: the same three treatments as the current text`));
+      assert.match(item.prompt, new RegExp(`Arm ${other}: the same three treatments as the text a terminal user sees today`));
     }
   });
 
@@ -402,5 +402,133 @@ describe("ledger: the shipped ledger itself", () => {
       .filter((defect) => (defect.severity === "P0" || defect.severity === "P1") && defect.status === "resolved")
       .filter((defect) => !defect.regressionTest || !source.includes(defect.id));
     assert.deepEqual(missing.map((defect) => defect.id), [], "resolved critical defects must be pinned by a named test in this file");
+  });
+});
+
+describe("ledger: measurement-condition defects", () => {
+  it("VISUAL-003: the judged image arm is the raster a terminal displays, not the untouched source file", async () => {
+    const { decodePng, encodePng, previewCellGrid, renderAtTerminalDimensions, resampleArea } = await import("../scripts/benchmark/terminal-render.mjs");
+    const grid = previewCellGrid({ columns: 110 });
+    // The grid is the package's own: src/tui.ts renders the preview through
+    // pi-tui with maxWidthCells = width - 2 and maxHeightCells = 16.
+    assert.equal(grid.widthCells, 31);
+    assert.equal(grid.heightCells, 16);
+    assert.equal(grid.pixelWidth, 31 * 8);
+    assert.equal(grid.pixelHeight, 16 * 16);
+    // An area-average downscale of a 2x1 red/blue pair keeps both, where a point
+    // sample would drop half the signal: the maths is pinned, not mocked.
+    const stripes = { width: 2, height: 1, data: Buffer.from([255, 0, 0, 0, 0, 255]) };
+    const averaged = resampleArea(stripes, 1, 1);
+    assert.deepEqual([...averaged.data], [128, 0, 128]);
+    // Encode/decode round-trips, and the render really is smaller than its source.
+    const encoded = encodePng(stripes);
+    assert.deepEqual([...decodePng(encoded).data], [...stripes.data]);
+    const source = await readFile(new URL("../tests/fixtures/tui-smoke.png", import.meta.url));
+    const rendered = renderAtTerminalDimensions(source, grid);
+    assert.equal(rendered.width, grid.pixelWidth);
+    assert.equal(rendered.height, grid.pixelHeight);
+    assert.ok(rendered.source.width > rendered.width, "the judged raster must be the downscale, not the source");
+    assert.deepEqual([...rendered.png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  });
+
+  it("VISUAL-003: the baseline arm is the text the package renders today, not a hand-written summary", async () => {
+    const { renderTextArm, wrapText } = await import("../scripts/benchmark/text-arm.mjs");
+    const review = VISUAL_SCENARIO.canonicalInput;
+    const lines = renderTextArm(review, { columns: 110 });
+    assert.ok(lines.includes("> Error recovery Inline"), "the selected row carries the TUI's selection marker");
+    assert.ok(lines.includes("  Error recovery Toast"), "unselected rows keep the TUI's two-space indent");
+    assert.ok(lines.some((line) => line.startsWith("     An inline notice")), "descriptions keep the TUI's five-space indent");
+    assert.ok(lines.includes("Preview: Error recovery Inline"), "the selected option's preview block is present");
+    assert.ok(lines.includes("No inline preview supplied."), "an option with no preview says so, as fallbackPreview does");
+    // Wrapping respects the column budget the text mode uses (columns - 2).
+    assert.ok(wrapText("a ".repeat(200), 40).every((line) => line.length <= 40));
+    // A body character must never exceed the budget.
+    assert.ok(wrapText("word ".repeat(200), 40).every((line) => line.length <= 40));
+    assert.ok(wrapText("   indented words here", 40)[0].startsWith("   "), "indent survives wrapping");
+  });
+
+  it("JUDGE-005: severe failure is attributed through the label map, so the 2% cap is measurable", async () => {
+    const { attributeSevereFailure } = await import("../scripts/benchmark/judge.mjs");
+    // The judge names arms; the summary used to look for "candidate", so the
+    // rate was structurally zero no matter what the judge reported.
+    assert.deepEqual(attributeSevereFailure("B", { A: "candidate", B: "reference" }), { label: "B", candidate: false, reference: true, raw: "B" });
+    assert.deepEqual(attributeSevereFailure("B", { A: "reference", B: "candidate" }), { label: "B", candidate: true, reference: false, raw: "B" });
+    assert.equal(attributeSevereFailure("both", { A: "candidate", B: "reference" }).candidate, true);
+    assert.equal(attributeSevereFailure("none", { A: "candidate", B: "reference" }).candidate, false);
+  });
+
+  it("JUDGE-005: a contested severity call escalates to the adjudicator and is never silently charged to both arms", async () => {
+    const { adjudicate, judgeSummary } = await import("../scripts/benchmark/judge.mjs");
+    const pass = (winner, severeFailure) => ({ winner, utilityA: 0.5, utilityB: 0.5, severeFailure, rationale: "r" });
+    const labels = { A: "candidate", B: "reference" };
+    const settled = adjudicate([pass("A", "A"), pass("A", "B")], labels, pass("A", "B"));
+    assert.equal(settled.method, "adjudicated-severity");
+    assert.equal(settled.severeFailure.candidate, false, "the adjudicator's call decides, not a default");
+    const contested = adjudicate([pass("A", "A"), pass("A", "B")], labels);
+    assert.equal(contested.method, "contested-severity");
+    assert.equal(contested.severeFailure.candidate, true, "an unbreakable split is charged to both, conservatively");
+    const summary = judgeSummary([settled, contested]);
+    assert.equal(summary.severeImageFailures, 1);
+    assert.equal(summary.severeReferenceFailures, 2);
+  });
+
+  it("GATE-004: --verify recomputes the gates from the artifacts and rejects a self-certified report", async () => {
+    const { recomputeFromSources } = await import("../scripts/benchmark/report.mjs");
+    const corpus = smallCorpus(5);
+    const manifest = manifestFor(corpus);
+    const results = { kind: "benchmark-comparison", cases: corpus.scenarios.map((scenario) => ({ id: scenario.id, pass: true })), passes: { requested: 2, executedPerCase: 2 }, reference: { adapter: "test", sharedCases: 0 } };
+    const judging = { model: { provider: "p", model: "m" }, summary: { judgedCases: 200, candidateWins: 130, candidateWinRate: 0.65, wilson95LowerBound: 0.58, severeImageFailureRate: 0 }, results: [] };
+    const directory = await mkdtemp(join(tmpdir(), "verify-"));
+    const paths = {};
+    for (const [name, value] of Object.entries({ "corpus.json": corpus, "results.json": results, "image-manifest.json": manifest, "judge.json": judging })) {
+      paths[name] = join(directory, name);
+      await writeFile(paths[name], JSON.stringify(value));
+    }
+    const reportPath = join(directory, "report.json");
+    // An honest report: the corpus is too small for the 1% accuracy gate, so the
+    // recomputed verdict is not ready and the report says so.
+    const honest = {
+      schemaVersion: 1, kind: "benchmark-aggregate-report",
+      sources: { corpus: "corpus.json", results: "results.json", images: "image-manifest.json", judging: "judge.json" },
+      defects: [], liveSmoke: { status: "passed", observedAt: new Date().toISOString(), details: "x" },
+      images: { visualUplift: 0.65 },
+      // Five passing cases cannot clear the 1% accuracy lower bound, so confidenceBound is the gate that fails.
+      gates: { visualUplift: true, visualConfidence: true, severeFailures: true, accuracy: true, confidenceBound: false },
+      releaseReady: false,
+    };
+    await writeFile(reportPath, JSON.stringify(honest));
+    const ok = await recomputeFromSources(honest, reportPath);
+    assert.equal(ok.releaseReady, false);
+    assert.equal(ok.measuredUplift, 0.65);
+    assert.equal(ok.gates.severeFailures, true, "a 0% severe rate recomputes as passing the 2% cap");
+    // The self-certification the auditor found: a report that claims a passing
+    // verdict its own artifacts contradict is a failure, not a pass.
+    const lying = { ...honest, releaseReady: true };
+    await assert.rejects(() => recomputeFromSources(lying, reportPath), /releaseReady claims true, recomputed false/);
+    const wrongUplift = { ...honest, images: { visualUplift: 0.2 } };
+    await assert.rejects(() => recomputeFromSources(wrongUplift, reportPath), /claims 0.2, recomputed 0.65/);
+    const wrongGate = { ...honest, gates: { ...honest.gates, severeFailures: false } };
+    await assert.rejects(() => recomputeFromSources(wrongGate, reportPath), /gate:severeFailures/);
+    // A report whose named artifacts cannot be found is refused outright rather
+    // than verified on the strength of its own claims.
+    const empty = await mkdtemp(join(tmpdir(), "verify-empty-"));
+    await writeFile(join(empty, "report.json"), JSON.stringify(honest));
+    await assert.rejects(() => recomputeFromSources(honest, join(empty, "report.json")), /missing: corpus/);
+  });
+
+  it("GATE-008: the image generation account survives pruning and never understates consumption", async () => {
+    const { generationAccounting, recordGenerationAccount } = await import("../scripts/benchmark/images.mjs");
+    const directory = await mkdtemp(join(tmpdir(), "images-"));
+    const ledger = join(directory, "generations.json");
+    const manifest = { images: [{ path: join(directory, "keep.png") }], failures: [] };
+    await writeFile(join(directory, "keep.png"), "x");
+    await writeFile(join(directory, "orphan.png"), "x");
+    const before = await recordGenerationAccount(manifest, { imageDir: directory, ledger });
+    assert.equal(before.cumulativeSuccessfulGenerations, 2);
+    const { unlink } = await import("node:fs/promises");
+    await unlink(join(directory, "orphan.png"));
+    const after = await generationAccounting(manifest, { imageDir: directory, ledger });
+    assert.equal(after.cumulativeSuccessfulGenerations, 2, "deleting an orphan must not erase that it was generated");
+    assert.equal(after.supersededGenerationsAlreadyDeleted, 1);
   });
 });

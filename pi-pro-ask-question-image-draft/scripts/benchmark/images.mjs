@@ -297,7 +297,7 @@ async function flush() {
  * aliases excluded - and splits them into the current set and the superseded
  * ones, so the boundary can be checked against the real number.
  */
-export async function generationAccounting(manifest, { imageDir = DEFAULT_IMAGE_DIR, aliasPrefix = CONTRACT_ALIAS_PREFIX } = {}) {
+export async function generationAccounting(manifest, { imageDir = DEFAULT_IMAGE_DIR, aliasPrefix = CONTRACT_ALIAS_PREFIX, ledger = GENERATION_LEDGER } = {}) {
   const referenced = new Set((manifest?.images ?? []).map((image) => image.path));
   let current = 0;
   const superseded = [];
@@ -311,10 +311,15 @@ export async function generationAccounting(manifest, { imageDir = DEFAULT_IMAGE_
     if (referenced.has(path)) current += 1;
     else superseded.push(path);
   }
+  // A pruning run deletes the evidence of superseded generations, so the
+  // durable ledger - which is never decremented - is the only surviving record
+  // of the real consumption.
+  const prior = await readCacheFile(resolve(ledger));
   return {
     // Distinct provider artifacts: the current set plus everything a retired
-    // prompt set left behind.
-    cumulativeSuccessfulGenerations: current + superseded.length,
+    // prompt set left behind, or the recorded total when they are already gone.
+    cumulativeSuccessfulGenerations: Math.max(current + superseded.length, prior?.cumulativeSuccessfulGenerations ?? 0),
+    supersededGenerationsAlreadyDeleted: (prior?.supersededGenerations ?? 0) > superseded.length ? (prior.supersededGenerations ?? 0) - superseded.length : 0,
     currentSetGenerations: current,
     supersededGenerations: superseded.length,
     contractAliases: aliases,

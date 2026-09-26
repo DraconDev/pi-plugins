@@ -18,17 +18,26 @@
  * are, and one that is poorer would make them look worse.
  */
 
-/** Wrap to a column budget the way the TUI's text wrapper does. */
+/**
+ * Wrap to a column budget, preserving indentation.
+ *
+ * The TUI prints a row's description as `     <text>` and relies on that indent
+ * to nest it under the label. A wrapper that normalises whitespace away - the
+ * obvious implementation - silently drops the indent, so the baseline arm was
+ * being rendered as flat text rather than as the thing the product prints.
+ * Continuations keep the same indent, which is what a wrapped block reads as.
+ */
 export function wrapText(value, width) {
   const limit = Math.max(1, width);
   const lines = [];
   for (const paragraph of String(value ?? "").split("\n")) {
-    const words = paragraph.split(/\s+/).filter(Boolean);
-    if (!words.length) { lines.push(""); continue; }
-    let line = words.shift();
+    const indent = (/^[ \t]*/.exec(paragraph)?.[0] ?? "");
+    const words = paragraph.trim().split(/\s+/).filter(Boolean);
+    if (!words.length) { lines.push(indent ? indent : ""); continue; }
+    let line = indent + words.shift();
     for (const word of words) {
       if (line.length + 1 + word.length <= limit) line += ` ${word}`;
-      else { lines.push(line); line = word; }
+      else { lines.push(line); line = indent + word; }
     }
     lines.push(line);
   }

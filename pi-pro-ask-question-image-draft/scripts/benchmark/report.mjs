@@ -125,6 +125,7 @@ export function recomputeResources({ manifest, judging, results, generationAccou
       cumulativeSuccessfulGenerations: account.cumulativeSuccessfulGenerations ?? null,
       currentSetGenerations: account.currentSetGenerations ?? images,
       supersededGenerations: account.supersededGenerations ?? null,
+      supersededGenerationsAlreadyDeleted: account.supersededGenerationsAlreadyDeleted ?? 0,
       budgetPerManifest: IMAGE_BUDGET,
       note: account.note ?? "The image generation account is only complete when the report is built with the image directory available.",
     },
@@ -200,6 +201,27 @@ export async function buildAggregateReport({
     unresolvedCritical: unresolvedCritical.map((defect) => defect.id),
     liveSmoke: { status: smoke.status, observedAt: smoke.observedAt ?? null, details: smoke.details ?? null, assertions: smoke.assertions ?? null, pty: smoke.pty ?? null },
     activation: activationEvidence,
+    // Stated in the durable record, not only in a chat summary: a reader must be
+    // able to see what this measurement can and cannot establish.
+    measurementLimits: {
+      judgeModel: judging?.model ?? null,
+      corpusGenerator: corpus.provenance?.generator ?? null,
+      judgeAndCorpusShareAModelFamily: (judging?.model?.model ?? null) === "stealth/space-bunny-alpha"
+        && (corpus.provenance?.generatorProvider ?? "").includes("stealth/space-bunny-alpha"),
+      sharedEnvelopeMatchRate: results?.reference?.envelopeMatchRate ?? null,
+      sharedEnvelopeMismatches: results?.reference?.envelopeMismatches ?? null,
+      sharedEnvelopeGate: results?.reference?.envelopeGate ?? false,
+      visualStratumOptions: (corpus.scenarios ?? []).filter((scenario) => scenario.stratum === "visual")
+        .flatMap((scenario) => scenario.canonicalInput?.stages?.[0]?.options ?? []).length,
+      visualStratumOptionsWithPreviewText: (corpus.scenarios ?? []).filter((scenario) => scenario.stratum === "visual")
+        .flatMap((scenario) => scenario.canonicalInput?.stages?.[0]?.options ?? [])
+        .filter((option) => Boolean((option.preview ?? "").trim())).length,
+      notes: [
+        "The judge and the corpus author are the same model family, so the visual verdict is a self-consistency measurement, not an independent third-party opinion.",
+        "Most visual-stratum options carry no preview text, so the baseline arm is a label and one sentence for them: that is what the package renders today, and it is why the baseline is thin. The counts above say how many do carry preview text.",
+        "Envelope text still differs from RPiV on a minority of shared cases; shared cases are scored on answers and status, which the tool contract does promise.",
+      ],
+    },
   };
   assertNoCredentials(report);
   return report;
