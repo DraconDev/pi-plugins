@@ -1,7 +1,7 @@
 {
   "kind": "benchmark-live-smoke",
   "status": "passed",
-  "observedAt": "2026-09-25T23:29:10.511Z",
+  "observedAt": "2026-09-26T01:10:20.344Z",
   "details": "micro (provisioned (EDITOR -> micro)) | image image/png 1024x1024 | pty exit 0 | steps 21",
   "preconditions": {
     "image": "/home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft/.pi/benchmark/images/visual-001-option-1.png",
@@ -118,7 +118,7 @@
     },
     {
       "step": "collapse",
-      "hiddenFrames": 2
+      "hiddenFrames": 1
     },
     {
       "step": "reopen",

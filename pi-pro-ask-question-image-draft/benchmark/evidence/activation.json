@@ -1,30 +1,17 @@
 {
   "schemaVersion": 1,
   "kind": "benchmark-activation",
-  "status": "passed",
-  "observedAt": "2026-09-25T23:28:26.048Z",
-  "details": "Re-emitted: /home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft is active exactly once, npm:@juicesharp/rpiv-ask-user-question is absent, and every unrelated setting equals the pre-activation backup.",
+  "status": "reverted",
+  "claimed": false,
+  "afterGates": false,
+  "observedAt": "2026-09-26T00:43:39.402Z",
+  "details": "Restored npm:@juicesharp/rpiv-ask-user-question and deactivated /home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft; every unrelated setting equals the pre-activation backup.",
   "settingsPath": "/home/dracon/.pi/agent/settings.json",
   "backupPath": "/home/dracon/.pi/agent/settings.before-pi-visual-review.json",
-  "timestampedBackup": "/home/dracon/.pi/agent/settings.before-pi-visual-review.2026-09-25T23-26-41-314Z.json",
   "package": "/home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft",
   "superseded": "npm:@juicesharp/rpiv-ask-user-question",
   "unrelatedSettingsPreserved": true,
   "packagesBefore": [
-    "npm:pi-notify-agent",
-    "npm:@tmustier/pi-usage-extension",
-    "npm:@juicesharp/rpiv-ask-user-question",
-    "../../Dev/pi-plugins/extensions/pi-chrome-auto-auth",
-    "npm:pi-chrome",
-    "npm:pi-codex-image-gen",
-    "../../Dev/pi-plugins/pi-use-last-selected-thinking-level",
-    "npm:pi-subagents",
-    "../../Dev/pi-plugins/pi-goal-list-loop-audit",
-    "../../Dev/pi-plugins/pi-agnes-tools",
-    "../../Dev/pi-plugins/pi-stale-model-filter",
-    "npm:pi-web-ui"
-  ],
-  "packagesAfter": [
     "npm:pi-notify-agent",
     "npm:@tmustier/pi-usage-extension",
     "/home/dracon/Dev/pi-plugins/pi-pro-ask-question-image-draft",
@@ -38,18 +25,19 @@
     "../../Dev/pi-plugins/pi-stale-model-filter",
     "npm:pi-web-ui"
   ],
-  "gatesAtActivation": {
-    "accuracy": true,
-    "confidenceBound": true,
-    "stability": true,
-    "visualUplift": true,
-    "visualConfidence": true,
-    "severeFailures": true,
-    "imageBudget": true,
-    "liveSmoke": true,
-    "noUnresolvedCriticalDefects": true
-  },
-  "releaseReadyAtActivation": true,
-  "claimed": true,
-  "afterGates": true
+  "packagesAfter": [
+    "npm:pi-notify-agent",
+    "npm:@tmustier/pi-usage-extension",
+    "npm:@juicesharp/rpiv-ask-user-question",
+    "../../Dev/pi-plugins/extensions/pi-chrome-auto-auth",
+    "npm:pi-chrome",
+    "npm:pi-codex-image-gen",
+    "../../Dev/pi-plugins/pi-use-last-selected-thinking-level",
+    "npm:pi-subagents",
+    "../../Dev/pi-plugins/pi-goal-list-loop-audit",
+    "../../Dev/pi-plugins/pi-agnes-tools",
+    "../../Dev/pi-plugins/pi-stale-model-filter",
+    "npm:pi-web-ui"
+  ],
+  "reason": "the severe readability gate measures 31.0% against a 2% ceiling at realistic terminal dimensions"
 }

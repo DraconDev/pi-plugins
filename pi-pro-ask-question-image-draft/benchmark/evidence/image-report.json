@@ -10811,14 +10811,14 @@
   ],
   "decisionUtility": {
     "judgedCases": 200,
-    "candidateWins": 173,
-    "candidateWinRate": 0.865,
-    "wilson95LowerBound": 0.8107086162924744,
+    "candidateWins": 132,
+    "candidateWinRate": 0.66,
+    "wilson95LowerBound": 0.5918849552683626,
     "ties": 0,
-    "undecided": 7,
+    "undecided": 20,
     "severeFailuresText": 0,
-    "severeFailuresImage": 0,
-    "severeImageFailureRate": 0,
+    "severeFailuresImage": 69,
+    "severeImageFailureRate": 0.345,
     "model": {
       "provider": "openrouter",
       "model": "stealth/space-bunny-alpha"
@@ -10828,7 +10828,7 @@
     "gate": {
       "meaningfulUplift": true,
       "confidenceBound": true,
-      "severeFailures": true,
+      "severeFailures": false,
       "judgedCases": true,
       "judgeErrors": true
     }

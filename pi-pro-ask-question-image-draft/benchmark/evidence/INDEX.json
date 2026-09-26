@@ -25,33 +25,38 @@
     },
     {
       "file": "image-report.json",
-      "sha256": "da2ed2e61f054a691d731868a50855827dcf35d7dbfdf8f1dbcb865f30898ccf",
-      "bytes": 1338962
+      "sha256": "87e5863aadbfea051979dda4ef4c56d7c2bb3f3a4b5081913170ba0140d2ce12",
+      "bytes": 1338968
     },
     {
       "file": "judge.json",
-      "sha256": "c9cbec2f736a331a6f6eb5a2f3d9b0a82390ec7940e66243577fd2242c2243c5",
-      "bytes": 310170
+      "sha256": "65fc072202dbd952bf80b9b0ceacf7063a74b8d7f88a8d344e8a59d1e1d03395",
+      "bytes": 371842
     },
     {
       "file": "live-smoke.json",
-      "sha256": "612b62c2e063054dbe9914927d8d674e9ed2aa3a0c9cb26adcc05a3640807290",
+      "sha256": "8f93f5f42168e87ed2bce93acc2e3a7a9a29c7d7c35e7e1b830949f127a57816",
       "bytes": 4651
     },
     {
       "file": "report.json",
-      "sha256": "4f12cf6549a17fdac810938c4fb6a863d183204d92498c243387b8d34c97620b",
-      "bytes": 245607
+      "sha256": "7f6aee4b564b65118468214fba1482fa0c337a08c3679613948fce17f8687ad0",
+      "bytes": 250911
     },
     {
       "file": "defects.json",
-      "sha256": "b8e783d28ac44d6293453a7c70fef3cfed433574fcaa73b370a7d58702fd7b5a",
-      "bytes": 25521
+      "sha256": "1fd4fe49d8b836216c1ce303a6e57e716ff2b772fe59585241b3e6573dad82ec",
+      "bytes": 29605
     },
     {
       "file": "activation.json",
-      "sha256": "9968a49bda766d5d5376886dcfb3d35181de6a135b59a8aa4d61e02cd180ca83",
-      "bytes": 2150
+      "sha256": "ce6198b4b9718d156c378ad282bdd6ce49a1189071590fba88daf4e1c9071607",
+      "bytes": 1817
+    },
+    {
+      "file": "generations.json",
+      "sha256": "35c47bef0c52a95df31892b58c6fcdc6e561e776ace0a614cc153eb8d53cb667",
+      "bytes": 623
     }
   ],
   "samples": [

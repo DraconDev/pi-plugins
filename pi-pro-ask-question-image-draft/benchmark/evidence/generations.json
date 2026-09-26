@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "kind": "benchmark-generation-account",
+  "observedAt": "2026-09-26T00:43:59.274Z",
+  "cumulativeSuccessfulGenerations": 2020,
+  "currentSetGenerations": 600,
+  "supersededGenerations": 1420,
+  "contractAliases": 3,
+  "budgetPerManifest": 600,
+  "recordedFailures": 0,
+  "note": "The 600 budget is enforced per manifest, which is keyed by prompt hash; revising the image prompt retires a whole set. The cumulative figure is the real provider consumption for this benchmark.",
+  "supersededDeletedAt": "2026-09-26T00:44:00.636Z",
+  "supersededRemoved": 1420,
+  "supersededFreedBytes": 1035793802
+}
