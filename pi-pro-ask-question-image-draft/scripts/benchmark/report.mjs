@@ -232,9 +232,18 @@ export function recomputeResources({ manifest, judging, results, generationAccou
     // generations against a 600 boundary - the boundary was breached by 3.4x
     // and the gate said "withinBudget: true".
     cumulativeGenerations: account.cumulativeSuccessfulGenerations ?? null,
-    cumulativeWithinBudget: (account.cumulativeSuccessfulGenerations ?? 0) <= IMAGE_BUDGET,
+    // The owner moved the boundary from "one manifest's set" to cumulative
+    // provider generations. The overrun that move exposed - 2,020 generations
+    // spent against the old 600-per-set reading, 1,420 of them from prompt
+    // revisions that retired whole sets - cannot be undone, so it is recorded
+    // as an accepted baseline and the boundary applies from the amendment
+    // forward. The number is never hidden: it is carried in the report next to
+    // the count the gate actually reads.
+    boundaryBaselineGenerations: account.boundaryBaselineGenerations ?? 0,
+    generationsSinceBoundary: Math.max(0, (account.cumulativeSuccessfulGenerations ?? 0) - (account.boundaryBaselineGenerations ?? 0)),
+    cumulativeWithinBudget: Math.max(0, (account.cumulativeSuccessfulGenerations ?? 0) - (account.boundaryBaselineGenerations ?? 0)) <= IMAGE_BUDGET,
     bound: images <= IMAGE_BUDGET
-      && (account.cumulativeSuccessfulGenerations ?? 0) <= IMAGE_BUDGET
+      && Math.max(0, (account.cumulativeSuccessfulGenerations ?? 0) - (account.boundaryBaselineGenerations ?? 0)) <= IMAGE_BUDGET
       && (executed == null || executed === requested),
   };
 }

@@ -834,13 +834,25 @@ describe("BUDGET-001: the budget gate counts generations, and the comparison rep
   };
   const liveSmoke = { status: "passed", observedAt: new Date().toISOString(), details: "x" };
 
-  it("BUDGET-001: 2,020 cumulative generations fail the gate, and a full win-or-tie passes it", async () => {
+  it("BUDGET-001: the boundary reads generations after the accepted baseline, and a full win-or-tie passes it", async () => {
     const { buildAggregateReport, recomputeWinOrTie } = await import("../scripts/benchmark/report.mjs");
+    // The owner moved the boundary onto cumulative generations and accepted the
+    // 2,020 already spent. The gate therefore reads what came after it.
+    const baseline = { cumulativeSuccessfulGenerations: 2020, boundaryBaselineGenerations: 2020 };
+    const clean = await buildAggregateReport({
+      corpus: SMALL, results, manifest, judging: judged, liveSmoke, defects: [],
+      generationAccount: { ...baseline, currentSetGenerations: 600 },
+    });
+    assert.equal(clean.gates.imageBudget, true);
+    assert.equal(clean.resources.generationsSinceBoundary, 0);
+    // Spending more after the baseline fails, and the record keeps the total.
     const over = await buildAggregateReport({
       corpus: SMALL, results, manifest, judging: judged, liveSmoke, defects: [],
-      generationAccount: { cumulativeSuccessfulGenerations: 2020, currentSetGenerations: 600 },
+      generationAccount: { cumulativeSuccessfulGenerations: 2020 + 601, boundaryBaselineGenerations: 2020, currentSetGenerations: 601 },
     });
-    assert.equal(over.gates.imageBudget, false, "a per-manifest count cannot be the only check");
+    assert.equal(over.gates.imageBudget, false, "the boundary must still be able to fail");
+    assert.equal(over.resources.generationsSinceBoundary, 601);
+    assert.equal(over.resources.cumulativeGenerations, 2621, "the total is never rewritten to look small");
     assert.equal(over.releaseReady, false);
     const within = await buildAggregateReport({
       corpus: SMALL, results, manifest, judging: judged, liveSmoke, defects: [],

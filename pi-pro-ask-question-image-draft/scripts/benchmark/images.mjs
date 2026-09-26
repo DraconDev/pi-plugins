@@ -339,9 +339,16 @@ export async function generationAccounting(manifest, { imageDir = DEFAULT_IMAGE_
     currentSetGenerations: current,
     supersededGenerations: superseded.length,
     contractAliases: aliases,
-    budgetPerManifest: IMAGE_BUDGET,
+    // The boundary the goal owner moved onto cumulative provider generations,
+    // and the spend it accepted as the baseline. `generationsSinceBoundary` is
+    // what the release gate reads; the cumulative total is reported next to it
+    // so the overrun stays visible on every run.
+    boundary: prior?.boundary ?? "cumulative provider generations",
+    boundaryBaselineGenerations: prior?.boundaryBaselineGenerations ?? 0,
+    generationsSinceBoundary: Math.max(0, Math.max(current + superseded.length, prior?.cumulativeSuccessfulGenerations ?? 0) - (prior?.boundaryBaselineGenerations ?? 0)),
+    budget: IMAGE_BUDGET,
     recordedFailures: (manifest?.failures ?? []).length,
-    note: "The 600 budget is enforced per manifest, which is keyed by prompt hash; revising the image prompt retires a whole set. The cumulative figure is the real provider consumption for this benchmark.",
+    note: "The 600 boundary is enforced over cumulative provider generations, not over one manifest: the cache is keyed by prompt hash, so revising the image prompt retires a whole 600-image set and starts a new one. Generations spent before the owner accepted the baseline are recorded in the ledger and excluded from the gate, not deleted from the record.",
   };
 }
 

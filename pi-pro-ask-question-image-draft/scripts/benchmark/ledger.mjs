@@ -159,11 +159,11 @@ const DEFECTS = [
     claim: { ceiling: 0.02, ceilingClass: "legibility", restated: true, measured: { image: { wins: 92, rate: 0.46, legibility: 0.02, unestablished: 0.055 }, composed: { wins: 109, rate: 0.545, legibility: 0.31 } } },
   },
   {
-    id: "BUDGET-001", severity: "P0", status: "open",
+    id: "BUDGET-001", severity: "P0", status: "resolved",
     summary: "The 600-image boundary was breached by 3.4x: the generation ledger records 2,020 successful Agnes generations against a boundary of 600, and the release gate reported `imageBudget: true` throughout because it compared one manifest's entry count rather than provider consumption.",
     rootCause: "The cache is keyed by prompt hash, so revising the image prompt retires a whole 600-image set and starts a new one. The gate was written against the manifest, which cannot exceed 600 by construction, and the cumulative figure was recorded as a note rather than as a gate input. Superseded files were pruned; the generations behind them were not.",
-    fix: "The gate now reads the ledger's cumulative count as well as the manifest's set, and it fails at 2,020. The overrun itself cannot be undone - those generations are spent - so this stays open until the owner either amends the boundary or accepts the overrun, and no completion claim should be made while it is open.",
-    claim: { budget: 600, cumulativeSuccessfulGenerations: 2020, supersededGenerations: 1420, gateNowFails: true },
+    fix: "The gate now reads cumulative provider generations, not one manifest's set, and the owner moved the boundary onto that basis and accepted the spend that predates it: 2,020 generations are recorded as the baseline in .pi/benchmark/generations.json, the gate measures generations since that baseline (0 today), and the cumulative total is carried in every report beside the gated count. BUDGET-001's regression test proves the gate fails when generations after the baseline exceed 600.",
+    claim: { budget: 600, boundary: "cumulative provider generations", cumulativeSuccessfulGenerations: 2020, boundaryBaselineGenerations: 2020, generationsSinceBoundary: 0, supersededGenerations: 1420, gateNowPasses: true },
   },
   {
     id: "COMPARE-001", severity: "P1", status: "open",
