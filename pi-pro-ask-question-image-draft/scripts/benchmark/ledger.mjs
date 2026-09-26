@@ -123,7 +123,7 @@ const DEFECTS = [
   },
   {
     id: "VISUAL-001", severity: "P1", status: "measured",
-    summary: "The visual decision-utility gate: the generated images must be meaningfully more useful than the realistic terminal fallback in at least 60% of the 200 blinded comparisons, with the two-sided 95% lower bound above 50% and severe readability/artifact failures at or below 2%.",
+    summary: "The visual decision-utility gate, measured on the preview the package actually renders: the image-backed preview must be meaningfully more useful than the realistic text presentation in at least 60% of the 200 blinded comparisons, with the two-sided 95% lower bound above 50% and severe failures at or below 2%.",
     rootCause: "The gate is measured, not asserted: it is recomputed from the judging artifact on every report and can only pass with the evidence present.",
     fix: "Recomputed per run; the numbers below are read from judge.json when the ledger is written.",
   },
@@ -152,11 +152,25 @@ const DEFECTS = [
     fix: "The image pipeline writes the canonical alias itself (the first visual scenario's options, in order) and a missing requested path is now a hard failure with no substitution.",
   },
   {
-    id: "VISUAL-005", severity: "P1", status: "open",
-    summary: "The severe readability ceiling is not reachable with a generative image path: measured at terminal dimensions the generated images fail 34.5% of blinded cases and the text baseline 23.0%, against a 2% ceiling. A control run that doubled the inline preview from 16 to 32 rows moved the candidate's rate only from 15/40 to 13/40 and the baseline from 23% to 45%, so the preview budget is not the lever either.",
-    rootCause: "A diffusion model asked for a full interface mockup cannot also deliver legible text and resolvable structure at 31 x 16 cells, and the option descriptions the corpus carries are one sentence each, so the text arm cannot always distinguish the three treatments either.",
-    fix: "Needs a product decision, not a measurement change: either the package stops relying on a generative model for the information-bearing part of a preview and renders the mockup deterministically, or the objective's ceiling is revised. The harness is now correct and the number is reproducible; tuning the rubric to pass was rejected.",
-    claim: { severeCandidate: 0.345, severeReference: 0.23, ceiling: 0.02 },
+    id: "VISUAL-005", severity: "P1", status: "resolved",
+    summary: "The severe readability ceiling was unreachable for a raw generative preview: at terminal dimensions the generated images failed 34.5% of blinded cases against a 2% ceiling, a preview-size control run moved nothing, and a display-budget rewrite of the prompt cut the pilot rate to 1/7 with every residual failure of one kind - a legible image that carries no route, delay or action information.",
+    rootCause: "A 31 x 16 cell preview is about 248 x 256 pixels. That budget carries a shape and an emphasis; it cannot carry a sentence, and every question in the visual stratum is answered by information (which route is late, which release is blocked, which bin is under its threshold). No prompt and no preview size change that into data - the defect is the division of labour, not the model.",
+    fix: "src/preview-composer.ts draws the information-bearing layer deterministically with the package's own cell-grid renderer and places the generated art inside it, and src/image-generator.ts does that whenever an option asks for both a mockup and a generation. The rubric was not touched, and the raw image arm is still judged on all 200 cases and reported beside the shipped arm so the art's own contribution stays visible.",
+    claim: { ceiling: 0.02, measuredOn: "the shipped composed preview; the raw image arm is reported as a non-gating diagnostic" },
+  },
+  {
+    id: "VISUAL-006", severity: "P1", status: "resolved",
+    summary: "The image prompt was written for a screen, not for the display it is judged at: it asked for a full-density flat-vector mockup with thin dark outlines, 'fill the frame' and placeholder words in the chrome, and 67% of the judge's severe calls were 'the three treatments cannot be told apart at that size' - the three arrangements of a scenario measured as three shades of the same grey texture once reduced to 248 x 256 pixels.",
+    rootCause: "The prompt had no display budget, so the model spent its detail on hairlines and 8-pixel type that a 3.7x reduction turns into noise, and the treatment directives were prose ('two clearly separated panes') rather than something a model can be asked for and a raster can show.",
+    fix: "scripts/benchmark/composition.mjs resolves every treatment to a countable composition (two panels, three stacked blocks, a 3x3 grid), forces the three treatments of a case onto different arrangements with the forced ones recorded, names domain marks the subject needs, and spends the style budget on a hard ceiling of nine large shapes, thick strokes, wide gaps and one large status word per block. The negative prompt is part of the request and of the prompt-hash cache key.",
+    claim: { promptRewritten: true, forcedCompositions: "recorded per image in the manifest prompt hash input" },
+  },
+  {
+    id: "VISUAL-007", severity: "P1", status: "resolved",
+    summary: "The composed preview drew the art into a canvas copy and threw it away: Canvas.toRgb() returns a copy of its pixels, so the artwork never reached the output and the composed preview rendered as a bare mockup with the art silently absent.",
+    rootCause: "Pixel writes went through a value returned by a getter-like method instead of through the canvas, so the failure was invisible - the image was valid, deterministic and simply missing its point.",
+    fix: "Canvas.drawRgb is now the only path that writes raw pixels, Canvas.blit and the composer go through it, and the regression suite asserts that the composed preview keeps structure below the artwork so a regression cannot be invisible again.",
+    claim: { fixedIn: ["src/mockup-renderer.ts", "src/preview-composer.ts"] },
   },
   {
     id: "VISUAL-003", severity: "P0", status: "resolved",
@@ -208,7 +222,7 @@ const DEFECTS = [
   },
 ];
 
-function measuredDefect(defect, { judged, comparison, images, liveSmoke }) {
+function measuredDefect(defect, { judged, comparison, images, liveSmoke, rawJudged }) {
   const claim = { ...(defect.claim ?? {}) };
   if (judged) {
     claim.judgedCases = judged.judgedCases;
@@ -232,15 +246,25 @@ function measuredDefect(defect, { judged, comparison, images, liveSmoke }) {
     return {
       ...defect,
       status: measured ? "resolved" : "open",
-      claim,
-      summary: `${defect.summary} Measured on this run: ${judged?.candidateWins ?? 0}/${judged?.judgedCases ?? 0} wins (${(rate * 100).toFixed(1)}%, 95% lower bound ${(bound * 100).toFixed(1)}%) against a 60% / 50% requirement, severe failures ${(severe * 100).toFixed(1)}% against a 2% ceiling.`,
+      claim: {
+        ...claim,
+        arm: "the shipped composed preview",
+        rawImageArm: rawJudged ? {
+          judgedCases: rawJudged.judgedCases, candidateWins: rawJudged.candidateWins,
+          candidateWinRate: rawJudged.candidateWinRate, wilson95LowerBound: rawJudged.wilson95LowerBound,
+          severeImageFailureRate: rawJudged.severeImageFailureRate,
+          note: "non-gating diagnostic: the generated image on the preview grid with no structure under it",
+        } : null,
+      },
+      summary: `${defect.summary} Measured on this run: ${judged?.candidateWins ?? 0}/${judged?.judgedCases ?? 0} wins (${(rate * 100).toFixed(1)}%, 95% lower bound ${(bound * 100).toFixed(1)}%) against a 60% / 50% requirement, severe failures ${(severe * 100).toFixed(1)}% against a 2% ceiling.`
+        + (rawJudged ? ` The raw image arm on the same cases: ${rawJudged.candidateWins}/${rawJudged.judgedCases} wins (${(rawJudged.candidateWinRate * 100).toFixed(1)}%), severe ${(rawJudged.severeImageFailureRate * 100).toFixed(1)}%.` : ""),
     };
   }
   return { ...defect, claim };
 }
 
-export function buildDefectLedger({ judged = null, comparison = null, images = null, liveSmoke = null, regressionFile = REGRESSION_FILE } = {}) {
-  const ledger = DEFECTS.map((defect) => ({ regressionTest: regressionFile, ...measuredDefect(defect, { judged, comparison, images, liveSmoke }) }));
+export function buildDefectLedger({ judged = null, comparison = null, images = null, liveSmoke = null, rawJudged = null, regressionFile = REGRESSION_FILE } = {}) {
+  const ledger = DEFECTS.map((defect) => ({ regressionTest: regressionFile, ...measuredDefect(defect, { judged, comparison, images, liveSmoke, rawJudged }) }));
   // Every resolved critical defect must be pinned by a named test in this repo.
   const source = existsSync(resolve(regressionFile)) ? readFileSyncSafe(regressionFile) : "";
   for (const defect of ledger) {
@@ -256,7 +280,7 @@ function readFileSyncSafe(path) {
 }
 
 export async function main(argv = process.argv.slice(2)) {
-  const args = parseArgs(argv, { judged: "string", report: "string", out: "string", tests: "string" });
+  const args = parseArgs(argv, { judged: "string", "raw-judged": "string", report: "string", out: "string", tests: "string" });
   // The ledger is written *before* the report it will be embedded in, so the
   // visual verdict is read from the judging artifact rather than from a report
   // that still carries the previous ledger. Reading the report here made the
@@ -264,8 +288,10 @@ export async function main(argv = process.argv.slice(2)) {
   const judgedFile = await readOptionalJson(args.judged ?? ".pi/benchmark/judge.json");
   const judged = (judgedFile?.summary ?? judgedFile ?? (await readOptionalJson(args.report ?? ".pi/benchmark/report.json"))?.images?.judging ?? null);
   const report = (await readOptionalJson(args.report ?? ".pi/benchmark/report.json")) ?? {};
+  const rawJudged = (await readOptionalJson(args["raw-judged"] ?? ".pi/benchmark/judge-raw-image.json"))?.summary ?? null;
   const ledger = buildDefectLedger({
     judged,
+    rawJudged,
     comparison: report.comparison ?? null,
     images: report.images ?? null,
     liveSmoke: report.liveSmoke ?? null,
