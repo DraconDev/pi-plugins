@@ -194,7 +194,7 @@ function runInsidePty(argv) {
 }
 
 async function main(argv = process.argv.slice(2)) {
-  const args = parseArgs(argv, { image: "string", out: "string", timeout: "number", "in-pty": "boolean" });
+  const args = parseArgs(argv, { image: "string", out: "string", timeout: "number", "in-pty": "boolean", sessions: "string" });
   const inPty = args["in-pty"] === true;
   if (!inPty && !(process.stdin.isTTY && process.stdout.isTTY)) {
     const code = await runInsidePty(argv.filter((token) => !token.startsWith("--in-pty")));
@@ -207,7 +207,14 @@ async function main(argv = process.argv.slice(2)) {
   // $EDITOR and Pi's default in Pi's own resolution order.
   if (editor.provisioned) process.env.VISUAL = editor.command;
   const image = await resolveSmokeImage(args.image);
-  const record = await runLiveSmoke({ image: image.path, editor: editor.command, editorSource: editor.provisioned ? `provisioned (${editor.source} -> ${editor.command})` : editor.source, out: args.out, timeout: args.timeout ?? 90 });
+  // A subset is a debugging aid only: the aggregate can only pass when every
+  // session ran, so `--sessions` can produce evidence, never a pass.
+  const requested = typeof args.sessions === "string" && args.sessions.trim()
+    ? args.sessions.split(",").map((value) => value.trim()).filter(Boolean)
+    : SESSION_MODES;
+  const unknown = requested.filter((mode) => !SESSION_MODES.includes(mode));
+  if (unknown.length) throw new BenchmarkError("unknown_session", `Unknown live session(s) ${unknown.join(", ")}; expected some of ${SESSION_MODES.join(", ")}.`);
+  const record = await runLiveSmoke({ image: image.path, editor: editor.command, editorSource: editor.provisioned ? `provisioned (${editor.source} -> ${editor.command})` : editor.source, out: args.out, timeout: args.timeout ?? 90, sessions: requested });
   record.image = { requested: image.requested ?? image.path, rendered: image.path, substituted: image.substituted };
   record.editor = { ...record.editor, provisioned: editor.provisioned, resolved: editor.resolved };
   await writeJson(args.out ?? ".pi/benchmark/live-smoke.json", record);
