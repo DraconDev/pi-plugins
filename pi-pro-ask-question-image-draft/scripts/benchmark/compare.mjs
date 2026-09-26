@@ -495,21 +495,31 @@ export async function compareCorpus(corpus, { passes = 2, blind = false, seed = 
       envelopeMatchRate: sharedCases.length ? sharedCases.filter((item) => item.envelopeMatch === true).length / sharedCases.length : null,
       envelopeMismatches: sharedCases.filter((item) => item.envelopeMatch === false).length,
       // Every mismatch, named. A count cannot be audited; a record with its
-      // classification and both texts can.
+      // classification and both texts can. `classification` is the two-valued
+      // verdict the contract asks for - the two envelopes disclose a different
+      // decision, or they do not - and `disclosure` keeps the finer reading of
+      // a wording difference: one envelope carries a block the other does not.
       envelopeMismatchRecords: sharedCases.filter((item) => item.envelopeMatch === false).map((item) => ({
         id: item.id,
-        classification: item.classification,
+        classification: (item.envelopeClassification?.kind ?? "unclassified") === "capability" ? "capability" : "adapter-wording",
+        disclosure: item.envelopeClassification?.kind === "disclosure",
         envelopeKind: item.envelopeClassification?.kind ?? "unclassified",
+        scenario: item.classification,
         reason: item.envelopeClassification?.reason ?? null,
         difference: item.envelopeDifference,
       })),
+      envelopeMismatchByClassification: Object.fromEntries(
+        ["capability", "adapter-wording"].map((classification) => [classification, sharedCases.filter((item) => item.envelopeMatch === false
+          && ((item.envelopeClassification?.kind ?? "unclassified") === "capability" ? "capability" : "adapter-wording") === classification).length]),
+      ),
       envelopeMismatchByKind: Object.fromEntries(
         [...new Set(sharedCases.filter((item) => item.envelopeMatch === false).map((item) => item.envelopeClassification?.kind ?? "unclassified"))]
           .map((kind) => [kind, sharedCases.filter((item) => item.envelopeMatch === false && (item.envelopeClassification?.kind ?? "unclassified") === kind).length]),
       ),
-      envelopeMismatchByClassification: Object.fromEntries(
+      envelopeMismatchDisclosures: sharedCases.filter((item) => item.envelopeMatch === false && item.envelopeClassification?.kind === "disclosure").length,
+      envelopeMismatchByScenario: Object.fromEntries(
         [...new Set(sharedCases.filter((item) => item.envelopeMatch === false).map((item) => item.classification))]
-          .map((classification) => [classification, sharedCases.filter((item) => item.envelopeMatch === false && item.classification === classification).length]),
+          .map((scenario) => [scenario, sharedCases.filter((item) => item.envelopeMatch === false && item.classification === scenario).length]),
       ),
       // The gate is on the classified capability differences - the ones where
       // the two envelopes report different answers. Wording and disclosure

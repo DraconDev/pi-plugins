@@ -14,6 +14,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { BenchmarkError, parseArgs, readJson, SCHEMA_VERSION, writeJson } from "./common.mjs";
+import { BEHAVIOUR_SESSIONS } from "./live-sessions.mjs";
 import { GATES, verifyDefectLedger } from "./report.mjs";
 
 const REGRESSION_FILE = "tests/benchmark-regressions.test.mjs";
@@ -169,15 +170,14 @@ const DEFECTS = [
     id: "COMPARE-001", severity: "P1", status: "resolved",
     summary: "The shared-envelope comparison against RPiV matches on 84.1% of the 333 shared cases (53 mismatches: 36 image-class, 15 text, 2 legacy), and the report recorded the failure in `measurementLimits` without any gate or defect owning it.",
     rootCause: "The adapter compares envelope *text* across two independent implementations, and the report surfaced the rate as a note while gating only on answers and status - which is what the tool contract actually promises. A reported-but-ungated failure is a failure nobody is accountable for.",
-    fix: "The comparator now records every mismatch as a per-case record with its case id, classification, reason and both envelope texts, and classifies each one mechanically: a difference in the reported answers is a capability difference, a block one envelope carries and the other does not is a disclosure difference, and anything else is adapter-wording. Reading them showed no capability differences at all - 52 are disclosure and 1 is wording - and the first classification run also exposed two defects in the classifier itself, which had compared a multi-select value as a sequence and matched section labels only at the start of a line. Both are fixed and pinned.",
-    claim: { sharedCases: 333, envelopeMatchRate: 0.8408408408408409, mismatches: 53, records: 53, byKind: { disclosure: 52, "adapter-wording": 1, capability: 0 }, byClassification: { image: 36, text: 15, legacy: 2 }, envelopeGate: true },
+    fix: "The comparator now records every mismatch as a per-case record with its case id, its classification, its reason and both envelope texts, and classifies each one mechanically: a difference in the reported answers is a capability difference, a block one envelope carries and the other does not is a disclosure difference (a wording difference, recorded as such), and anything else is adapter-wording. Every record is therefore `adapter-wording` or `capability` - the two values the contract gates on - and the envelope gate is true only because all 53 are wording: 52 disclosures and 1 phrasing difference. The first classification run also exposed two defects in the classifier itself, which had compared a multi-select value as a sequence and matched section labels only at the start of a line. Both are fixed and pinned.",
+    claim: { sharedCases: 333, envelopeMatchRate: 0.8408408408408409, mismatches: 53, records: 53, byClassification: { capability: 0, "adapter-wording": 53 }, byKind: { disclosure: 52, "adapter-wording": 1, capability: 0 }, byScenario: { image: 36, text: 15, legacy: 2 }, envelopeGate: true },
   },
   {
     id: "SMOKE-001", severity: "P1", status: "open",
     summary: "The live real-TTY run exercises inline image composition, keyboard controls, stage advance, Ctrl+] collapse/reopen, a custom answer, the external editor and final review, but never records a note, a revision round, a reject or a cancel - four of the behaviours the contract names.",
-    rootCause: "The driver walks one happy path plus the editor round trip. The four missing behaviours are covered by the headless suites, so nothing is broken; they are simply not proven on a real terminal.",
-    fix: "Extend scripts/benchmark/live-driver.mjs to drive note, revision, reject and cancel on the PTY with an assertion each, then re-run the smoke. Not done in this pass.",
-    claim: { recorded: ["image", "keyboard", "stage-advance", "collapse", "reopen", "custom-input", "editor", "final-review", "complete"], missing: ["note", "revision", "reject", "cancel"] },
+    rootCause: "The driver walked one happy path plus the editor round trip, and the gate ran that one walk. The four missing behaviours are covered by the headless suites, so nothing is broken; they were simply not proven on a real terminal.",
+    fix: "The walk is now a plan, in scripts/benchmark/live-sessions.mjs: five sessions, one per review, each with the step it records, the assertion it contributes and the pure check that turns its evidence into that assertion. The driver takes its session by name, so note, revision, reject and cancel are each driven end to end on their own pseudo-terminal - the revision session requests a change, then drives the round the change asked for - and the gate publishes the aggregate. A session that did not run fails the gate instead of being left out, so the behaviours cannot quietly disappear again.",
   },
   {
     id: "VISUAL-009", severity: "P1", status: "resolved",
@@ -305,6 +305,32 @@ function measuredDefect(defect, { judged, comparison, images, liveSmoke, rawJudg
         + (rawJudged ? ` The alternative arm on the same cases: ${rawJudged.candidateWins}/${rawJudged.judgedCases} wins (${(rawJudged.candidateWinRate * 100).toFixed(1)}%).` : ""),
     };
   }
+  if (defect.id === "SMOKE-001") {
+    // The four behaviours SMOKE-001 named are read back from the smoke record
+    // the run actually produced: an assertion is true only because a real
+    // session drove it on a real terminal and its own evidence proved it.
+    const assertions = liveSmoke?.assertions ?? {};
+    const recorded = BEHAVIOUR_SESSIONS.filter((name) => assertions[name] === true);
+    const missing = BEHAVIOUR_SESSIONS.filter((name) => assertions[name] !== true);
+    const sessions = liveSmoke?.sessions?.length ?? 0;
+    const happyPath = liveSmoke?.assertions
+      ? Object.keys(liveSmoke.assertions).length - BEHAVIOUR_SESSIONS.length
+      : 0;
+    const proven = liveSmoke?.status === "passed" && missing.length === 0 && sessions > BEHAVIOUR_SESSIONS.length;
+    return {
+      ...defect,
+      status: proven ? "resolved" : "open",
+      claim: {
+        ...claim,
+        sessions,
+        liveSmokeStatus: liveSmoke?.status ?? null,
+        happyPathAssertions: happyPath,
+        recorded,
+        missing,
+      },
+      summary: `${defect.summary} Measured on this run: ${recorded.length} of ${BEHAVIOUR_SESSIONS.length} behaviours proven on a real terminal across ${sessions} PTY sessions (${recorded.join(", ") || "none"}), with ${missing.length} still unproven${missing.length ? ` (${missing.join(", ")})` : ""}.`,
+    };
+  }
   return { ...defect, claim };
 }
 
@@ -325,24 +351,35 @@ function readFileSyncSafe(path) {
 }
 
 export async function main(argv = process.argv.slice(2)) {
-  const args = parseArgs(argv, { judged: "string", "raw-judged": "string", report: "string", out: "string", tests: "string" });
+  const args = parseArgs(argv, { judged: "string", "raw-judged": "string", report: "string", out: "string", tests: "string", smoke: "string" });
   // The ledger is written *before* the report it will be embedded in, so the
   // visual verdict is read from the judging artifact rather than from a report
   // that still carries the previous ledger. Reading the report here made the
   // first ledger after a passing run keep the old open defect.
-  const judgedFile = await readOptionalJson(args.judged ?? ".pi/benchmark/judge.json");
-  const judged = (judgedFile?.summary ?? judgedFile ?? (await readOptionalJson(args.report ?? ".pi/benchmark/report.json"))?.images?.judging ?? null);
+  // The ledger and the release report must judge the same artifact. The report
+  // records which judging file it gates on, so that is what the ledger reads by
+  // default: a hard-coded default let the two disagree - the ledger measured the
+  // composed arm while the report measured the arm it gates on - and the ledger
+  // then reported an open P1 the release gate had already passed.
   const report = (await readOptionalJson(args.report ?? ".pi/benchmark/report.json")) ?? {};
-  const rawJudgingArtifact = await readOptionalJson(args["raw-judged"] ?? ".pi/benchmark/judge-raw-image.json");
+  const gatingJudging = args.judged ?? report.sources?.judging ?? ".pi/benchmark/judge.json";
+  const diagnosticJudging = args["raw-judged"] ?? report.sources?.rawJudging ?? ".pi/benchmark/judge-raw-image.json";
+  const judgedFile = await readOptionalJson(gatingJudging);
+  const judged = (judgedFile?.summary ?? judgedFile ?? report.images?.judging ?? null);
+  const rawJudgingArtifact = await readOptionalJson(diagnosticJudging);
   const rawJudged = rawJudgingArtifact?.summary ?? null;
   const rawJudgedArm = rawJudgingArtifact?.condition?.arm ?? null;
+  // The live smoke is read from its own artifact rather than from the previous
+  // report: the report carries a summary of the run that produced it, and the
+  // ledger has to judge the run that just happened.
+  const smoke = await readOptionalJson(args.smoke ?? ".pi/benchmark/live-smoke.json");
   const ledger = buildDefectLedger({
     judged,
     rawJudged,
     rawJudgedArm,
     comparison: report.comparison ?? null,
     images: report.images ?? null,
-    liveSmoke: report.liveSmoke ?? null,
+    liveSmoke: smoke ?? report.liveSmoke ?? null,
     regressionFile: args.tests ?? REGRESSION_FILE,
   });
   verifyDefectLedger(ledger.defects, { judged, cases: report.comparison ?? null, testsDir: "tests" });

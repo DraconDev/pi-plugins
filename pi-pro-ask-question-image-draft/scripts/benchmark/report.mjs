@@ -316,7 +316,7 @@ export async function buildAggregateReport({
     releaseReady: allPassed,
     defects: ledger,
     unresolvedCritical: unresolvedCritical.map((defect) => defect.id),
-    liveSmoke: { status: smoke.status, observedAt: smoke.observedAt ?? null, details: smoke.details ?? null, assertions: smoke.assertions ?? null, pty: smoke.pty ?? null },
+    liveSmoke: { status: smoke.status, observedAt: smoke.observedAt ?? null, details: smoke.details ?? null, assertions: smoke.assertions ?? null, sessions: smoke.sessions ?? null, missingSessions: smoke.missingSessions ?? null, pty: smoke.pty ?? null },
     activation: activationEvidence,
     // Stated in the durable record, not only in a chat summary: a reader must be
     // able to see what this measurement can and cannot establish.
@@ -574,25 +574,47 @@ export async function main(argv = process.argv.slice(2)) {
     if (!path) return undefined;
     try { return await readJson(path, code); } catch (error) { if (error.code === code) return undefined; throw error; }
   };
-  const corpus = await readJson(args.corpus ?? ".pi/benchmark/corpus.json", "corpus_missing");
-  const results = await readJson(args.results ?? ".pi/benchmark/results.json", "results_missing");
-  const manifest = await optional(args.images ?? ".pi/benchmark/composed-manifest.json", "manifest_missing");
-  const judging = await optional(args.judging ?? ".pi/benchmark/judge.json", "manifest_missing");
-  const rawJudging = await optional(args["raw-judging"] ?? ".pi/benchmark/judge-raw-image.json", "manifest_missing");
-  const liveSmoke = await optional(args.smoke ?? ".pi/benchmark/live-smoke.json", "report_missing");
-  const defects = await optional(args.defects ?? ".pi/benchmark/defects.json", "report_missing");
-  const activation = await optional(args.activation ?? ".pi/benchmark/activation.json", "report_missing");
+  /**
+   * The evidence a release is judged on is chosen once and recorded in the
+   * report's `sources`. A regeneration with no explicit flags adopts those
+   * recorded paths instead of a hard-coded default: the visual gate reads one
+   * judging artifact, and silently defaulting to a different arm would move the
+   * release criterion without anybody deciding to move it. An explicit flag
+   * always wins, and a report that does not exist yet falls back to the
+   * pipeline's defaults.
+   */
+  const previous = await optionalJson(resolve(args.out ?? ".pi/benchmark/report.json"));
+  const recorded = (name, fallback) => {
+    const value = previous?.sources?.[name];
+    return typeof value === "string" && existsSync(resolve(value)) ? value : fallback;
+  };
+  const corpusPath = args.corpus ?? recorded("corpus", ".pi/benchmark/corpus.json");
+  const resultsPath = args.results ?? recorded("results", ".pi/benchmark/results.json");
+  const imagesPath = args.images ?? recorded("images", ".pi/benchmark/composed-manifest.json");
+  const judgingPath = args.judging ?? recorded("judging", ".pi/benchmark/judge.json");
+  const rawJudgingPath = args["raw-judging"] ?? recorded("rawJudging", ".pi/benchmark/judge-raw-image.json");
+  const smokePath = args.smoke ?? recorded("smoke", ".pi/benchmark/live-smoke.json");
+  const defectsPath = args.defects ?? recorded("defects", ".pi/benchmark/defects.json");
+  const activationPath = args.activation ?? recorded("activation", ".pi/benchmark/activation.json");
+  const corpus = await readJson(corpusPath, "corpus_missing");
+  const results = await readJson(resultsPath, "results_missing");
+  const manifest = await optional(imagesPath, "manifest_missing");
+  const judging = await optional(judgingPath, "manifest_missing");
+  const rawJudging = await optional(rawJudgingPath, "manifest_missing");
+  const liveSmoke = await optional(smokePath, "report_missing");
+  const defects = await optional(defectsPath, "report_missing");
+  const activation = await optional(activationPath, "report_missing");
   const report = await buildAggregateReport({
     corpus, results, manifest, judging, liveSmoke, defects, activation, rawJudging,
     sources: {
-      corpus: args.corpus ?? ".pi/benchmark/corpus.json",
-      results: args.results ?? ".pi/benchmark/results.json",
-      images: args.images ?? (manifest ? ".pi/benchmark/composed-manifest.json" : null),
-      judging: args.judging ?? (judging ? ".pi/benchmark/judge.json" : null),
-      rawJudging: args["raw-judging"] ?? (rawJudging ? ".pi/benchmark/judge-raw-image.json" : null),
-      smoke: args.smoke ?? ".pi/benchmark/live-smoke.json",
-      defects: args.defects ?? ".pi/benchmark/defects.json",
-      activation: args.activation ?? ".pi/benchmark/activation.json",
+      corpus: corpusPath,
+      results: resultsPath,
+      images: manifest ? imagesPath : null,
+      judging: judging ? judgingPath : null,
+      rawJudging: rawJudging ? rawJudgingPath : null,
+      smoke: smokePath,
+      defects: defectsPath,
+      activation: activationPath,
     },
   });
   const out = await writeJson(args.out ?? ".pi/benchmark/report.json", report);

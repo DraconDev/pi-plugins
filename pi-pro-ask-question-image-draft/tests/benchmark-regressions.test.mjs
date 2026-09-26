@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import { blindLabels, classifyEnvelopeDifference, compareCorpus, runLocal } from "../scripts/benchmark/compare.mjs";
+import { aggregateSessionEvidence, BEHAVIOUR_SESSIONS, HAPPY_SESSION, NOTE_TEXT, REVISION_FEEDBACK, SESSION_MODES, sessionPlan, verifySessionEvidence } from "../scripts/benchmark/live-sessions.mjs";
 import { DURABLE_CORPUS_PATH, generateCorpus, loadDurableCorpus } from "../scripts/benchmark/corpus.mjs";
 import { editorCandidates, quitSequenceFor, resolveEditorCommand, whichExecutable } from "../scripts/benchmark/editor.mjs";
 import { optionPrompt, surfaceSubject, treatmentDirective } from "../scripts/benchmark/image-prompt.mjs";
@@ -930,8 +931,14 @@ describe("COMPARE-001: every envelope mismatch is recorded and classified", () =
     assert.equal(reference.envelopeMismatchRecords.length, reference.envelopeMismatches, "the records are the mismatches");
     for (const record of reference.envelopeMismatchRecords) {
       assert.equal(typeof record.id, "string");
-      assert.ok(["adapter-wording", "capability", "disclosure"].includes(record.envelopeKind), `${record.id} is unclassified`);
+      // The contract's vocabulary: every mismatch is one of these two.
+      assert.ok(["adapter-wording", "capability"].includes(record.classification), `${record.id} is unclassified`);
+      // The finer reading of a wording difference is kept, not thrown away.
+      assert.equal(typeof record.disclosure, "boolean");
+      assert.ok(["image", "text", "legacy"].includes(record.scenario), `${record.id} lost its scenario class`);
       assert.ok(record.reason, `${record.id} has no reason`);
+      assert.equal(typeof record.difference?.reference, "string", `${record.id} lost the reference envelope`);
+      assert.equal(typeof record.difference?.local, "string", `${record.id} lost the local envelope`);
     }
     const cases = results.cases.filter((item) => item.envelopeMatch === false);
     assert.equal(cases.length, reference.envelopeMismatchRecords.length);
@@ -939,8 +946,201 @@ describe("COMPARE-001: every envelope mismatch is recorded and classified", () =
       assert.equal(typeof item.envelopes?.reference, "string", `${item.id} lost the reference envelope`);
       assert.equal(typeof item.envelopes?.local, "string", `${item.id} lost the local envelope`);
     }
+    // The counts and the records are two views of the same set.
+    const counted = Object.values(reference.envelopeMismatchByClassification).reduce((sum, value) => sum + value, 0);
+    assert.equal(counted, reference.envelopeMismatchRecords.length);
+    const scenarios = Object.values(reference.envelopeMismatchByScenario).reduce((sum, value) => sum + value, 0);
+    assert.equal(scenarios, reference.envelopeMismatchRecords.length);
+    assert.equal(reference.envelopeMismatchDisclosures + (reference.envelopeMismatchByKind["adapter-wording"] ?? 0), reference.envelopeMismatchByClassification["adapter-wording"]);
     // The gate is on capability differences only, and wording is never a gate.
     assert.equal(reference.envelopeGate, reference.envelopeCapabilityMismatches.length === 0);
     assert.equal(reference.envelopeCapabilityMismatches.length, 0, "a shared case reporting different answers is a defect");
+  });
+});
+
+/**
+ * SMOKE-001: the live real-TTY run exercised the happy path and never a note, a
+ * revision, a reject or a cancel - four behaviours the tool contract names. The
+ * walk is now split into one real PTY session per review, and the plan those
+ * sessions follow is data: the driver, the gate and this suite read one list, so
+ * a behaviour cannot quietly leave the live run again.
+ */
+describe("SMOKE-001: the live smoke drives note, revision, reject and cancel on a real terminal", () => {
+  const image = ".pi/benchmark/images/visual-001-option-1.png";
+  /** Evidence shaped exactly the way the driver writes it. */
+  const evidenceFor = (steps, rounds, extra = {}) => ({
+    status: "passed", steps, errors: {}, assertions: {},
+    session: { mode: "fixture", result: rounds.at(-1) ?? null, rounds },
+    ...extra,
+  });
+  const passing = {
+    note: evidenceFor(
+      [{ step: "note", text: NOTE_TEXT, attached: true }],
+      [{ status: "completed", decision: "approve", round: 1, answers: [{ stageId: "direction", answer: "Airy treatment", notes: NOTE_TEXT }] }],
+    ),
+    revision: evidenceFor(
+      [{ step: "revision", feedback: REVISION_FEEDBACK }],
+      [
+        { status: "revision", decision: "revision", round: 1, revision: { stageId: "decision", feedback: REVISION_FEEDBACK, requestedRound: 2 } },
+        { status: "completed", decision: "approve", round: 2, answers: [{ stageId: "decision", answer: "Grid layout" }] },
+      ],
+    ),
+    reject: evidenceFor([{ step: "reject", endedBy: "the Reject review row" }], [{ status: "rejected", decision: "reject", round: 1 }]),
+    cancel: evidenceFor([{ step: "cancel", endedBy: "Escape" }], [{ status: "cancelled", decision: "cancel", cancelled: true, round: 1 }]),
+  };
+  const clone = (value) => {
+    const copy = JSON.parse(JSON.stringify(value));
+    // The driver keeps `session.result` as the last round; a fixture that edits
+    // its rounds has to stay consistent with it.
+    copy.session.result = copy.session.rounds.at(-1) ?? null;
+    return copy;
+  };
+  const planFor = (mode) => sessionPlan(mode, { imagePath: image });
+
+  it("SMOKE-001: every missing behaviour is its own session, and the happy path keeps its eleven assertions", () => {
+    assert.deepEqual([...BEHAVIOUR_SESSIONS], ["note", "revision", "reject", "cancel"]);
+    assert.deepEqual([...SESSION_MODES], ["happy", "note", "revision", "reject", "cancel"]);
+    // Reject and cancel end a review, so neither can share a walk with anything
+    // else: each one gets a whole session of its own.
+    const reviewIds = SESSION_MODES.map((mode) => planFor(mode).review.reviewId);
+    assert.equal(new Set(reviewIds).size, SESSION_MODES.length, "two sessions cannot share a review id");
+    for (const mode of BEHAVIOUR_SESSIONS) {
+      const plan = planFor(mode);
+      assert.equal(plan.step, mode, `${mode} must record a step named after itself`);
+      assert.equal(plan.assertion, mode, `${mode} must contribute a named assertion`);
+      assert.ok(plan.expect.length > 20, `${mode} must state what its evidence has to show`);
+    }
+    // The happy path contributes no new assertion and keeps the real image, so
+    // the eleven assertions SMOKE-001 already proved are passed straight through.
+    const happy = planFor(HAPPY_SESSION);
+    assert.equal(happy.assertion, null);
+    assert.deepEqual(happy.imageOption, { stageId: "direction", optionId: "airy" });
+    assert.equal(happy.review.stages.length, 2);
+    assert.throws(() => sessionPlan("nonsense"), /Unknown live session/);
+  });
+
+  it("SMOKE-001: a behaviour assertion passes only on the evidence its own walk recorded", () => {
+    for (const mode of BEHAVIOUR_SESSIONS) {
+      const plan = planFor(mode);
+      assert.equal(verifySessionEvidence(plan, passing[mode]).passed, true, `${mode} fixture should pass`);
+    }
+    // The same reviews answered the old way must not satisfy the new steps.
+    const approvedInstead = evidenceFor([], [{ status: "completed", decision: "approve", round: 1, answers: [] }]);
+    assert.equal(verifySessionEvidence(planFor("reject"), approvedInstead).passed, false);
+    assert.equal(verifySessionEvidence(planFor("cancel"), approvedInstead).passed, false);
+    assert.equal(verifySessionEvidence(planFor("revision"), approvedInstead).passed, false);
+    // A step that was never recorded is not a pass either.
+    for (const mode of BEHAVIOUR_SESSIONS) {
+      const withoutStep = clone(passing[mode]);
+      withoutStep.steps = [];
+      const verified = verifySessionEvidence(planFor(mode), withoutStep);
+      assert.equal(verified.passed, false, `${mode} passed with no step recorded`);
+      assert.ok(verified.reasons.some((reason) => reason.includes(`"${mode}"`)), `${mode} must say which step is missing`);
+    }
+  });
+
+  it("SMOKE-001: a note is only a note when it reached the screen and came back on the answer", () => {
+    const plan = planFor("note");
+    const noAnswer = clone(passing.note);
+    noAnswer.session.rounds[0].answers = [{ stageId: "direction", answer: "Airy treatment" }];
+    const unverified = verifySessionEvidence(plan, noAnswer);
+    assert.equal(unverified.passed, false);
+    assert.ok(unverified.reasons.some((reason) => /carried the note back/.test(reason)));
+    const unseen = clone(passing.note);
+    unseen.steps[0].attached = false;
+    const offScreen = verifySessionEvidence(plan, unseen);
+    assert.equal(offScreen.passed, false);
+    assert.ok(offScreen.reasons.some((reason) => /on-screen answer line/.test(reason)));
+    const mismatched = clone(passing.note);
+    mismatched.session.rounds[0].answers[0].notes = "a different note";
+    const disagreed = verifySessionEvidence(plan, mismatched);
+    assert.equal(disagreed.passed, false, "the note on screen and the note the tool returned must be the same one");
+    assert.ok(disagreed.reasons.some((reason) => /carried the note back/.test(reason)));
+  });
+
+  it("SMOKE-001: a revision is only a round when the next round really ran and was approved", () => {
+    const plan = planFor("revision");
+    const singleRound = clone(passing.revision);
+    singleRound.session.rounds.pop();
+    singleRound.session.result = singleRound.session.rounds[0];
+    const verified = verifySessionEvidence(plan, singleRound);
+    assert.equal(verified.passed, false, "a revision request alone is not a revision round");
+    assert.ok(verified.reasons.some((reason) => /no second round ran/.test(reason)));
+    const staleRound = clone(passing.revision);
+    staleRound.session.rounds[0].revision.requestedRound = 1;
+    assert.equal(verifySessionEvidence(plan, staleRound).passed, false, "a revision must ask for a later round");
+    const unanswered = clone(passing.revision);
+    unanswered.session.rounds[1].status = "cancelled";
+    assert.equal(verifySessionEvidence(plan, unanswered).passed, false, "round 2 must reach a decision");
+    // A round 2 that only exists on paper is caught by the round number itself.
+    const mislabelled = clone(passing.revision);
+    mislabelled.session.rounds[1].round = 1;
+    assert.equal(verifySessionEvidence(plan, mislabelled).passed, false);
+  });
+
+  it("SMOKE-001: the aggregate cannot pass on a missing session, and never claims an unproven behaviour", () => {
+    const entries = SESSION_MODES.map((mode) => ({
+      plan: planFor(mode),
+      evidence: mode === HAPPY_SESSION
+        ? { status: "passed", steps: [{ step: "complete" }], errors: {}, assertions: { realTty: true, imageRendered: true }, session: { result: { status: "completed", decision: "approve", round: 1, answers: [] }, rounds: [{ status: "completed", decision: "approve", round: 1, answers: [] }] } }
+        : passing[mode],
+    }));
+    const all = aggregateSessionEvidence(entries);
+    assert.equal(all.status, "passed");
+    assert.deepEqual([...all.missingSessions], []);
+    assert.deepEqual([...all.unprovenBehaviours], []);
+    assert.deepEqual(Object.keys(all.assertions).sort(), ["imageRendered", "note", "realTty", "reject", "revision", "cancel"].sort());
+    // A dropped session is a failure, not an omission.
+    const withoutCancel = aggregateSessionEvidence(entries.filter((entry) => entry.plan.mode !== "cancel"));
+    assert.equal(withoutCancel.status, "failed");
+    assert.deepEqual([...withoutCancel.missingSessions], ["cancel"]);
+    assert.equal(withoutCancel.assertions.cancel, undefined, "a session that never ran cannot be true");
+    // A session that ran and failed reports false rather than disappearing.
+    const failingReject = entries.map((entry) => (entry.plan.mode === "reject"
+      ? { ...entry, evidence: evidenceFor([{ step: "reject", endedBy: "the Reject review row" }], [{ status: "completed", decision: "approve", round: 1 }]) }
+      : entry));
+    const aggregated = aggregateSessionEvidence(failingReject);
+    assert.equal(aggregated.status, "failed");
+    assert.equal(aggregated.assertions.reject, false);
+    assert.deepEqual([...aggregated.unprovenBehaviours], ["reject"]);
+    // Every step in the published record names the session that produced it.
+    for (const step of all.steps) assert.ok(SESSION_MODES.includes(step.session), `${step.session} is not a session`);
+    for (const mode of BEHAVIOUR_SESSIONS) {
+      assert.ok(all.steps.some((step) => step.session === mode && step.step === mode), `${mode} is missing from the record`);
+    }
+  });
+
+  it("SMOKE-001: the driver and the gate both run the whole list, and a happy-path regression fails its session", async () => {
+    const driver = await readFile(new URL("../scripts/benchmark/live-driver.mjs", import.meta.url), "utf8");
+    const gate = await readFile(new URL("../scripts/benchmark/smoke-live.mjs", import.meta.url), "utf8");
+    assert.match(driver, /sessionPlan\(session, \{ imagePath \}\)/, "the driver must take its session from the shared plan");
+    assert.match(driver, /verifySessionEvidence\(plan, evidence\)/, "the driver must judge itself with the shared check");
+    assert.match(gate, /for \(const mode of sessions\)/, "the gate must run every session, not a fixed one");
+    assert.match(gate, /aggregateSessionEvidence\(entries\)/, "the gate must publish the aggregate");
+    for (const mode of BEHAVIOUR_SESSIONS) {
+      assert.ok(driver.includes(`record("${mode}"`), `the driver must record a ${mode} step`);
+    }
+    assert.ok(gate.includes("`--session=${mode}`"), "the gate must pass the session to the driver, not a fixed one");
+    // The happy path is not weakened: a false assertion fails the session, and
+    // the eleven names are still the ones the smoke publishes.
+    const happyPlan = planFor(HAPPY_SESSION);
+    const happyEvidence = {
+      status: "passed", steps: [{ step: "complete" }], errors: {}, assertions: { realTty: true, collapseReopen: false },
+      session: { result: { status: "completed", decision: "approve", round: 1, answers: [] }, rounds: [{ status: "completed", decision: "approve", round: 1, answers: [] }] },
+    };
+    const verified = verifySessionEvidence(happyPlan, happyEvidence);
+    assert.equal(verified.passed, false);
+    assert.ok(verified.reasons.some((reason) => /collapseReopen/.test(reason)));
+    const record = JSON.parse(await readFile(new URL("../.pi/benchmark/live-smoke.json", import.meta.url), "utf8"));
+    const named = ["note", "revision", "reject", "cancel"];
+    const recorded = new Set(record.steps.map((step) => step.step));
+    for (const mode of named) assert.ok(recorded.has(mode), `the published record has no ${mode} step`);
+    for (const mode of named) assert.equal(record.assertions[mode], true, `the published record has no true ${mode} assertion`);
+    for (const name of ["realTty", "realExtension", "titleAndPromptOnScreen", "imageRendered", "keyboardControls", "stageAdvance", "collapseReopen", "finalReview", "externalEditor", "completedWithAnswer", "persistence"]) {
+      assert.equal(record.assertions[name], true, `the eleven original assertions must stay true (${name})`);
+    }
+    assert.deepEqual(record.missingSessions, []);
+    assert.equal(record.pty.usedPseudoTerminal, true);
+    for (const mode of SESSION_MODES) assert.equal(record.pty.exitCodes[mode], 0, `${mode} must exit clean`);
   });
 });
