@@ -324,8 +324,36 @@ export async function generationAccounting(manifest, { imageDir = DEFAULT_IMAGE_
   };
 }
 
+export const GENERATION_LEDGER = ".pi/benchmark/generations.json";
+
+/**
+ * The durable generation account.
+ *
+ * Written before any pruning, so the superseded count survives the deletion it
+ * describes: after the orphans are gone the directory only shows the current
+ * set, and the real cumulative consumption would be unrecoverable.
+ */
+export async function recordGenerationAccount(manifest, options = {}) {
+  const path = resolve(options.ledger ?? GENERATION_LEDGER);
+  const prior = await readCacheFile(path);
+  const account = await generationAccounting(manifest, options);
+  const record = {
+    schemaVersion: SCHEMA_VERSION,
+    kind: "benchmark-generation-account",
+    observedAt: new Date().toISOString(),
+    ...account,
+    // A previous account is never overwritten with a smaller cumulative figure:
+    // deletions reduce what is on disk, not what was generated.
+    cumulativeSuccessfulGenerations: Math.max(account.cumulativeSuccessfulGenerations, prior?.cumulativeSuccessfulGenerations ?? 0),
+    supersededDeletedAt: prior?.supersededDeletedAt ?? null,
+  };
+  await writeJson(path, record);
+  return record;
+}
+
 /** Delete artifacts no manifest entry references, and report what went. */
-export async function pruneSupersededImages(manifest, { imageDir = DEFAULT_IMAGE_DIR, dryRun = false } = {}) {
+export async function pruneSupersededImages(manifest, { imageDir = DEFAULT_IMAGE_DIR, dryRun = false, ledger = GENERATION_LEDGER } = {}) {
+  const recorded = await recordGenerationAccount(manifest, { imageDir, ledger });
   const account = await generationAccounting(manifest, { imageDir });
   const referenced = new Set((manifest?.images ?? []).map((image) => image.path));
   let entries = [];
@@ -342,7 +370,11 @@ export async function pruneSupersededImages(manifest, { imageDir = DEFAULT_IMAGE
     removed += 1;
     bytes += info.size;
   }
-  return { ...account, removed, freedBytes: bytes, dryRun };
+  if (!dryRun && removed > 0) {
+    const record = { ...recorded, supersededDeletedAt: new Date().toISOString(), supersededRemoved: removed, supersededFreedBytes: bytes };
+    await writeJson(resolve(ledger), record);
+  }
+  return { ...account, recorded: recorded.cumulativeSuccessfulGenerations, removed, freedBytes: bytes, dryRun };
 }
 
 /**

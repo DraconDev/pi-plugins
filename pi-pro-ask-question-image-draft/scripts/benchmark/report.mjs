@@ -12,7 +12,7 @@ import { resolve } from "node:path";
 
 import { assertNoCredentials, BenchmarkError, parseArgs, readJson, SCHEMA_VERSION, wilsonLowerBound, writeJson } from "./common.mjs";
 import { validateCorpus } from "./corpus.mjs";
-import { IMAGE_BUDGET } from "./images.mjs";
+import { generationAccounting, IMAGE_BUDGET } from "./images.mjs";
 
 const STRATA = ["ordinary", "visual", "adversarial"];
 /** Every scenario and every result must end in one of these. */
@@ -109,14 +109,25 @@ export function recomputeImages(manifest, judging) {
   };
 }
 
-export function recomputeResources({ manifest, judging, results }) {
+export function recomputeResources({ manifest, judging, results, generationAccount = null }) {
   // The objective's resource bound is stated, not assumed: at most 600 image
   // generations, and exactly one execution per requested pass per case.
   const requested = results?.passes?.requested ?? 1;
   const executed = results?.passes?.executedPerCase ?? null;
   const images = manifest?.images?.length ?? 0;
   const judgeCalls = (judging?.results ?? []).reduce((sum, item) => sum + (item.passModes?.length ?? 0), 0);
+  // Cumulative provider consumption, not the per-manifest count: a prompt
+  // revision retires a whole prompt-hash set, and reporting only the current
+  // set understated what the boundary actually cost.
+  const account = generationAccount ?? {};
   return {
+    imageGenerationAccount: {
+      cumulativeSuccessfulGenerations: account.cumulativeSuccessfulGenerations ?? null,
+      currentSetGenerations: account.currentSetGenerations ?? images,
+      supersededGenerations: account.supersededGenerations ?? null,
+      budgetPerManifest: IMAGE_BUDGET,
+      note: account.note ?? "The image generation account is only complete when the report is built with the image directory available.",
+    },
     imageGenerations: images,
     imageBudget: IMAGE_BUDGET,
     passesRequested: requested,
@@ -149,7 +160,7 @@ export async function buildAggregateReport({
   validateCorpus(corpus);
   const comparison = recomputeComparison(corpus, results);
   const images = recomputeImages(manifest, judging);
-  const resources = recomputeResources({ manifest, judging, results });
+  const resources = recomputeResources({ manifest, judging, results, generationAccount: await generationAccounting(manifest) });
   const gates = recomputeGates(comparison, images, resources);
   const smoke = evidenceOf(liveSmoke, "liveSmoke");
   // The ledger is a file, not a bare array. Accepting only an array silently
@@ -336,7 +347,7 @@ export async function recomputeFromSources(report, reportPath, { corpus, results
   const judgingValue = await readJson(judgingPath, "manifest_missing");
   const comparison = recomputeComparison(corpusValue, resultsValue);
   const images = recomputeImages(manifestValue, judgingValue);
-  const resources = recomputeResources({ manifest: manifestValue, judging: judgingValue, results: resultsValue });
+  const resources = recomputeResources({ manifest: manifestValue, judging: judgingValue, results: resultsValue, generationAccount: await generationAccounting(manifestValue) });
   const gates = recomputeGates(comparison, images, resources);
   const unresolved = (report.defects ?? []).filter((defect) => (defect.severity === "P0" || defect.severity === "P1") && defect.status !== "resolved");
   const liveSmokePassed = report.liveSmoke?.status === "passed";
