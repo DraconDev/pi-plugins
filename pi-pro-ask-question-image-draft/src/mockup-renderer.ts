@@ -273,11 +273,69 @@ export class Canvas {
 
   /** Copy another canvas into this one at a pixel offset. */
   blit(source: Canvas, atX = 0, atY = 0): void {
+    this.drawRgb({ width: source.width, height: source.height, data: source.toRgb() }, atX, atY);
+  }
+
+  /**
+   * Draw raw RGB triplets at a pixel offset.
+   *
+   * `toRgb` hands back a copy of the pixels, so writing into its result used to
+   * draw nothing at all - the composed preview rendered as a bare mockup and the
+   * artwork was silently absent. Anything that writes into a canvas goes
+   * through this method.
+   */
+  drawRgb(image: { width: number; height: number; data: Buffer }, atX = 0, atY = 0): void {
+    for (let y = 0; y < image.height; y += 1) {
+      for (let x = 0; x < image.width; x += 1) {
+        const source = (y * image.width + x) * 3;
+        this.set(atX + x, atY + y, [image.data[source]!, image.data[source + 1]!, image.data[source + 2]!]);
+      }
+    }
+  }
+
+  /** Fill a rectangle at a fractional opacity, for washes and scrims. */
+  fillRectAlpha(x: number, y: number, width: number, height: number, colour: Rgb, alpha: number): void {
+    const amount = Math.max(0, Math.min(1, alpha));
+    for (let dy = 0; dy < height; dy += 1) {
+      for (let dx = 0; dx < width; dx += 1) this.blend(x + dx, y + dy, colour, amount);
+    }
+  }
+
+  /** Blend one pixel towards a colour at a fractional opacity. */
+  blend(x: number, y: number, colour: Rgb, alpha: number): void {
+    if (x < 0 || y < 0 || x >= this.width || y >= this.height) return;
+    const index = (y * this.width + x) * 3;
+    this.pixels[index] = Math.round(this.pixels[index]! * (1 - alpha) + colour[0] * alpha);
+    this.pixels[index + 1] = Math.round(this.pixels[index + 1]! * (1 - alpha) + colour[1] * alpha);
+    this.pixels[index + 2] = Math.round(this.pixels[index + 2]! * (1 - alpha) + colour[2] * alpha);
+  }
+
+  /**
+   * Copy a canvas on top of this one, keeping only the pixels that are not one
+   * of `skip` colours, and dropping a one-pixel moat around every kept run so
+   * the annotation reads against whatever it lands on.
+   */
+  overlayKeyed(source: Canvas, atX: number, atY: number, skip: readonly Rgb[]): void {
     const pixels = source.toRgb();
+    const isBackground = (r: number, g: number, b: number): boolean => skip.some(
+      (colour) => Math.abs(colour[0] - r) <= 2 && Math.abs(colour[1] - g) <= 2 && Math.abs(colour[2] - b) <= 2,
+    );
+    const kept = (x: number, y: number): boolean => {
+      if (x < 0 || y < 0 || x >= source.width || y >= source.height) return false;
+      const index = (y * source.width + x) * 3;
+      return !isBackground(pixels[index]!, pixels[index + 1]!, pixels[index + 2]!);
+    };
     for (let y = 0; y < source.height; y += 1) {
       for (let x = 0; x < source.width; x += 1) {
+        if (!kept(x, y)) continue;
         const index = (y * source.width + x) * 3;
         this.set(atX + x, atY + y, [pixels[index]!, pixels[index + 1]!, pixels[index + 2]!]);
+        // Moat: paint the neighbours too, so a hairline glyph does not sit
+        // directly on the artwork with no separation.
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          if (kept(x + dx, y + dy)) continue;
+          this.blend(atX + x + dx, atY + y + dy, [255, 255, 255], 0.75);
+        }
       }
     }
   }

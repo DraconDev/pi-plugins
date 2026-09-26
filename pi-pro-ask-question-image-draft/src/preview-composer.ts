@@ -43,12 +43,12 @@ export interface ComposeOptions {
   widthCells?: number;
   heightCells?: number;
   /**
-   * Height of the art band, in cells, measured from the top of the frame.
-   * Defaults to a third of the frame, which leaves the deterministic rows the
-   * majority of the preview: the art characterises the treatment, the rows carry
-   * the information.
+   * How far the art is washed towards white before the structure goes on top,
+   * 0..1. A vector layout on a white background needs almost no wash; artwork
+   * with a dark or saturated ground needs most of it, or the annotation is
+   * unreadable and the whole point of the composition is lost.
    */
-  artRows?: number;
+  scrim?: number;
   style?: { frame: Rgb };
 }
 
@@ -94,32 +94,26 @@ export function composePreview(options: ComposeOptions): { png: Buffer; width: n
   const { spec, art } = options;
   const widthCells = options.widthCells ?? DEFAULT_MOCKUP_CELLS.widthCells;
   const heightCells = options.heightCells ?? DEFAULT_MOCKUP_CELLS.heightCells;
-  // The structure is drawn into the rows the art band does not take, and into
-  // no more: rendering it on the full grid and pasting the art over the top
-  // erased the structure's own rows, which is the one thing the composition
-  // exists to guarantee. Laying it out in the remaining rows makes each layout
-  // pick a capacity that fits, so nothing is silently clipped.
-  const artRows = Math.max(2, Math.min(heightCells - 4, options.artRows ?? Math.max(3, Math.round(heightCells / 3))));
-  const structureRows = heightCells - artRows;
-  const structure = renderMockupCanvas(spec, { widthCells, heightCells: structureRows });
   const style = { ...DEFAULT_STYLE, ...(spec.style ?? {}) };
-  const canvas = new Canvas(widthCells * CELL_WIDTH, heightCells * CELL_HEIGHT, style.background);
-  const pixelWidth = canvas.width - 2;
-  const pixelHeight = artRows * CELL_HEIGHT - 2;
-  const placed = cropToFill(art, pixelWidth, pixelHeight);
-  const originX = 1;
-  const originY = 1;
-  for (let y = 0; y < pixelHeight; y += 1) {
-    const source = y * placed.width * 3;
-    placed.data.copy(canvas.toRgb(), ((originY + y) * canvas.width + originX) * 3, source, source + placed.width * 3);
-  }
-  canvas.blit(structure, 0, artRows * CELL_HEIGHT);
-  // Frame: the boundary between generated art and drawn structure. A preview
-  // that blurs its two layers is worse than one that admits it has two.
+  const width = widthCells * CELL_WIDTH;
+  const height = heightCells * CELL_HEIGHT;
+  // The art is scaled to fill the *whole* frame, not a band cut out of it. A
+  // generated layout is square and its content sits in horizontal rows, so a
+  // wide band crops to the gaps between rows and the preview came out white -
+  // the art was there and simply never shown.
+  const scaled = cropToFill(art, width, height);
+  const canvas = new Canvas(width, height, style.background);
+  canvas.drawRgb(scaled, 0, 0);
+  // Wash: the annotation has to be readable over whatever the art brought with
+  // it, and the amount is bounded rather than tuned per image.
+  canvas.fillRectAlpha(0, 0, width, height, [255, 255, 255], options.scrim ?? 0.55);
+  // The structure is drawn on its own canvas and keyed onto the art: only the
+  // ink survives, so the rows and the arrangement are always legible while the
+  // artwork still shows through everywhere they are not.
+  const structure = renderMockupCanvas(spec, { widthCells, heightCells });
+  canvas.overlayKeyed(structure, 0, 0, [style.background, style.surface]);
   const frame = options.style?.frame ?? DEFAULT_FRAME;
-  canvas.fillRect(0, artRows * CELL_HEIGHT - 1, canvas.width, 1, frame);
-  canvas.fillRect(0, 0, 1, artRows * CELL_HEIGHT, frame);
-  canvas.fillRect(canvas.width - 1, 0, 1, artRows * CELL_HEIGHT, frame);
+  canvas.strokeRect(0, 0, width, height, frame, 1);
   return { png: encodeCanvasPng(canvas), width: canvas.width, height: canvas.height };
 }
 
