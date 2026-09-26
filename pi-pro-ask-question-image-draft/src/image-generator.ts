@@ -7,6 +7,7 @@ import { getAgentDir, readStoredCredential } from "@earendil-works/pi-coding-age
 import type { MockupSpec, NormalizedImageGeneration, NormalizedOption, NormalizedReview } from "./schema.ts";
 
 import { DEFAULT_MOCKUP_CELLS, renderMockup } from "./mockup-renderer.ts";
+import { composePreview, decodeArt } from "./preview-composer.ts";
 
 export const DEFAULT_IMAGE_PROVIDER = "agnes";
 export const DEFAULT_IMAGE_MODEL = "agnes-image-2.5-flash";
@@ -370,9 +371,56 @@ export async function renderOptionMockup(
 }
 
 /**
+ * Compose an option's generated art into its deterministic structure.
+ *
+ * An option can carry both a `mockup` spec and a `generate` request. The
+ * benchmark measured why that combination matters: a generated image judged on
+ * the 31 x 16 cell grid the terminal shows carries a shape and an emphasis but
+ * almost never the information the question is about, and 34.5% of raw
+ * generated previews were charged as severe failures. The information-bearing
+ * layer is therefore drawn deterministically and the art is placed inside it, so
+ * a preview is never less informative than the text presentation and never
+ * illegible because a model invented its own typography.
+ */
+export async function renderComposedMockup(
+  option: NormalizedOption,
+  art: GeneratedImage,
+  options: ImageGeneratorOptions,
+): Promise<GeneratedImage> {
+  const spec = option.mockup;
+  if (!spec) throw new ImageGenerationError("invalid_request", "Option has no mockup to compose into.");
+  const composed = composePreview({
+    spec: spec as MockupSpec,
+    art: decodeArt(await readFile(art.path)),
+    widthCells: spec.widthCells ?? DEFAULT_MOCKUP_CELLS.widthCells,
+    heightCells: spec.heightCells ?? DEFAULT_MOCKUP_CELLS.heightCells,
+  });
+  const now = options.now ?? Date.now;
+  const id = (options.randomId ?? randomUUID)();
+  const stem = `composed-${safePart(option.id, "option")}-${now()}-${safePart(id, "composed")}`;
+  const directory = options.outputDir ?? join(options.cwd, ".pi", "generated-images");
+  const path = join(directory, `${stem}.png`);
+  try {
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await writeFile(path, composed.png, { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    throw new ImageGenerationError("io_error", `Unable to save composed preview: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+  }
+  return {
+    path,
+    mimeType: "image/png",
+    provider: "composed",
+    model: `deterministic-cell-renderer+${art.model ?? art.provider}`,
+    prompt: art.prompt,
+    byteCount: composed.png.length,
+  };
+}
+
+/**
  * Resolve every option's requested image: a deterministic mockup is drawn
- * locally, a `generate` request goes to the configured provider, and an existing
- * image reference is never overwritten.
+ * locally, a `generate` request goes to the configured provider, an option that
+ * asks for both gets the two composed, and an existing image reference is never
+ * overwritten.
  */
 export async function generateReviewImages(
   review: NormalizedReview,
@@ -389,6 +437,20 @@ export async function generateReviewImages(
   const generatedByKey = new Map<string, GeneratedImage>();
   for (const [index, item] of requested.entries()) {
     if (options.signal?.aborted) throw new ImageGenerationError("aborted", "Image generation was cancelled.");
+    if (item.option.mockup !== undefined && item.option.generate !== undefined) {
+      // Both are asked for: the provider supplies the art, the deterministic
+      // renderer supplies the structure, and the two are composed into one
+      // preview rather than one silently winning over the other.
+      const request = effectiveGeneration(review, item.option);
+      if (!request) continue;
+      const provider = endpointFor(request.provider ?? DEFAULT_IMAGE_PROVIDER);
+      const art = await requestImage(request, provider, request.model ?? DEFAULT_IMAGE_MODEL, options);
+      const composed = await renderComposedMockup(item.option, art, options);
+      images.push(composed);
+      generatedByKey.set(`${item.stage.id}:${item.option.id}`, composed);
+      options.onProgress?.({ completed: index + 1, total: requested.length, option: item.option, image: composed });
+      continue;
+    }
     if (item.option.mockup !== undefined) {
       const mockup = await renderOptionMockup(item.option, options);
       images.push(mockup);
