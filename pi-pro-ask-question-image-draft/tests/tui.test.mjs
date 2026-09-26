@@ -297,3 +297,58 @@ describe("tmux passthrough: the image escape has to survive the multiplexer", ()
     assert.equal(passthroughGraphicsForHost(display, { tmux: true }), `${open}${display}\u001b\\`);
   });
 });
+
+/**
+ * The dialog people actually see: a review whose prompt is a paragraph and
+ * whose options carry no image. Before this, the prompt filled a third of the
+ * frame, the selected option's description was printed twice, and a preview
+ * block announced that there was nothing to preview.
+ */
+describe("chrome: a text-only review stays a questionnaire", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  const longPrompt = Array.from({ length: 8 }, (_, index) => `line ${index + 1} of a model-written paragraph about the decision at hand`).join(" ");
+  const build = () => {
+    const review = normalizeReview({
+      reviewId: "text-only",
+      title: "Audit pass",
+      stages: [{
+        id: "one", header: "Watch card identity", prompt: longPrompt,
+        options: [
+          { id: "pin", label: "Pin against release.json", description: "Keeps a deliberate human-reviewed pin." },
+          { id: "defer", label: "Defer", description: "Leave the current behaviour and note it for later." },
+        ],
+      }],
+    });
+    let result;
+    const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 44 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+    return { component, get result() { return result; } };
+  };
+
+  it("clamps a paragraph prompt and says how to read the rest", () => {
+    const { component } = build();
+    const text = component.render(110).join("\n");
+    assert.ok(text.includes("line 1 of a model-written paragraph"), "the prompt starts at its first line");
+    assert.ok(text.includes("more lines — press ctrl+r"), "and says the rest is one keypress away");
+    assert.equal(text.includes("line 8 of a model-written paragraph"), false, "the tail is not dumped by default");
+    // The same prompt, expanded, shows everything - and only once.
+    component.handleInput("\u0012");
+    const expanded = component.render(110).join("\n");
+    assert.ok(expanded.includes("line 8 of a model-written paragraph"), "ctrl+r reads the whole prompt");
+    assert.equal((expanded.match(/line 1 of a model-written paragraph/g) ?? []).length, 1, "and the prompt is not printed twice");
+    component.dispose();
+  });
+
+  it("does not repeat the selected option's description or announce an empty preview", () => {
+    const { component } = build();
+    const text = component.render(110).join("\n");
+    assert.equal(
+      (text.match(/Keeps a deliberate human-reviewed pin\./g) ?? []).length,
+      1,
+      "the description is shown once, under its row",
+    );
+    assert.equal(text.includes("No inline preview supplied."), false, "a text option does not get a dead preview block");
+    assert.ok(text.includes("1. Pin against release.json"), "options are numbered");
+    assert.ok(text.includes("3. Type something."), "the action rows keep their place after a rule");
+    component.dispose();
+  });
+});

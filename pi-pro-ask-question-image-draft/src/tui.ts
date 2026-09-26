@@ -252,6 +252,12 @@ function imageLines(image: LoadedImage, theme: Theme, width: number, maxHeight =
   return component.render(Math.max(1, width));
 }
 
+/** A markdown preview carried by the option itself, rendered the way pi-tui renders it. */
+function markdownPreview(option: NormalizedOption, theme: Theme, width: number): string[] {
+  const markdown = new Markdown(option.preview!, 1, 0, markdownTheme(theme), undefined, { renderLatex: false });
+  return [...markdown.render(width)];
+}
+
 /** Readable text fallback used when inline images are unavailable, loading, or failed. */
 function fallbackPreview(option: NormalizedOption, loaded: LoadedOption | undefined, theme: Theme, width: number): string[] {
   const lines: string[] = [];
@@ -688,15 +694,15 @@ export class VisualReviewWizard implements Component, Focusable {
     lines.push("");
     if (stage) {
       // A prompt can be a paragraph. The reference dialog shows the question
-      // and gets out of the way; dumping a full page of model prose before the
-      // options pushed the list off the screen, so it is clamped to a few
-      // lines with the rest reachable on a keypress.
-      const promptLines = addWrapped(stage.prompt);
+      // and gets out of the way; a full page of model prose pushed the options
+      // off the screen, so it is clamped to a few lines with the rest one
+      // keypress away.
+      const promptLines = wrapTextWithAnsi(stage.prompt, Math.max(1, safeWidth - 1)).map((line) => ` ${line}`);
+      const limit = 3;
       if (this.promptExpanded) {
-        promptLines.forEach((line) => lines.push(line));
+        lines.push(...promptLines);
       } else {
-        const limit = 3;
-        for (const line of promptLines.slice(0, limit)) lines.push(line);
+        lines.push(...promptLines.slice(0, limit));
         if (promptLines.length > limit) {
           lines.push(this.theme.fg("dim", `  … ${promptLines.length - limit} more lines — press ctrl+r to read the whole prompt`));
         }
@@ -768,10 +774,17 @@ export class VisualReviewWizard implements Component, Focusable {
         for (const line of listLines) lines.push(` ${line}`);
         const selected = rows[this.selectedIndex];
         if (selected?.kind === "option" && stage) {
-          lines.push("");
-          for (const line of this.renderSelectedVisual(selected.option, safeWidth - 4)) {
-            if (isImageLine(line)) lines.push(line);
-            else lines.push(`  ${line}`);
+          // In the text layout the option's description is already spelled out
+          // under its row, so a preview block that would only repeat it is
+          // dropped. An image or a markdown preview is new information and stays.
+          const option = selected.option;
+          const worthABlock = Boolean(option.image) || Boolean(option.preview?.trim());
+          if (worthABlock) {
+            lines.push("");
+            for (const line of this.renderSelectedVisual(option, safeWidth - 4)) {
+              if (isImageLine(line)) lines.push(line);
+              else lines.push(`  ${line}`);
+            }
           }
         }
       }
@@ -943,7 +956,8 @@ export class VisualReviewWizard implements Component, Focusable {
     const stage = this.review.stages[this.stageIndex];
     const key = `${stage.id}:${option.id}`;
     const loaded = this.loadedImages.get(key);
-    const hasImage = this.imageMode && Boolean(loaded?.image);
+    const image = loaded?.image;
+    const hasImage = this.imageMode && Boolean(image);
     const hasPreview = Boolean(option.preview?.trim());
     // An option that carries an image but sits on a terminal that cannot draw
     // it still has to say so - that is the case where the user is staring at a
@@ -962,11 +976,16 @@ export class VisualReviewWizard implements Component, Focusable {
       if (lines.length) lines.push("");
       for (const line of wrapTextWithAnsi(this.theme.fg("muted", option.description), Math.max(1, width))) lines.push(line);
     }
-    if (hasImage) {
-      lines.push(...(lines.length ? [""] : []), ...imageLines(loaded!.image, this.theme, width, this.previewRows()));
+    if (image && this.imageMode) {
+      lines.push(...(lines.length ? [""] : []), ...imageLines(image, this.theme, width, this.previewRows()));
       return lines;
     }
-    return [...lines, ...fallbackPreview(option, loaded, this.theme, Math.max(1, width))];
+    if (hasPreview) return [...lines, ...markdownPreview(option, this.theme, Math.max(1, width))];
+    // An image this terminal cannot draw still deserves the path and the reason.
+    if (hasImageRef) return [...lines, ...fallbackPreview(option, loaded, this.theme, Math.max(1, width))];
+    // Text only: the option's own sentence is the whole preview, so the pane
+    // does not also announce that there is nothing to show.
+    return lines;
   }
 
   /**

@@ -58,6 +58,7 @@ const optionIndex = Number(args.option ?? 0);
 /** Strip SGR, cursor movement and the graphics protocol, keeping the printable columns. */
 const plain = (line) => line
   .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+  .replace(/\x1bPtmux;[\s\S]*?\x1b\\/g, "")
   .replace(/\x1b_G[^\x1b]*(?:\x1b\\|\x07)/g, "")
   .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
   .replace(/\x1b[@-Z\\-_]/g, "");
@@ -76,15 +77,17 @@ const width = (line) => [...plain(line)].length;
  */
 function findImages(lines) {
   const images = [];
-  const sequence = /\x1b_G([^;]*);([^\x1b]*)\x1b\\/g;
+  const sequence = /\x1bPtmux;\x1b_G([^;]*);([^\x1b]*)\x1b\\|\x1b_G([^;]*);([^\x1b]*)\x1b\\/g;
   lines.forEach((line, row) => {
     if (!line.includes("\x1b_G")) return;
+    sequence.lastIndex = 0;
+    const first = sequence.exec(line);
     const control = Object.fromEntries(
-      (sequence.exec(line)?.[1] ?? "").split(",").map((part) => part.split("=")).filter((part) => part.length === 2),
+      (first?.[1] ?? first?.[3] ?? "").split(",").map((part) => part.split("=")).filter((part) => part.length === 2),
     );
     let base64 = "";
     sequence.lastIndex = 0;
-    for (let match = sequence.exec(line); match; match = sequence.exec(line)) base64 += match[2];
+    for (let match = sequence.exec(line); match; match = sequence.exec(line)) base64 += match[2] ?? match[4] ?? "";
     images.push({
       row,
       column: width(line.slice(0, line.indexOf("\x1b_G"))),
