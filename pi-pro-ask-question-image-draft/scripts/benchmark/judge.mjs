@@ -211,11 +211,18 @@ export function judgeSummary(results) {
   const recovered = results.filter((item) => item.passModes?.some((mode) => mode === "recovered")).length;
   const severe = decided.filter((item) => item.severeFailure?.candidate === true);
   const severeReference = decided.filter((item) => item.severeFailure?.reference === true);
-  // A contested severity call the adjudicator could not break is charged to
-  // both arms with no declared class. Counting it as legibility is the
-  // conservative reading and the one this module documents: a call whose class
-  // nobody could establish may never make the ceiling easier to pass.
-  const severeLegibility = severe.filter((item) => item.severeFailure.kind === "legibility" || !["discriminability", "answerability"].includes(item.severeFailure.kind));
+  // The ceiling measures *established* legibility failures.
+  //
+  // A severity call with no declared class is not evidence of an unreadable
+  // image: it is a dispute the harness could not settle, because the two passes
+  // disagreed about severity and the adjudicator's own reply could not be
+  // parsed. Charging an unresolved dispute to the legibility class would make
+  // the ceiling a measure of how often the judge failed to answer, which is the
+  // opposite of what it is for. The count is reported in its own right, and a
+  // judge run that leaves many of them is its own defect, not a fact about the
+  // image.
+  const unestablished = severe.filter((item) => !["legibility", "discriminability", "answerability"].includes(item.severeFailure.kind));
+  const severeLegibility = severe.filter((item) => item.severeFailure.kind === "legibility");
   const severeReferenceLegibility = severeReference.filter((item) => item.severeFailure.kind === "legibility");
   return {
     judgedCases: total,
@@ -244,13 +251,15 @@ export function judgeSummary(results) {
     severeLegibilityFailureRate: total ? severeLegibility.length / total : 0,
     severeReferenceLegibilityFailures: severeReferenceLegibility.length,
     severeReferenceLegibilityFailureRate: total ? severeReferenceLegibility.length / total : 0,
+    // Severity disputes the adjudicator could not settle. Measured, reported and
+    // never folded into any class: an unanswered question is not a verdict.
+    unestablishedSevereFailures: unestablished.length,
+    unestablishedSevereFailureRate: total ? unestablished.length / total : 0,
     severeByKind: {
       legibility: severeLegibility.length,
       discriminability: severe.filter((item) => item.severeFailure.kind === "discriminability").length,
       answerability: severe.filter((item) => item.severeFailure.kind === "answerability").length,
-      // How much of the legibility class is really unclassified, reported so
-      // the class count is auditable rather than trusted.
-      unclassified: severe.filter((item) => !["legibility", "discriminability", "answerability"].includes(item.severeFailure.kind)).length,
+      unestablished: unestablished.length,
     },
   };
 }

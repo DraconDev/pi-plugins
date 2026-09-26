@@ -115,6 +115,7 @@ export function recomputeImages(manifest, judging, rawJudging = null) {
     severeFailureClass: "legibility",
     severeAnyClassRate: judged ? (judged.severeImageFailureRate ?? null) : null,
     severeByKind: judged?.severeByKind ?? null,
+    unestablishedSevereRate: judged ? (judged.unestablishedSevereFailureRate ?? null) : null,
     severeReferenceAnyClassRate: judged ? (judged.severeReferenceFailureRate ?? null) : null,
     severeReferenceLegibilityRate: judged ? (judged.severeReferenceLegibilityFailureRate ?? null) : null,
     ties: judged?.ties ?? null,
