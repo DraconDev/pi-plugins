@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "kind": "benchmark-aggregate-report",
-  "observedAt": "2026-09-26T01:10:35.765Z",
+  "observedAt": "2026-09-26T01:12:35.898Z",
   "sources": {
     "corpus": ".pi/benchmark/corpus.json",
     "results": ".pi/benchmark/results.json",
@@ -8912,7 +8912,7 @@
       "../../Dev/pi-plugins/pi-stale-model-filter",
       "npm:pi-web-ui"
     ],
-    "reason": "the severe readability gate measures 31.0% against a 2% ceiling at realistic terminal dimensions"
+    "reason": "the severe readability gate measures 34.5% against a 2% ceiling at realistic terminal dimensions"
   },
   "measurementLimits": {
     "judgeModel": {

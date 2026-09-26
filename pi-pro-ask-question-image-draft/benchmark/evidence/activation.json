@@ -39,5 +39,5 @@
     "../../Dev/pi-plugins/pi-stale-model-filter",
     "npm:pi-web-ui"
   ],
-  "reason": "the severe readability gate measures 31.0% against a 2% ceiling at realistic terminal dimensions"
+  "reason": "the severe readability gate measures 34.5% against a 2% ceiling at realistic terminal dimensions"
 }
