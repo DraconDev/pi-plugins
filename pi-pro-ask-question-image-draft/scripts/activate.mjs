@@ -23,7 +23,7 @@ const PACKAGE = resolve(new URL("..", import.meta.url).pathname);
 const SUPERSEDED = "npm:@juicesharp/rpiv-ask-user-question";
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2), { "confirm-gates": "boolean", report: "string", out: "string", reemit: "boolean" });
+  const args = parseArgs(process.argv.slice(2), { "confirm-gates": "boolean", report: "string", out: "string", reemit: "boolean", revert: "boolean", reason: "string" });
   // Re-emitting is idempotent: it re-derives the record from the settings and
   // the backup that already exist and changes nothing, so the activation
   // evidence can be regenerated without a second activation.
@@ -54,6 +54,46 @@ async function main() {
     };
     await writeJson(args.out ?? ".pi/benchmark/activation.json", record);
     process.stdout.write(`${JSON.stringify({ status: record.status, reemitted: true, settingsPath: SETTINGS, unrelatedSettingsPreserved: true })}\n`);
+    return;
+  }
+  if (args.revert === true) {
+    // Reverting is the mirror image of activating: put the superseded package
+    // back exactly where it was, change nothing else, and record it. The
+    // objective forbids leaving the local package active while a release gate
+    // is unmet, so this is a first-class operation, not an apology.
+    const settings = JSON.parse(await readFile(SETTINGS, "utf8"));
+    const backup = JSON.parse(await readFile(BACKUP, "utf8"));
+    if (!settings.packages.includes(PACKAGE)) throw new Error("The local package is not active; nothing to revert.");
+    if (settings.packages.includes(SUPERSEDED)) throw new Error(`The superseded package ${SUPERSEDED} is already active.`);
+    if (!backup.packages.includes(SUPERSEDED)) throw new Error("The pre-activation backup does not contain the superseded package.");
+    const before = await readFile(SETTINGS, "utf8");
+    const token = JSON.stringify(PACKAGE);
+    const after = before.replace(token, JSON.stringify(SUPERSEDED));
+    if (after === before) throw new Error("The local package string was not found in the settings file.");
+    await writeFile(SETTINGS, after, "utf8");
+    const reread = JSON.parse(await readFile(SETTINGS, "utf8"));
+    const strip = (value) => JSON.stringify({ ...value, packages: value.packages.filter((entry) => entry !== PACKAGE && entry !== SUPERSEDED) });
+    if (strip(reread) !== strip(backup)) throw new Error("Unrelated settings entries changed during the revert.");
+    if (reread.packages.includes(PACKAGE) || !reread.packages.includes(SUPERSEDED)) throw new Error("The revert did not produce the expected package set.");
+    const record = {
+      schemaVersion: 1,
+      kind: "benchmark-activation",
+      status: "reverted",
+      claimed: false,
+      afterGates: false,
+      observedAt: new Date().toISOString(),
+      details: `Restored ${SUPERSEDED} and deactivated ${PACKAGE}; every unrelated setting equals the pre-activation backup.`,
+      settingsPath: SETTINGS,
+      backupPath: BACKUP,
+      package: PACKAGE,
+      superseded: SUPERSEDED,
+      unrelatedSettingsPreserved: true,
+      packagesBefore: settings.packages,
+      packagesAfter: reread.packages,
+      reason: args.reason ?? "a release gate is unmet",
+    };
+    await writeJson(args.out ?? ".pi/benchmark/activation.json", record);
+    process.stdout.write(`${JSON.stringify({ status: record.status, settingsPath: SETTINGS, superseded: SUPERSEDED, unrelatedSettingsPreserved: true })}\n`);
     return;
   }
   if (args["confirm-gates"] !== true) {

@@ -167,10 +167,16 @@ export function adjudicate(passes, labels, adjudicator = null) {
     return { ...decide(winner, "adjudicated"), adjudicator, severeFailure: attributeSevereFailure(adjudicator.severeFailure, labels) };
   }
   if (first.winner === "tie") return { ...decide("tie", "agreement"), candidate: false, severeFailure: attributeSevereFailure("none", labels) };
-  // Two passes that disagree about severity have both flagged it; "both" is the
-  // honest reading, and it is still attributed through the label map.
-  const agreed = first.severeFailure === second.severeFailure ? first.severeFailure : "both";
-  return { ...decide(first.winner, "agreement"), severeFailure: attributeSevereFailure(agreed, labels) };
+  // The winner is agreed; the severity call may still be contested, and it is
+  // escalated the same way. Only a call the adjudicator cannot break stays
+  // charged to both arms, and it is recorded as contested.
+  if (first.severeFailure !== second.severeFailure) {
+    if (!adjudicator) {
+      return { ...decide(first.winner, "contested-severity"), severeFailure: attributeSevereFailure("both", labels) };
+    }
+    return { ...decide(first.winner, "adjudicated-severity"), adjudicator, severeFailure: attributeSevereFailure(adjudicator.severeFailure, labels) };
+  }
+  return { ...decide(first.winner, "agreement"), severeFailure: attributeSevereFailure(first.severeFailure, labels) };
 }
 
 export function judgeSummary(results) {
@@ -317,9 +323,13 @@ export async function runJudging({ corpus, manifest, seed = corpus.seed, limit =
           if (await runPass(reasoning)) break;
         }
         if (passes.length === 2) {
-          // A disagreement is put to a third, independent adjudication pass.
+          // A disagreement is put to a third, independent adjudication pass -
+          // for the winner, for the severity call, or for both. Severity used to
+          // default to "both" whenever two passes differed, which charged both
+          // arms for a disagreement rather than a defect and inflated the very
+          // number the 2% cap is measured against.
           let adjudicator = null;
-          if (passes[0].winner !== passes[1].winner) {
+          if (passes[0].winner !== passes[1].winner || passes[0].severeFailure !== passes[1].severeFailure) {
             const previous = passes.length;
             await runPass("high");
             adjudicator = passes.length > previous ? passes[previous] : null;

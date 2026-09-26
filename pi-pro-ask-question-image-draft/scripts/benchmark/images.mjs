@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { copyFile, link, mkdir, readFile, rename, stat } from "node:fs/promises";
+import { copyFile, link, mkdir, readFile, readdir, rename, stat, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { generateReviewImages } from "../../src/image-generator.ts";
@@ -283,6 +283,66 @@ async function flush() {
   assertNoCredentials(manifest);
   await flush();
   return { manifest, generated, cached, failures: failures.length, planned: planned.length, pruned };
+}
+
+/**
+ * Every Agnes generation this benchmark has ever made, not just the ones the
+ * current manifest keeps.
+ *
+ * The 600-image budget is enforced per manifest, and the manifest is keyed by
+ * prompt hash, so revising the image prompt retires a whole set of images. That
+ * is the right cache design and it is also a way to understate provider
+ * consumption: `imageGenerations: 600` was true of the manifest and false of the
+ * account. This counts the artifacts on disk by inode - hard-linked contract
+ * aliases excluded - and splits them into the current set and the superseded
+ * ones, so the boundary can be checked against the real number.
+ */
+export async function generationAccounting(manifest, { imageDir = DEFAULT_IMAGE_DIR, aliasPrefix = CONTRACT_ALIAS_PREFIX } = {}) {
+  const referenced = new Set((manifest?.images ?? []).map((image) => image.path));
+  let current = 0;
+  const superseded = [];
+  let aliases = 0;
+  let entries = [];
+  try { entries = await readdir(imageDir); } catch { entries = []; }
+  for (const name of entries) {
+    if (!name.endsWith(".png")) continue;
+    const path = resolve(imageDir, name);
+    if (name.startsWith(aliasPrefix)) { aliases += 1; continue; }
+    if (referenced.has(path)) current += 1;
+    else superseded.push(path);
+  }
+  return {
+    // Distinct provider artifacts: the current set plus everything a retired
+    // prompt set left behind.
+    cumulativeSuccessfulGenerations: current + superseded.length,
+    currentSetGenerations: current,
+    supersededGenerations: superseded.length,
+    contractAliases: aliases,
+    budgetPerManifest: IMAGE_BUDGET,
+    recordedFailures: (manifest?.failures ?? []).length,
+    note: "The 600 budget is enforced per manifest, which is keyed by prompt hash; revising the image prompt retires a whole set. The cumulative figure is the real provider consumption for this benchmark.",
+  };
+}
+
+/** Delete artifacts no manifest entry references, and report what went. */
+export async function pruneSupersededImages(manifest, { imageDir = DEFAULT_IMAGE_DIR, dryRun = false } = {}) {
+  const account = await generationAccounting(manifest, { imageDir });
+  const referenced = new Set((manifest?.images ?? []).map((image) => image.path));
+  let entries = [];
+  try { entries = await readdir(imageDir); } catch { entries = []; }
+  let removed = 0;
+  let bytes = 0;
+  for (const name of entries) {
+    if (!name.endsWith(".png") || name.startsWith(CONTRACT_ALIAS_PREFIX)) continue;
+    const path = resolve(imageDir, name);
+    if (referenced.has(path)) continue;
+    const info = await stat(path).catch(() => null);
+    if (!info) continue;
+    if (!dryRun) await unlink(path);
+    removed += 1;
+    bytes += info.size;
+  }
+  return { ...account, removed, freedBytes: bytes, dryRun };
 }
 
 /**
