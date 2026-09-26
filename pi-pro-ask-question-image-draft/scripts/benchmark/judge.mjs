@@ -225,8 +225,8 @@ const TERMINAL_RENDER_DIR = ".pi/benchmark/terminal-renders";
  * auditor is asked to trust is an artifact they can open, not a claim in a
  * prompt string.
  */
-async function encodeImages(entries, { columns = 110, renderDir = TERMINAL_RENDER_DIR } = {}) {
-  const grid = previewCellGrid({ columns });
+async function encodeImages(entries, { columns = 110, heightCells = 16, renderDir = TERMINAL_RENDER_DIR } = {}) {
+  const grid = previewCellGrid({ columns, maxHeightCells: heightCells });
   await mkdir(resolve(renderDir), { recursive: true });
   return Promise.all(entries.map(async (entry) => {
     const rendered = renderAtTerminalDimensions(await readFile(resolve(entry.path)), grid);
@@ -277,7 +277,7 @@ export async function buildCase(scenario, manifest, { seed, columns = 110 }) {
   };
 }
 
-export async function runJudging({ corpus, manifest, seed = corpus.seed, limit = 200, out = ".pi/benchmark/judge.json", concurrency = 4, dryRun = false, columns = 110, renderDir = TERMINAL_RENDER_DIR }) {
+export async function runJudging({ corpus, manifest, seed = corpus.seed, limit = 200, out = ".pi/benchmark/judge.json", concurrency = 4, dryRun = false, columns = 110, heightCells = 16, renderDir = TERMINAL_RENDER_DIR }) {
   const cases = corpus.scenarios.filter((scenario) => scenario.stratum === "visual").slice(0, limit);
   const built = [];
   for (const scenario of cases) built.push(await buildCase(scenario, manifest, { seed, columns }));
@@ -292,7 +292,7 @@ export async function runJudging({ corpus, manifest, seed = corpus.seed, limit =
       while (cursor < runnable.length) {
         const item = runnable[cursor];
         cursor += 1;
-        const images = await encodeImages(item.images, { columns, renderDir });
+        const images = await encodeImages(item.images, { columns, heightCells, renderDir });
         const passes = [];
         const passModes = [];
         const errors = [];
@@ -358,7 +358,7 @@ export async function runJudging({ corpus, manifest, seed = corpus.seed, limit =
     condition: {
       imageArm: "generated image resampled to the inline preview cell grid",
       terminalColumns: columns,
-      grid: previewCellGrid({ columns }),
+      grid: previewCellGrid({ columns, maxHeightCells: heightCells }),
       renderedArtifacts: renderDir,
       baselineArm: "the text/ASCII presentation src/tui.ts renders when no inline image is available",
     },
@@ -374,13 +374,14 @@ export async function runJudging({ corpus, manifest, seed = corpus.seed, limit =
 }
 
 export async function main(argv = process.argv.slice(2)) {
-  const args = parseArgs(argv, { corpus: "string", images: "string", out: "string", limit: "number", seed: "number", concurrency: "number", "dry-run": "boolean", columns: "number" });
+  const args = parseArgs(argv, { corpus: "string", images: "string", out: "string", limit: "number", seed: "number", concurrency: "number", "dry-run": "boolean", columns: "number", "height-cells": "number" });
   const corpus = await readJson(args.corpus ?? ".pi/benchmark/corpus.json", "corpus_missing");
   const manifest = await readJson(args.images ?? ".pi/benchmark/image-manifest.json", "manifest_missing");
   const report = await runJudging({
     corpus, manifest, seed: args.seed ?? corpus.seed, limit: args.limit ?? 200,
     out: args.out ?? ".pi/benchmark/judge.json", concurrency: args.concurrency ?? 4, dryRun: args["dry-run"] === true,
     columns: args.columns ?? 110,
+    heightCells: args["height-cells"] ?? 16,
   });
   process.stdout.write(`${JSON.stringify({ judged: report.summary.judgedCases, wins: report.summary.candidateWins, winRate: report.summary.candidateWinRate, lowerBound: report.summary.wilson95LowerBound, ties: report.summary.ties, undecided: report.summary.undecided, skipped: report.skippedCases })}\n`);
 }
