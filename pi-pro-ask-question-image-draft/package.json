@@ -39,7 +39,8 @@
     "benchmark:verify-evidence": "node scripts/benchmark/publish.mjs --verify",
     "benchmark:report": "node scripts/benchmark/report.mjs",
     "benchmark:run": "bash scripts/benchmark/run-all.sh",
-    "benchmark:mockups": "node scripts/benchmark/mockups.mjs"
+    "benchmark:mockups": "node scripts/benchmark/mockups.mjs",
+    "benchmark:compose": "node scripts/benchmark/compose.mjs"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

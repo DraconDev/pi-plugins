@@ -298,7 +298,9 @@ describe("harness honesty: contract command surfaces", () => {
     assert.equal(planned.length, 600);
     assert.equal(planned.length, visual.length * 3);
     assert.equal(new Set(planned.map((item) => item.hash)).size, planned.length);
-    for (const item of planned) assert.equal(item.hash, promptHash(item.prompt));
+    // The key covers the whole generation request, negative prompt included: a
+    // manifest that cannot reproduce the request is not reproducible.
+    for (const item of planned) assert.equal(item.hash, promptHash(item));
   });
 
   it("refuses to plan more images than the 600-image budget", async () => {

@@ -80,14 +80,21 @@ export function recomputeComparison(corpus, results) {
   };
 }
 
-export function recomputeImages(manifest, judging) {
+export function recomputeImages(manifest, judging, rawJudging = null) {
   const images = manifest?.images ?? [];
   const failures = manifest?.failures ?? [];
   const judged = judging?.summary;
   const visualUplift = judged ? judged.candidateWinRate : 0;
   const lowerBound = judged ? judged.wilson95LowerBound : 0;
   const severe = judged ? judged.severeImageFailureRate : 1;
+  // The raw arm is the generated image on its own, with no structure under it.
+  // It is measured and reported on every run and gates nothing: it is the
+  // evidence for the design decision (a raw preview cannot carry the
+  // information a 248 x 256 raster has room for), not a release criterion.
+  const raw = rawJudging?.summary;
   return {
+    arm: judging?.condition?.arm ?? manifest?.arm ?? manifest?.provider ?? "generated",
+    manifestPath: judging?.condition?.manifestPath ?? null,
     planned: manifest?.planned ?? images.length,
     generated: images.length,
     cached: images.length,
@@ -100,6 +107,16 @@ export function recomputeImages(manifest, judging) {
     severeFailureRate: severe,
     ties: judged?.ties ?? null,
     undecided: judged?.undecided ?? null,
+    rawImageArm: raw ? {
+      measured: true,
+      judgedCases: raw.judgedCases,
+      candidateWins: raw.candidateWins,
+      candidateWinRate: raw.candidateWinRate,
+      wilson95LowerBound: raw.wilson95LowerBound,
+      severeImageFailureRate: raw.severeImageFailureRate,
+      severeReferenceFailureRate: raw.severeReferenceFailureRate,
+      note: "Generated art alone on the preview cell grid. Non-gating: it is what the art is worth without the package's structure, and it is why the shipped preview composes the two.",
+    } : { measured: false, note: "The raw-image arm was not judged on this run." },
     gates: {
       visualUplift: judged != null && judged.judgedCases >= GATES.judgedVisualCases && visualUplift >= GATES.visualWinRate,
       confidenceBound: judged != null && judged.judgedCases >= GATES.judgedVisualCases && lowerBound > GATES.visualWinRateLowerBound,
@@ -156,11 +173,11 @@ export function recomputeGates(comparison, images, resources) {
 }
 
 export async function buildAggregateReport({
-  corpus, results, manifest, judging, liveSmoke, defects, activation, sources = null, observedAt = new Date().toISOString(),
+  corpus, results, manifest, judging, liveSmoke, defects, activation, sources = null, rawJudging = null, observedAt = new Date().toISOString(),
 }) {
   validateCorpus(corpus);
   const comparison = recomputeComparison(corpus, results);
-  const images = recomputeImages(manifest, judging);
+  const images = recomputeImages(manifest, judging, rawJudging);
   const resources = recomputeResources({ manifest, judging, results, generationAccount: await generationAccounting(manifest) });
   const gates = recomputeGates(comparison, images, resources);
   const smoke = evidenceOf(liveSmoke, "liveSmoke");
@@ -352,11 +369,16 @@ export function verifyAggregateReport(report, { corpus = null, testsDir = "tests
  * gate from the corpus, results, image manifest and judging artifacts, and
  * treats a mismatch as a failure.
  */
-export async function recomputeFromSources(report, reportPath, { corpus, results, manifest, judging } = {}) {
+export async function recomputeFromSources(report, reportPath, { corpus, results, manifest, judging, rawJudging, "raw-judging": rawJudgingFlag } = {}) {
   const corpusPath = corpus ? resolve(corpus) : resolveSource(reportPath, report.sources?.corpus);
   const resultsPath = results ? resolve(results) : resolveSource(reportPath, report.sources?.results);
   const manifestPath = manifest ? resolve(manifest) : resolveSource(reportPath, report.sources?.images);
   const judgingPath = judging ? resolve(judging) : resolveSource(reportPath, report.sources?.judging);
+  // The raw-image arm is a diagnostic, so a missing one is reported as
+  // unmeasured rather than failing verification: the release gates do not read
+  // it, and a run that judged only the shipped arm is still verifiable.
+  const rawPath = (rawJudgingFlag ?? rawJudging) ? resolve(rawJudgingFlag ?? rawJudging) : resolveSource(reportPath, report.sources?.rawJudging);
+  const rawValue = rawPath ? await optionalJson(rawPath) : null;
   const missing = [
     ["corpus", corpusPath], ["results", resultsPath], ["images", manifestPath], ["judging", judgingPath],
   ].filter(([, path]) => !path).map(([name]) => name);
@@ -368,7 +390,7 @@ export async function recomputeFromSources(report, reportPath, { corpus, results
   const manifestValue = await readJson(manifestPath, "manifest_missing");
   const judgingValue = await readJson(judgingPath, "manifest_missing");
   const comparison = recomputeComparison(corpusValue, resultsValue);
-  const images = recomputeImages(manifestValue, judgingValue);
+  const images = recomputeImages(manifestValue, judgingValue, rawValue);
   const resources = recomputeResources({ manifest: manifestValue, judging: judgingValue, results: resultsValue, generationAccount: await generationAccounting(manifestValue) });
   const gates = recomputeGates(comparison, images, resources);
   const unresolved = (report.defects ?? []).filter((defect) => (defect.severity === "P0" || defect.severity === "P1") && defect.status !== "resolved");
@@ -390,7 +412,15 @@ export async function recomputeFromSources(report, reportPath, { corpus, results
   if (mismatches.length) {
     throw new BenchmarkError("gate_claim_mismatch", `The report's claims disagree with the artifacts it names: ${mismatches.join("; ")}.`);
   }
-  return { gates, releaseReady, measuredUplift, sources: { corpus: corpusPath, results: resultsPath, images: manifestPath, judging: judgingPath } };
+  return { gates, releaseReady, measuredUplift, sources: { corpus: corpusPath, results: resultsPath, images: manifestPath, judging: judgingPath, rawJudging: rawPath } };
+}
+
+/** Read a diagnostic artifact, tolerating its absence. */
+async function optionalJson(path) {
+  try { return await readJson(path, "manifest_missing"); } catch (error) {
+    if (error.code === "manifest_missing") return null;
+    throw error;
+  }
 }
 
 /** Resolve a recorded source next to the report when it is not under the cwd. */
@@ -404,7 +434,7 @@ function resolveSource(reportPath, recorded) {
 
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv, {
-    corpus: "string", results: "string", images: "string", judging: "string",
+    corpus: "string", results: "string", images: "string", judging: "string", "raw-judging": "string",
     smoke: "string", defects: "string", activation: "string", out: "string", verify: "string", tests: "string",
   });
   if (args.verify) {
@@ -418,7 +448,7 @@ export async function main(argv = process.argv.slice(2)) {
     const corpusPath = args.corpus ?? resolveSource(reportPath, report.sources?.corpus);
     const corpus = corpusPath ? await readJson(corpusPath, "corpus_missing") : null;
     const recomputed = await recomputeFromSources(report, reportPath, {
-      corpus: args.corpus, results: args.results, images: args.images, judging: args.judging,
+      corpus: args.corpus, results: args.results, images: args.images, judging: args.judging, "raw-judging": args["raw-judging"],
     });
     const result = verifyAggregateReport(report, { corpus, testsDir: args.tests ?? "tests" });
     const unmet = [
@@ -445,18 +475,20 @@ export async function main(argv = process.argv.slice(2)) {
   };
   const corpus = await readJson(args.corpus ?? ".pi/benchmark/corpus.json", "corpus_missing");
   const results = await readJson(args.results ?? ".pi/benchmark/results.json", "results_missing");
-  const manifest = await optional(args.images ?? ".pi/benchmark/image-manifest.json", "manifest_missing");
+  const manifest = await optional(args.images ?? ".pi/benchmark/composed-manifest.json", "manifest_missing");
   const judging = await optional(args.judging ?? ".pi/benchmark/judge.json", "manifest_missing");
+  const rawJudging = await optional(args["raw-judging"] ?? ".pi/benchmark/judge-raw-image.json", "manifest_missing");
   const liveSmoke = await optional(args.smoke ?? ".pi/benchmark/live-smoke.json", "report_missing");
   const defects = await optional(args.defects ?? ".pi/benchmark/defects.json", "report_missing");
   const activation = await optional(args.activation ?? ".pi/benchmark/activation.json", "report_missing");
   const report = await buildAggregateReport({
-    corpus, results, manifest, judging, liveSmoke, defects, activation,
+    corpus, results, manifest, judging, liveSmoke, defects, activation, rawJudging,
     sources: {
       corpus: args.corpus ?? ".pi/benchmark/corpus.json",
       results: args.results ?? ".pi/benchmark/results.json",
-      images: args.images ?? (manifest ? ".pi/benchmark/image-manifest.json" : null),
+      images: args.images ?? (manifest ? ".pi/benchmark/composed-manifest.json" : null),
       judging: args.judging ?? (judging ? ".pi/benchmark/judge.json" : null),
+      rawJudging: args["raw-judging"] ?? (rawJudging ? ".pi/benchmark/judge-raw-image.json" : null),
       smoke: args.smoke ?? ".pi/benchmark/live-smoke.json",
       defects: args.defects ?? ".pi/benchmark/defects.json",
       activation: args.activation ?? ".pi/benchmark/activation.json",
