@@ -104,8 +104,7 @@ Individually:
 npm run benchmark:corpus -- --count 1000 --seed 20260925 --out .pi/benchmark/corpus.json
 npm run benchmark:corpus:validate -- --corpus .pi/benchmark/corpus.json
 
-# At most 600 cached Agnes images for the visual stratum, plus the canonical
-# contract aliases .pi/benchmark/images/visual-001-option-{1,2,3}.png
+# At most 600 cached Agnes images, plus the canonical contract aliases
 npm run benchmark:images -- --max 600
 
 # Two real executions per case, head-to-head against RPiV on shared capability
@@ -118,10 +117,12 @@ npm run benchmark:images:report -- --out .pi/benchmark/image-report.json
 # Real-TTY live gate (self-provisioning pseudo-terminal)
 npm run smoke:live -- --image .pi/benchmark/images/visual-001-option-1.png
 
-# Generated defect ledger, aggregate report, release gate
+# Generated defect ledger, aggregate report, release gate, activation
 npm run benchmark:ledger
 npm run benchmark:report -- --out .pi/benchmark/report.json
 npm run benchmark:report -- --verify .pi/benchmark/report.json
+node scripts/activate.mjs --confirm-gates   # only when the gate passes
+node scripts/activate.mjs --revert          # and again the moment it does not
 
 # Mirror the evidence into the tracked repository and re-check it
 npm run benchmark:publish
@@ -133,52 +134,69 @@ threshold. The properties that matter for an audit:
 
 - **The corpus ships with the repository.** `benchmark/corpus/space-bunny-alpha.json`
   is the 1,000-scenario corpus with its shard provenance, and `benchmark:corpus`
-  re-emits it through the same validation gate on any machine. Regeneration is not
-  a fresh synthetic fixture; `--source fixture` still produces one for tests.
-- **Nothing is trusted.** `--passes N` executes the corpus N times and requires
-  identical results; the aggregate report recomputes accuracy, visual uplift, and
-  every gate from the artifacts on disk instead of reading a summary. Verifying a
-  report that is not release-ready **exits nonzero** and names the unmet gates.
+  re-emits it byte-identically on any machine. `--source fixture` still produces
+  the deterministic fixture used by the tests.
+- **Nothing is trusted, including the report.** `--passes N` executes the corpus N
+  times; the aggregate report recomputes accuracy, visual uplift and every gate
+  from the artifacts; and `--verify` re-derives them again from the artifacts the
+  report names, failing if any claim disagrees with them. Verifying a report that
+  is not release-ready exits nonzero and lists the unmet gates.
+- **The visual gate is measured at the condition the objective states.** Images
+  are attached as the raster a terminal actually displays - resampled onto the
+  cell grid `src/tui.ts` gives an option preview (31 x 16 cells on a
+  110-column terminal) - not as the untouched 1024x1024 source, and those renders
+  are kept as artifacts. The baseline arm is the text the package prints today
+  (`scripts/benchmark/text-arm.mjs` reproduces `renderRows` and
+  `fallbackPreview`), not a summary written for the judge.
+- **The gates are hard to satisfy by construction.** Ties and undecided cases are
+  never credit and stay in the denominator. A verdict wrapped in prose is
+  recovered but still validated against the same strict schema. A disagreement,
+  of winner or of severity, is settled by a third independent pass, and an
+  unbreakable split is charged to both arms. Severe failure is attributed
+  through each case's own blinding labels, so the 2% ceiling is a measurement
+  and not a formatting artefact. The image prompt never names the option, so the
+  judged comparison stays blinded, and the arm letters follow the seeded blinding
+  so a candidate win cannot be recorded as a reference win.
 - **The oracle is explicit.** A scenario either asserts exact recorded answers or
-  is marked `terminal-only` when the source recorded no answer action. The report
-  counts both instead of blending them into one number, and every one of the
-  1,000 scenarios must carry a terminal outcome in the results.
+  is marked `terminal-only`; every one of the 1,000 must carry a terminal
+  outcome in the results or the report is rejected.
 - **Shared scope is honest.** RPiV is compared only on legacy question reviews it
-  actually implements, driven through its real RPC dialog protocol (option rows,
-  the `Type something.` row, comma-separated multi-select, dismissal). A candidate
-  failure is reported separately and is never charged to the reference.
-- **Negatives are real.** A scenario marked `inputValid: false` passes only when
-  the tool actually rejects it before any UI interaction.
-- **The visual gate is measured, not asserted.** Images are generated from a
-  prompt that names the surface and the concrete layout of each treatment
-  (`scripts/benchmark/image-prompt.mjs`) and never names the option itself, so the
-  judged comparison stays blinded. Arm letters follow the seeded blinding, so a
-  candidate win cannot be recorded as a reference win. Ties and undecided cases are
-  never credit and stay in the denominator. The gate needs a strict win rate of at
-  least 60% with a two-sided 95% lower bound above 50%, and severe failures at or
-  below 2%.
-- **The image budget is bounded.** Generation is cached by prompt hash, capped at
-  600 successes, and every failure is recorded instead of silently retried.
-- **Live evidence is live.** `npm run smoke:live` loads the real extension through
-  Pi's own loader, renders it on a real pi-tui screen inside a pseudo-terminal,
-  drives it with real keypresses through the documented controls, and launches the
-  external editor Pi itself resolves - the editor and its source are recorded, and
-  the quit keys are derived from that editor rather than hard-coded. Without a TTY
-  or a readable image it exits nonzero rather than fabricating a pass, and a named
-  image path is never silently substituted.
-- **The ledger is generated.** `npm run benchmark:ledger` writes the defect ledger
-  from its definitions plus the run's own artifacts, so a resolved defect must name
-  a test that exists and mentions its id, and a measured claim cannot drift from
-  the numbers the report recomputes.
-- **The evidence is in the repository.** `benchmark/evidence/` mirrors the corpus,
-  results, image manifest, judging, live smoke, report, ledger and activation
-  evidence, with a `SHA256SUMS` index and a sample of real generated images, so
-  the verdict is auditable without a machine that still has `.pi/`.
+  implements, driven through its real RPC dialog protocol. A candidate failure is
+  reported separately and never charged to the reference. Envelope *text* still
+  differs on 53 of 333 shared cases; that rate is reported per classification and
+  is deliberately not a gate, because the tools document different response
+  contracts while the answers and status - what the tool contract does promise -
+  match on all of them.
+- **The ledger is generated.** `npm run benchmark:ledger` writes it from its
+  definitions plus the run's own artifacts, so a resolved defect must name a test
+  that exists and mentions its id, and a measured claim cannot drift from the
+  numbers the report recomputes.
+- **The evidence is in the repository.** `benchmark/evidence/` mirrors the
+  corpus, results, image manifest, judging, live smoke, report, ledger,
+  activation and generation account, with a `SHA256SUMS` index and a sample of
+  real generated images.
+
+### What this measurement cannot establish
+
+These are recorded in the report itself (`measurementLimits`), not only in prose:
+
+- **The judge and the corpus author are the same model family.** The visual
+  verdict is a self-consistency measurement, not an independent third-party
+  opinion.
+- **The visual stratum's options mostly carry no preview text** (75 of 600 do),
+  so the baseline arm is a label and one sentence for most of them. That is
+  faithful to what the package renders today, and it is also the main reason the
+  image arm is easy to prefer.
+- **The 600-image budget is enforced per manifest, and the manifest is keyed by
+  prompt hash**, so revising the image prompt retires a whole set. The cumulative
+  provider consumption for this benchmark is recorded in
+  `benchmark/evidence/generations.json` rather than implied by the current set.
 - **No secrets, no settings writes.** The benchmark never reads or writes Pi
   settings or auth storage, and every emitted artifact is scanned for
   credential-shaped keys and values. `npm test` never uses the network. Activation
-  is a separate, explicitly confirmed step (`node scripts/activate.mjs
-  --confirm-gates`) that refuses to run until the release gate has passed.
+  is a separate, explicitly confirmed step that refuses to run until the release
+  gate has passed, and `--revert` restores the superseded package when a gate
+  fails.
 
 ## Development and verification
 

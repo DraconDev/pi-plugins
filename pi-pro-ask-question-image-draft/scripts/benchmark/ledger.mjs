@@ -152,10 +152,22 @@ const DEFECTS = [
     fix: "The image pipeline writes the canonical alias itself (the first visual scenario's options, in order) and a missing requested path is now a hard failure with no substitution.",
   },
   {
+    id: "VISUAL-003", severity: "P0", status: "resolved",
+    summary: "The visual gate was not measured at the condition the objective states: the judge was handed the untouched 1024x1024 PNGs while the prompt asserted in prose that they were 'at terminal size', so it scored detail no terminal user could resolve.",
+    rootCause: "encodeImages attached the source file and the rubric described the measurement instead of performing it.",
+    fix: "scripts/benchmark/terminal-render.mjs resamples each image onto the exact cell grid src/tui.ts gives an option preview (31 x 16 cells on a 110-column terminal) and the rendered raster - not the source - is what the judge sees; the renders are written to .pi/benchmark/terminal-renders and the condition is recorded in judge.json.",
+  },
+  {
+    id: "VISUAL-004", severity: "P1", status: "resolved",
+    summary: "The severe readability figure was zero by construction twice over: a rubric line told the judge that mockup wording carries no decision information, and the summary compared the judge's arm labels against the literal string \"candidate\", which the judge never emits.",
+    rootCause: "The rubric pre-excused the exact defect the 2% ceiling polices, and the attribution never went through the case's own blinding labels.",
+    fix: "The exculpatory rubric line is gone and replaced by an instruction to report illegibility; severe failures are attributed through the label map, a contested call escalates to the adjudicator, and the baseline arm is charged on the same scale so a lenient rubric would be visible.",
+  },
+  {
     id: "GATE-004", severity: "P0", status: "resolved",
-    summary: "Release readiness sat behind an environment variable the contract never sets, so `benchmark:report --verify` exited 0 on a report that was not ready.",
-    rootCause: "The verifier was written to report a verdict, and the release requirement was bolted on as an opt-in switch.",
-    fix: "The verify path always fails when releaseReady is false; the opt-out and the environment variable are gone.",
+    summary: "Release readiness sat behind an environment variable the contract never sets, and the verifier then read report.gates and report.releaseReady as claims, so a report asserting visualUplift 0.2 with gates.visualUplift true verified as releaseGate passed with exit 0.",
+    rootCause: "The verifier was written to report a verdict and bolted the release requirement on as an opt-in switch; it never re-derived the gates from the artifacts the report names.",
+    fix: "The opt-out is gone, and --verify now recomputes the comparison, the visual numbers, the resource account and every gate from the corpus, results, image manifest and judging artifacts, failing when a claim disagrees with them or when an artifact is missing.",
   },
   {
     id: "GATE-005", severity: "P1", status: "resolved",
@@ -168,6 +180,12 @@ const DEFECTS = [
     summary: "Resolved defects had no machine-checkable link to a regression test, and the ledger's own numbers were free text that had already drifted from the artifacts.",
     rootCause: "The ledger was a hand-maintained document.",
     fix: "Every resolved critical defect names a test that must exist and mention its id, and any measured claim is read from the run's artifacts and checked by the verifier.",
+  },
+  {
+    id: "GATE-008", severity: "P1", status: "resolved",
+    summary: "Image-budget accounting understated real provider consumption: the report said 600 generations while the image directory held 2,020 distinct artifacts, 1,420 of them retired by two prompt revisions.",
+    rootCause: "The budget is enforced per manifest and the manifest is keyed by prompt hash, so retiring a prompt set made the superseded generations disappear from the count.",
+    fix: "generationAccounting counts every artifact on disk, recordGenerationAccount writes the total to a durable ledger that pruning never decrements, and superseded artifacts are deleted; the report carries the cumulative figure and the note explaining the two numbers.",
   },
   {
     id: "GATE-007", severity: "P1", status: "resolved",
