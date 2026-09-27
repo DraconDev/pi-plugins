@@ -253,7 +253,12 @@ function imageLines(image: LoadedImage, theme: Theme, width: number, maxHeight =
     },
     image.dimensions,
   );
-  return component.render(Math.max(1, width));
+  const lines = component.render(Math.max(1, width));
+  // A result with no graphics escape in it is pi-tui's *text* fallback - a
+  // bracketed "[Image: path ...]" line - which tells the user nothing and
+  // spends a content area doing it. Hand the decision back so the caller can
+  // say why, and say what to do.
+  return lines.some(isImageLine) ? lines : [];
 }
 
 /** A markdown preview carried by the option itself, rendered the way pi-tui renders it. */
@@ -843,13 +848,13 @@ export class VisualReviewWizard implements Component, Focusable {
           const key = `${stage!.id}:${option.id}`;
           const loaded = this.loadedImages.get(key);
           const mockupPng = option.mockup ? this.mockupLines(option.mockup, safeWidth - 2, imageBudget) : null;
-          if (loaded?.image) {
+          const art = loaded?.image ? imageLines(loaded.image, this.theme, safeWidth - 2, imageBudget) : [];
+          if (art.length > 0) {
             // pi-tui derives the row count from the image's aspect ratio and can
             // hand back one row more than the ceiling it was given. Trimming the
             // trailing blanks - never the escape on the first line - is what keeps
             // the frame exactly as tall as the terminal, so the last action row is
             // not clipped off the bottom.
-            const art = imageLines(loaded.image, this.theme, safeWidth - 2, imageBudget);
             const frame: string[] = art.map((line) => (isImageLine(line) ? line : ` ${line}`));
             const artRows = frame.length;
             frame.push(...footerLines, ...tailLines);
