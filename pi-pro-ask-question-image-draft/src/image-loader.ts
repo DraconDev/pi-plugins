@@ -127,6 +127,12 @@ let probedOuterTerminal: string | null | undefined;
  * wraps them in".
  */
 export function outerTerminalKind({ probe = defaultProbe }: { probe?: () => string | null } = {}): string | null {
+  // Outside a multiplexer there is nothing behind it to ask about, and an answer
+  // cached from a previous session would be stale.
+  if (!process.env.TMUX) {
+    probedOuterTerminal = null;
+    return null;
+  }
   if (probedOuterTerminal !== undefined) return probedOuterTerminal;
   probedOuterTerminal = null;
   if (process.env.TMUX) {
