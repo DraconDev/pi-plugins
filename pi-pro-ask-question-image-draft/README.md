@@ -74,16 +74,40 @@ Cancellation and rejection return their own result envelopes. If TUI/RPC interac
 
 ## TUI controls
 
+The review is a full-screen dashboard: it takes the whole screen, because a
+paragraph-long prompt plus real options plus a preview needs the rows, and a
+half-height drawer both truncated the list and covered the transcript the user
+needed to check the answer against. `Ctrl+]` still collapses the whole thing to
+a single dim line, so the conversation underneath is readable and the panel can
+be toggled on and off without losing a thing.
+
 - `↑`/`↓`: move within the current stage.
 - `Enter`: select/confirm; in a multi-select option row it toggles the option, while the `Done selecting` row commits the current checked set.
 - `Space`: toggle a multi-select option or activate a visible control.
 - `Tab`, `→`/`←`: move between stages; approval still checks the complete review.
 - `Esc`: cancel the current input, or cancel the review when no input editor is active.
-- `Ctrl+]`: collapse or reopen the review overlay while preserving the current answers.
+- `Ctrl+]`: hide or bring back the whole dashboard. Answers are kept, and the
+  hidden line says how many stages are answered.
+- `Ctrl+R`: read a clamped stage prompt in full. A prompt longer than three
+  lines is shown short with the rest one keypress away, because a wall of model
+  prose pushed the options off the screen.
+- `Ctrl+A`: turn **auto-resolve** on and off. It is **off by default** and says
+  so in the footer. On, the cursor lands on the option the model marked
+  `recommended` (or the first one) for every stage, so `Enter` takes it. It
+  never submits by itself: a review that answers itself is a review nobody
+  read. A review can also set `autoResolve: true` up front.
+- `n` or the `Add note` row: attach a note to this stage. The review tab carries
+  an `Add global note` row for the whole review. Neither marks anything answered.
 - `Ctrl+G`: edit a custom-answer draft in Pi's configured external editor.
 - Mouse wheel: scroll long review content; click a visible option row to focus it.
 
-Image previews are inline when the terminal supports them and otherwise use a safe path/URL/alt/preview text fallback. A failed or loading image never prevents answering the review. Explicit generation happens before the review opens, so the user sees the generated artifact in the same decision flow.
+Answers are numbered so they can be talked about ("take 2"); the action rows -
+note, custom answer, skip, revision, approve, reject - sit behind a rule and
+are deliberately **not** numbered, because "press 3" should never be a way to
+skip the question. A multi-select stage renders real checkboxes (`[ ]` / `[x]`),
+and an option the model marked `recommended` says so on its row.
+
+Image previews are inline when the terminal supports them and otherwise use a safe path/URL/alt/preview text fallback. A failed or loading image never prevents answering the review, and a host that cannot draw inline images is told so, with the switch that fixes it. Explicit generation happens before the review opens, so the user sees the generated artifact in the same decision flow.
 
 ### Composed previews: structure from the package, character from the art
 

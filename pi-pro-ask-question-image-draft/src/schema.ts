@@ -112,6 +112,7 @@ export const ReviewOptionSchema = Type.Object({
   id: Type.Optional(Type.String({ maxLength: MAX_STAGE_ID_LENGTH, description: "Stable option identifier." })),
   label: Type.String({ maxLength: MAX_LABEL_LENGTH, description: "Concise option label (1-5 words is recommended)." }),
   description: Type.Optional(Type.String({ maxLength: 4_000, description: "What this option means and its trade-offs." })),
+  recommended: Type.Optional(Type.Boolean({ description: "Mark this as the option the model recommends. Marked rows say so, and auto-resolve lands on them." })),
   value: Type.Optional(Type.String({ maxLength: 2_000, description: "Optional machine-readable value to return when this option is selected." })),
   preview: Type.Optional(PreviewSchema),
   image: Type.Optional(ImageInputSchema),
@@ -176,6 +177,9 @@ export const ReviewParamsSchema = Type.Object({
   title: Type.Optional(Type.String({ maxLength: 200, description: "Optional title for the review wizard." })),
   reviewId: Type.Optional(Type.String({ maxLength: 200, description: "Stable id used to resume a review after a revision." })),
   round: Type.Optional(Type.Integer({ minimum: 1, description: "Revision round, starting at 1." })),
+  autoResolve: Type.Optional(Type.Boolean({
+    description: "Pre-select the recommended option on every stage, so Enter resolves it. Off by default; the user toggles it with Ctrl+A and always still presses Enter themselves.",
+  })),
   resetStageIds: Type.Optional(
     Type.Array(Type.String({ maxLength: MAX_STAGE_ID_LENGTH }), {
       maxItems: MAX_STAGES,
@@ -211,6 +215,7 @@ export interface NormalizedOption {
   id: string;
   label: string;
   description?: string;
+  recommended?: boolean;
   value?: string;
   preview?: string;
   image?: ImageReference;
@@ -245,6 +250,8 @@ export interface NormalizedReview {
   stages: NormalizedStage[];
   reviewId: string;
   round: number;
+  /** Pre-select the recommended option per stage. Off unless asked for. */
+  autoResolve?: boolean;
   resetStageIds: string[];
   notes?: string;
   provider?: string;
@@ -510,6 +517,7 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
         id: optionId,
         label: normalizeText(option.label).trim(),
         description: optionalText(option.description),
+        recommended: option.recommended === true ? true : undefined,
         value: optionalText(option.value),
         preview: option.preview === undefined ? undefined : normalizeText(option.preview),
         image: normalizeImage(option.image),
@@ -560,12 +568,16 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
   if (typeof round !== "number" || !Number.isInteger(round) || round < 1) {
     throw new Error("round must be a positive integer.");
   }
+  if (params.autoResolve !== undefined && typeof params.autoResolve !== "boolean") {
+    throw new Error("autoResolve must be a boolean.");
+  }
 
   return {
     title: optionalText(params.title),
     stages,
     reviewId: optionalText(params.reviewId) || `review-${now.toString(36)}-${randomUUID().slice(0, 8)}`,
     round,
+    autoResolve: params.autoResolve === true ? true : undefined,
     resetStageIds: [
       ...new Set(
         (Array.isArray(params.resetStageIds) ? params.resetStageIds : []).map((id) => normalizeText(id).trim()).filter(Boolean),

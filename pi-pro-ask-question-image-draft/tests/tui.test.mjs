@@ -31,6 +31,30 @@ function wizard(signal) {
 function enter(component) { component.handleInput("\r"); }
 function down(component) { component.handleInput("\x1b[B"); }
 
+/** The label of the row the cursor is on, read off the rendered frame. */
+function activeRow(component, width = 100) {
+  for (const line of component.render(width)) {
+    const match = /(?:^|\s)>\s?(\S.*)$/.exec(line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+    if (match) return match[1].trim().replace(/^(?:\[x\]|\[ \]|\d+\.|✓ )\s*/, "").replace(/ \(recommended\)$/, "");
+  }
+  return null;
+}
+
+/**
+ * Walk to a row by its label, the way a person reads the screen.
+ *
+ * Navigating by index made every test that added a row a test to re-count, and
+ * the count is not what those tests are about.
+ */
+function moveTo(component, label, width = 100) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const current = activeRow(component, width);
+    if (current === label) return current;
+    down(component);
+  }
+  throw new Error(`never reached the "${label}" row; the cursor is on "${activeRow(component, width)}"`);
+}
+
 describe("VisualReviewWizard", () => {
   it("matches real Enter, newline, and escape input", () => {
     assert.equal(matchesKey("\r", Key.enter), true);
@@ -42,14 +66,14 @@ describe("VisualReviewWizard", () => {
   it("walks single, multi, and explicit optional skip before approval", () => {
     const state = wizard();
     enter(state.component);
+    // The multi-select stage: check both options, then commit with Done.
     state.component.handleInput(" ");
     down(state.component);
     state.component.handleInput(" ");
-    down(state.component);
+    moveTo(state.component, "Done selecting");
     enter(state.component);
-    down(state.component);
-    down(state.component);
-    down(state.component);
+    // The optional stage is skipped explicitly, not silently approved.
+    moveTo(state.component, "Skip stage");
     enter(state.component);
     enter(state.component);
     assert.equal(state.result?.status, "completed");
@@ -77,27 +101,27 @@ describe("VisualReviewWizard", () => {
 
   it("submits custom and revision editor text and clears it", () => {
     const state = wizard();
-    down(state.component);
-    down(state.component);
+    moveTo(state.component, "Type something.");
     enter(state.component);
     state.component.handleInput("hello");
     enter(state.component);
     state.component.handleInput(" ");
     down(state.component);
     state.component.handleInput(" ");
-    down(state.component);
+    moveTo(state.component, "Done selecting");
     enter(state.component);
-    down(state.component);
-    down(state.component);
-    down(state.component);
+    // The optional stage is still open, so it is answered or skipped before the
+    // final review offers to approve.
+    moveTo(state.component, "Skip stage");
     enter(state.component);
+    moveTo(state.component, "Approve review");
     enter(state.component);
     assert.equal(state.result?.status, "completed");
     assert.equal(state.result?.answers[0].kind, "custom");
     assert.equal(state.result?.answers[0].customText, "hello");
 
     const revisionState = wizard();
-    for (let i = 0; i < 3; i += 1) down(revisionState.component);
+    moveTo(revisionState.component, "Request revision");
     enter(revisionState.component);
     revisionState.component.handleInput("make it bolder");
     enter(revisionState.component);
@@ -182,9 +206,12 @@ describe("TUI chrome: rows, the preview pane and image-host honesty", () => {
     const text = component.render(110).join("\n");
     assert.match(text, /> 1\. Transit airy/, "the selected row is numbered");
     assert.match(text, /\n\s+2\. Transit split/);
-    // The action rows are numbered too, so "press 4" is answerable.
-    assert.match(text, /\n\s+3\. Type something\./);
-    assert.match(text, /\n\s+4\. Request revision/);
+    // The action rows are deliberately *not* numbered: "press 2" should never
+    // be a way to skip the question or ask for a revision.
+    assert.match(text, /\n\s+Add note\b/);
+    assert.match(text, /\n\s+Type something\./);
+    assert.match(text, /\n\s+Request revision/);
+    assert.equal(/\n\s+\d+\. (Type something|Request revision|Add note|Add global note)/.test(text), false);
     component.dispose();
   });
 
@@ -348,7 +375,127 @@ describe("chrome: a text-only review stays a questionnaire", () => {
     );
     assert.equal(text.includes("No inline preview supplied."), false, "a text option does not get a dead preview block");
     assert.ok(text.includes("1. Pin against release.json"), "options are numbered");
-    assert.ok(text.includes("3. Type something."), "the action rows keep their place after a rule");
+    assert.ok(text.includes("Type something."), "the action rows sit behind a rule, unnumbered");
+    assert.ok(text.includes("Add note"), "and a note is a row, not a key nobody can see");
+    component.dispose();
+  });
+});
+
+/**
+ * The dashboard as asked for: a full-screen panel you can get out of the way
+ * of, with notes and checkboxes in the list, and an auto-resolve switch that is
+ * off unless the user turns it on.
+ */
+describe("dashboard: hideable, checkboxes, notes, and an off-by-default auto-resolve", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  const dashboardReview = (extra = {}) => normalizeReview({
+    reviewId: "dashboard",
+    title: "Onboarding",
+    stages: [
+      { id: "channels", header: "Channels", prompt: "Which channels ship?", multiSelect: true, options: [
+        { id: "inapp", label: "In-app banner", description: "Reaches a signed-out user." },
+        { id: "email", label: "Email digest", description: "Daily rollup." },
+      ] },
+      { id: "copy", header: "Copy", prompt: "Which headline?", options: [
+        { id: "short", label: "Short headline", description: "Three words.", recommended: true },
+        { id: "long", label: "Full sentence", description: "More scrolling." },
+      ] },
+    ],
+    ...extra,
+  });
+  const build = (extra = {}) => {
+    let result;
+    const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 44 } }, plainTheme, dashboardReview(extra), process.cwd(), (value) => { result = value; });
+    return { component, get result() { return result; } };
+  };
+
+  it("renders checkboxes for a multi-select stage and a row for the note", () => {
+    const { component } = build();
+    const text = component.render(110).join("\n");
+    assert.match(text, /\[ \]\s*In-app banner/, "an unchecked option is a checkbox");
+    component.handleInput(" ");
+    const checked = component.render(110).join("\n");
+    assert.match(checked, /\[x\]\s*In-app banner/, "a checked option says so");
+    assert.ok(text.includes("Add note"), "a note is a row, not a hidden key");
+    component.dispose();
+  });
+
+  it("hides the whole panel to one line and brings it back with the answers kept", () => {
+    const { component } = build();
+    component.handleInput(" ");
+    moveTo(component, "Done selecting");
+    enter(component);
+    component.handleInput("\u001d");
+    const hidden = component.render(110).join("\n");
+    assert.equal(hidden.split("\n").filter((line) => line.trim()).length, 1, "hidden is one line, so the transcript is readable");
+    assert.match(hidden, /Review hidden/, "and it says what happened");
+    assert.match(hidden, /1 answered/, "the hidden line says how much is already done");
+    assert.match(hidden, /answers kept/, "and that nothing was lost");
+    component.handleInput("\u001d");
+    const back = component.render(110).join("\n");
+    assert.match(back, /✓ Channels/, "the answered stage is still ticked, so the answer survived the round trip");
+    component.dispose();
+  });
+
+  it("auto-resolve is off by default, and on it lands on the recommended row without answering", () => {
+    const off = build();
+    const offText = off.component.render(110).join("\n");
+    assert.match(offText, /auto-resolve: off/, "an off switch nobody can see is a switch nobody trusts");
+    // Off, the recommendation does not pull the cursor: the user moves to the
+    // row they want and it stays theirs.
+    off.component.handleInput("\t");
+    off.component.handleInput("\x1b[B");
+    assert.equal(activeRow(off.component, 110), "Full sentence", "the user moved, and nothing moved it back");
+    off.component.dispose();
+
+    const on = build();
+    on.component.handleInput("\t");
+    on.component.handleInput("\u0001");
+    const onText = on.component.render(110).join("\n");
+    assert.match(onText, /auto-resolve: on/, "the mode is stated");
+    assert.equal(activeRow(on.component, 110), "Short headline", "the cursor is on the recommended option");
+    assert.match(onText, /\(recommended\)/, "and the row says why it is there");
+    assert.equal(on.result, undefined, "nothing is answered until the user presses Enter");
+    enter(on.component);
+    // The stage is answered, so its tab is ticked; the review itself stays open
+    // because the multi-select stage is still unanswered.
+    assert.match(on.component.render(110).join("\n"), /✓ Copy/, "Enter took the recommendation");
+    assert.equal(on.result, undefined, "and the review is not finished by one Enter");
+    moveTo(on.component, "Done selecting");
+    on.component.handleInput(" ");
+    enter(on.component);
+    // The multi-select stage is still open, which is the point: one Enter took
+    // the recommendation and stopped there.
+    moveTo(on.component, "Done selecting");
+    assert.ok(activeRow(on.component, 110), "the review is still waiting for the other stage");
+    on.component.dispose();
+  });
+
+  it("a review can ask for auto-resolve up front, and the switch still turns it off", () => {
+    const asked = build({ autoResolve: true });
+    asked.component.handleInput("\t");
+    assert.equal(activeRow(asked.component, 110), "Short headline", "the review asked for it, so the cursor is already there");
+    asked.component.handleInput("\u0001");
+    assert.match(asked.component.render(110).join("\n"), /auto-resolve: off/, "and the user can always turn it off");
+    asked.component.dispose();
+  });
+
+  it("a stage with no marked option falls back to the first, and never fights navigation", () => {
+    const plain = normalizeReview({
+      reviewId: "plain", autoResolve: true,
+      stages: [{ id: "one", header: "One", prompt: "Pick", options: [{ id: "a", label: "A" }, { id: "b", label: "B" }] }],
+    });
+    let result;
+    const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 40 } }, plainTheme, plain, process.cwd(), (value) => { result = value; });
+    assert.equal(activeRow(component, 110), "A", "no recommendation means the first option");
+    component.handleInput("\x1b[B");
+    assert.equal(activeRow(component, 110), "B", "and the user's own navigation is not undone");
+    component.handleInput("\x1b[B");
+    component.handleInput("\x1b[B");
+    component.handleInput("\x1b[B");
+    assert.equal(activeRow(component, 110), "Request revision", "the list reaches its last row");
+    component.handleInput("\x1b[B");
+    assert.equal(activeRow(component, 110), "A", "and wraps, the way a list should");
     component.dispose();
   });
 });

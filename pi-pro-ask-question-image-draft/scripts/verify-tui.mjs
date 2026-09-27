@@ -35,19 +35,17 @@ try {
   let result;
   const wizard = new VisualReviewWizard(tui, theme, review, process.cwd(), (value) => { result = value; });
   assert.match(wizard.render(100).join("\n"), /TUI smoke/);
-  wizard.handleInput("\r");
+  enter(wizard);
   assert.equal(wizard.render(100).join("\n").includes("Choose many"), true);
   wizard.handleInput(" ");
   wizard.handleInput("\x1b[B");
   wizard.handleInput(" ");
-  wizard.handleInput("\x1b[B");
-  wizard.handleInput("\r");
+  moveTo(wizard, "Done selecting");
+  enter(wizard);
   assert.equal(wizard.render(100).join("\n").includes("Optional"), true);
-  wizard.handleInput("\x1b[B");
-  wizard.handleInput("\x1b[B");
-  wizard.handleInput("\x1b[B");
-  wizard.handleInput("\r");
-  wizard.handleInput("\r");
+  moveTo(wizard, "Skip stage");
+  enter(wizard);
+  enter(wizard);
   assert.equal(result?.status, "completed");
   assert.deepEqual(result?.answers.map((answer) => answer.stageId), ["single", "multi"]);
   assert.deepEqual(result?.skippedStageIds, ["optional"]);
@@ -79,6 +77,29 @@ try {
     for (let index = 0; index < count; index += 1) component.handleInput("\x1b[B");
   }
 
+  /** The label of the row the cursor is on, read off the rendered frame. */
+  function activeRow(component, width = 100) {
+    for (const line of component.render(width)) {
+      const match = /(?:^|\s)>\s?(\S.*)$/.exec(line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+      if (match) return match[1].trim().replace(/^(?:\[x\]|\[ \]|\d+\.|✓ )\s*/, "").replace(/ \(recommended\)$/, "");
+    }
+    return null;
+  }
+
+  /**
+   * Walk to a row by its label.
+   *
+   * This smoke drives the wizard the way a person does. Counting keypresses is
+   * what made it break every time a row was added to the list.
+   */
+  function moveTo(component, label, width = 100) {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      if (activeRow(component, width) === label) return;
+      component.handleInput("\x1b[B");
+    }
+    throw new Error(`never reached the "${label}" row; the cursor is on "${activeRow(component, width)}"`);
+  }
+
   function enter(component) {
     component.handleInput("\r");
   }
@@ -91,7 +112,7 @@ try {
     stages: [{ id: "custom", header: "Custom", prompt: "Add context", options: [{ id: "a", label: "A" }, { id: "b", label: "B" }] }],
   });
   const customState = makeWizard(customReview);
-  down(customState.component, 2);
+  moveTo(customState.component, "Type something.");
   enter(customState.component);
   customState.component.handleInput("custom context");
   enter(customState.component);
@@ -110,7 +131,7 @@ try {
     stages: [{ id: "revision", header: "Revision", prompt: "Review the draft", options: [{ id: "a", label: "A" }, { id: "b", label: "B" }] }],
   });
   const revisionState = makeWizard(revisionReview);
-  down(revisionState.component, 3);
+  moveTo(revisionState.component, "Request revision");
   enter(revisionState.component);
   revisionState.component.handleInput("make it bolder");
   enter(revisionState.component);
@@ -132,7 +153,7 @@ try {
   // Navigate there explicitly so this smoke test also verifies the final-stage
   // boundary rather than relying on an implementation-specific row count.
   rejectState.component.handleInput("\t");
-  down(rejectState.component, 3);
+  moveTo(rejectState.component, "Reject review");
   enter(rejectState.component);
   assert.equal(rejectState.result?.status, "rejected");
   assert.equal(rejectState.result?.decision, "reject");

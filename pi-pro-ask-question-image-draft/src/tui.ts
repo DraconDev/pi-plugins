@@ -106,9 +106,18 @@ function markdownTheme(theme: Theme): MarkdownTheme {
   };
 }
 
+/**
+ * The stage rows: the options, then the actions that are not answers.
+ *
+ * A note row is a real row rather than a hidden key. The reference dialog puts
+ * its note affordance in the list, and a key nobody can see is a feature nobody
+ * uses - but it is kept out of the numbered answer sequence, because it does not
+ * answer anything.
+ */
 function rowsForStage(stage: NormalizedStage): Row[] {
   const rows: Row[] = stage.options.map((option) => ({ kind: "option", option }));
   if (stage.multiSelect) rows.push({ kind: "done" });
+  rows.push({ kind: "note" });
   if (stage.allowOther) rows.push({ kind: "other" });
   if (!stage.required) rows.push({ kind: "skip" });
   if (stage.allowRevision) rows.push({ kind: "revision" });
@@ -330,6 +339,12 @@ export class VisualReviewWizard implements Component, Focusable {
   private promptExpanded = false;
   /** Set once the option list has reached its action rows, so the rule prints once. */
   private actionRule = false;
+  /** Pre-select the recommended option. Off unless the review asks for it or the user toggles it. */
+  private autoResolve: boolean;
+  /** The stage the recommendation was last applied to, so navigation is never fought. */
+  private autoStage: string | null = null;
+  /** Whether the prompt on screen is the clamped form, so the footer can offer ctrl+r. */
+  private promptClamped = false;
   private cachedWidth = -1;
   private cachedHeight = -1;
   private cachedLines: string[] | undefined;
@@ -361,6 +376,7 @@ export class VisualReviewWizard implements Component, Focusable {
     this.signal = signal;
     this.requestRender = () => tui.requestRender();
     this.globalNote = initialGlobalNote;
+    this.autoResolve = review.autoResolve === true;
     this.editor = new Editor(tui, editorTheme(theme));
     this.editor.focused = true;
     this.editor.disableSubmit = true;
@@ -480,6 +496,15 @@ export class VisualReviewWizard implements Component, Focusable {
     if (this.disposed || this.finished || this.signal?.aborted) return;
     if (matchesKey(data, Key.ctrl("]"))) {
       this.toggleCollapsed();
+      return;
+    }
+    // Ctrl+A turns auto-resolve on and off. It is a view toggle over the list,
+    // so it is inert while the editor has focus - where Ctrl+A is the editor's
+    // own "jump to line start" and must stay that.
+    if (this.inputMode === "none" && matchesKey(data, Key.ctrl("a"))) {
+      this.autoResolve = !this.autoResolve;
+      this.autoStage = null;
+      this.invalidate();
       return;
     }
     // Ctrl+R reads a clamped stage prompt in full. It is a view toggle, so it
@@ -663,7 +688,9 @@ export class VisualReviewWizard implements Component, Focusable {
 
   render(width: number): string[] {
     if (this.collapsed) {
-      return [this.theme.fg("dim", `Visual review hidden — press Ctrl+] to reopen (${this.review.title ?? "review"})`)];
+      // The whole point of hiding it: the conversation underneath is what the
+      // user needs to read, so the hidden form is one dim line and nothing else.
+      return [this.theme.fg("dim", `Review hidden — Ctrl+] brings it back · ${this.answerCount()} answered · answers kept`)];
     }
     const terminalRows = this.tui.terminal?.rows;
     if (this.cachedLines && this.cachedWidth === width && this.cachedHeight === (terminalRows ?? -1)) return this.cachedLines;
@@ -703,7 +730,8 @@ export class VisualReviewWizard implements Component, Focusable {
         lines.push(...promptLines);
       } else {
         lines.push(...promptLines.slice(0, limit));
-        if (promptLines.length > limit) {
+        this.promptClamped = promptLines.length > limit;
+        if (this.promptClamped) {
           lines.push(this.theme.fg("dim", `  … ${promptLines.length - limit} more lines — press ctrl+r to read the whole prompt`));
         }
       }
@@ -795,9 +823,16 @@ export class VisualReviewWizard implements Component, Focusable {
       if (currentNote && !current?.notes) lines.push(this.theme.fg("muted", `Note: ${currentNote}`));
       const selection = stage ? this.selection(stage.id) : new Set<string>();
       const help = stage?.multiSelect
-        ? `↑↓ move • Space toggle • Enter confirm • Tab stages • Esc cancel`
-        : stage ? "↑↓ move • Enter select • Tab/←→ stages • Esc cancel" : "↑↓ move • Enter review action • Tab stages • Esc cancel";
+        ? `↑↓ move • Space check • Enter confirm • n note • Tab stages • Ctrl+] hide • Esc cancel`
+        : stage
+          ? `↑↓ move • Enter select • n note • Tab/←→ stages • Ctrl+] hide • Esc cancel${this.promptClamped ? " • Ctrl+R prompt" : ""}`
+          : "↑↓ move • Enter review action • Tab stages • Ctrl+] hide • Esc cancel";
       lines.push(this.theme.fg("dim", help));
+      // Auto-resolve is a mode, so it says so whether it is on or off. A switch
+      // nobody can see is a switch nobody trusts.
+      lines.push(this.theme.fg(this.autoResolve ? "success" : "dim", this.autoResolve
+        ? "auto-resolve: on — Enter takes the recommended option (Ctrl+A off)"
+        : "auto-resolve: off — Ctrl+A answers with the recommended option"));
       if (stage?.multiSelect && selection.size > 0) {
         lines.push(this.theme.fg("accent", `Selected: ${stage.options.filter((option) => selection.has(option.id)).map((option) => option.label).join(", ")}`));
       }
@@ -895,6 +930,29 @@ export class VisualReviewWizard implements Component, Focusable {
     return result.slice(0, height);
   }
 
+  private answerCount(): number {
+    return this.review.stages.filter((stage) => this.answers.has(stage.id)).length;
+  }
+
+  /**
+   * Land on the recommended option when auto-resolve is on.
+   *
+   * It only *moves the cursor* - the user still presses Enter - because a review
+   * that answers itself is a review nobody read, and the ask is the whole point
+   * of the tool. The recommended row is the one the model marked, or the first
+   * option, and the row says which.
+   */
+  private applyAutoResolve(): void {
+    if (!this.autoResolve) return;
+    const stage = this.currentStage();
+    if (!stage || this.autoStage === stage.id) return;
+    this.autoStage = stage.id;
+    const rows = this.currentRows();
+    const recommended = rows.findIndex((row) => row.kind === "option" && row.option.recommended);
+    const target = recommended >= 0 ? recommended : rows.findIndex((row) => row.kind === "option");
+    if (target >= 0) this.selectedIndex = target;
+  }
+
   private selection(stageId: string): Set<string> {
     let selected = this.selections.get(stageId);
     if (!selected) {
@@ -929,11 +987,11 @@ export class VisualReviewWizard implements Component, Focusable {
    * descriptions are not repeated underneath.
    */
   private renderRows(stage: NormalizedStage, rows: readonly Row[], width: number, { describe = true } = {}): string[] {
+    this.applyAutoResolve();
     const lines: string[] = [];
     const selected = this.selection(stage.id);
     rows.forEach((row, index) => {
       const active = index === this.selectedIndex;
-      const marker = row.kind === "option" && stage.multiSelect ? (selected.has(row.option.id) ? "✓ " : "  ") : "";
       const prefix = active ? this.theme.fg("accent", "> ") : "  ";
       // Answers and the actions that end or extend the review are not the same
       // kind of thing, and the reference dialog keeps them apart: a rule before
@@ -941,7 +999,14 @@ export class VisualReviewWizard implements Component, Focusable {
       const action = !["option", "done"].includes(row.kind);
       if (action && !this.actionRule) lines.push("");
       if (action) this.actionRule = true;
-      const label = `${marker}${index + 1}. ${rowLabel(row)}`;
+      // Checkboxes for a multi-select stage: the answer is a set, and a checkbox
+      // says that before the user has read the row.
+      const box = row.kind === "option" && stage.multiSelect ? (selected.has(row.option.id) ? "[x] " : "[ ] ") : "";
+      const recommended = row.kind === "option" && row.option.recommended ? this.theme.fg("success", " (recommended)") : "";
+      // Actions sit behind the rule and keep out of the answer numbering: they do
+      // not answer anything, and "press 3" should never be one of them.
+      const numbered = action || box ? "" : `${index + 1}. `;
+      const label = `${box}${numbered}${rowLabel(row)}${recommended}`;
       const text = `${prefix}${label}`;
       lines.push(...(action && !active ? wrapTextWithAnsi(this.theme.fg("muted", text), Math.max(1, width)) : wrapTextWithAnsi(text, Math.max(1, width))));
       const description = row.kind === "option" || row.kind === "globalNote" ? rowDescription(row) : undefined;
@@ -1119,11 +1184,16 @@ export async function runVisualReviewWizard(
       return wizard;
     }, {
       overlay: true,
+      // Full screen, not a bottom drawer. The questions are the work: a model
+      // that sends a real prompt and real options needs rows for them, and a
+      // half-height drawer both truncated the list and covered the conversation
+      // the user needed to check the answer against. Ctrl+] still collapses the
+      // whole thing to one line, which is the way back to the transcript.
       overlayOptions: {
-        anchor: "bottom-center",
+        anchor: "top-left",
         width: "100%",
         maxHeight: "100%",
-        margin: { left: 0, right: 0, bottom: 0 },
+        margin: 0,
       },
       onHandle: (handle) => {
         overlayHandle = handle;

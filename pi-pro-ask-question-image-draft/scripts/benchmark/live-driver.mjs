@@ -411,7 +411,7 @@ try {
       // Rows are numbered for the reader ("1. Transit airy"); navigation talks
       // about the label, so the number is stripped rather than repeated in
       // every row the driver is asked to find.
-      return match[1].trim().replace(/^(?:\d+\.|✓)\s*/, "").trim();
+      return match[1].trim().replace(/^(?:\d+\.|\[x\]|\[ \]|✓)\s*/, "").replace(/\s*\(recommended\)$/, "").trim();
     }
     return null;
   };
