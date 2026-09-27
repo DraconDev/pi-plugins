@@ -879,10 +879,16 @@ export class VisualReviewWizard implements Component, Focusable {
             // options. Guessing the chrome instead is what clipped the last action
             // row off the bottom of a 40-row terminal.
             const terminalRows = this.tui.terminal?.rows ?? 0;
-            const total = lines.length + frame.length;
-            if (terminalRows > 0 && total > terminalRows) {
-              const excess = Math.min(artRows, total - terminalRows);
-              frame.splice(Math.max(0, artRows - excess), excess);
+            let excess = Math.max(0, lines.length + frame.length - terminalRows);
+            // Only padding is trimmed. The Kitty escape is the artwork's first
+            // line and the iTerm2 escape its last, so cutting from the end by
+            // position deletes the picture itself - which is how the iterm2 path
+            // went from one image to none.
+            for (let index = artRows - 1; index >= 0 && excess > 0; index -= 1) {
+              if (/^\s*$/.test(frame[index] ?? "")) {
+                frame.splice(index, 1);
+                excess -= 1;
+              }
             }
             lines.push(...frame);
             emitted = true;

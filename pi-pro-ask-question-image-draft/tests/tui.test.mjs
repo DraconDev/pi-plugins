@@ -752,3 +752,60 @@ describe("notes: a row, a key, a global, and all three reach the model", () => {
     component.dispose();
   });
 });
+
+/**
+ * The stacked layout must never trade the picture for the fit.
+ *
+ * The artwork is the one elastic part of the frame, so when pi-tui's aspect
+ * arithmetic hands back more rows than the budget allowed the excess comes out
+ * of the padding. Cutting by position instead took the iTerm2 escape with it -
+ * it is the artwork's *last* line - and the image count went from one to none
+ * while the test suite stayed green.
+ */
+describe("stacked layout: the picture survives the fit", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  it("trims padding, never the escape, on both protocols", async () => {
+    const { parseITerm2, parseKitty } = await import("../scripts/benchmark/image-protocol.mjs");
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const { fileURLToPath } = await import("node:url");
+    const fixture = fileURLToPath(new URL("./fixtures/tui-smoke.png", import.meta.url));
+    const previousTmux = process.env.TMUX;
+    delete process.env.TMUX;
+    try {
+      for (const protocol of ["kitty", "iterm2"]) {
+        const previous = setCapabilities({ images: protocol, trueColor: true, hyperlinks: false });
+        try {
+          const review = normalizeReview({
+            reviewId: `fit-${protocol}`,
+            stages: [{ id: "one", header: "One", prompt: "Pick", options: [
+              { id: "a", label: "A", image: { path: fixture } },
+              { id: "b", label: "B", image: { path: fixture } },
+            ] }],
+          });
+          let result;
+          // A short terminal on purpose: the frame cannot fit, so the fit logic
+          // has to do real work.
+          const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 20 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+          const deadline = Date.now() + 10_000;
+          while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 40));
+          assert.ok(component.loadedImages.size > 0, `${protocol}: the image must load`);
+          const frame = component.render(100).join("\r\n");
+          component.dispose();
+          const parsed = protocol === "kitty" ? parseKitty(frame).images : parseITerm2(frame).images;
+          assert.equal(parsed.length, 1, `${protocol}: the artwork is still there after the fit`);
+          assert.ok(!parsed[0].more, `${protocol}: and the transmission is complete`);
+          assert.deepEqual(
+            Buffer.from(parsed[0].payload, "base64"),
+            readFileSync(fixture),
+            `${protocol}: every byte of the image survives`,
+          );
+        } finally {
+          if (previous) setCapabilities(previous);
+        }
+      }
+    } finally {
+      if (previousTmux === undefined) delete process.env.TMUX;
+      else process.env.TMUX = previousTmux;
+    }
+  });
+});
