@@ -278,10 +278,14 @@ function fallbackPreview(option: NormalizedOption, loaded: LoadedOption | undefi
       // declines to trust, and a wrong cause sends the reader to fix the wrong
       // thing.
       const detected = getCapabilities().images ?? "none";
+      // Measured on tmux 3.6a with a hand-made sequence: the raw escape arrives
+      // at the terminal with its introducer's ESC stripped, and the passthrough
+      // envelope is not forwarded at all. So a multiplexer is not a detour here,
+      // it is a wall, and the advice has to be "run outside it".
       const cause = process.env.TMUX
-        ? "tmux is in the way and pi-tui does not emit graphics through it by default"
+        ? "a multiplexer is in the way: measured here, tmux 3.6a delivers no usable graphics introducer, by the direct route or by passthrough"
         : "this terminal did not report an image protocol";
-      lines.push(...wrapTextWithAnsi(theme.fg("dim", `Inline images are off here: detected ${detected}, and ${cause}. Start Pi with PI_IMAGE_PROTOCOL=kitty to override the detection.`), width));
+      lines.push(...wrapTextWithAnsi(theme.fg("dim", `Inline images are off here: detected ${detected}, and ${cause}. Run Pi outside tmux for pictures; PI_IMAGE_PROTOCOL=kitty overrides the detection where that is enough.`), width));
     }
   }
   if (option.image?.alt) lines.push(...wrapTextWithAnsi(theme.fg("dim", `Alt: ${option.image.alt}`), width));

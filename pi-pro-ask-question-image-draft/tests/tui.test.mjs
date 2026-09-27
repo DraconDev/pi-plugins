@@ -279,7 +279,8 @@ describe("TUI chrome: rows, the preview pane and image-host honesty", () => {
       const text = component.render(110).join("\n");
       assert.match(text, /Inline images are off here/, "a host that cannot render images must say so");
       assert.match(text, /detected none/, "and name what it actually detected, not a guess");
-      assert.match(text, /PI_IMAGE_PROTOCOL=kitty/, "and name the switch that turns it on");
+      assert.match(text, /Run Pi outside tmux for pictures/, "and say what actually works");
+      assert.match(text, /PI_IMAGE_PROTOCOL=kitty/, "alongside the switch that overrides detection");
       component.dispose();
     } finally {
       if (previousTmux === undefined) delete process.env.TMUX;
