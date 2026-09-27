@@ -366,3 +366,59 @@ describe("image references and explicit generation", () => {
     assert.ok(fixture.length > 0);
   });
 });
+
+/**
+ * An image that is dropped without a word is the worst failure a visual tool
+ * can have: the review renders perfectly and simply has nothing to show. Hosts
+ * present the artwork on the question rather than on each option, so that shape
+ * is honoured positionally - and a shape that cannot be honoured is an error,
+ * not a silence.
+ */
+describe("images presented per question are not dropped", () => {
+  it("maps a question-level image array onto the options, in order", () => {
+    const fromQuestions = normalizeReview({
+      reviewId: "q-images",
+      questions: [{
+        question: "Which treatment?",
+        header: "Layout",
+        options: [{ label: "A" }, { label: "B" }, { label: "C" }],
+        image: [{ path: "/tmp/a.png" }, { path: "/tmp/b.png" }],
+      }],
+    });
+    assert.deepEqual(fromQuestions.stages[0].options.map((option) => option.image?.path), ["/tmp/a.png", "/tmp/b.png", undefined]);
+
+    const fromStages = normalizeReview({
+      reviewId: "s-images",
+      stages: [{
+        header: "Layout",
+        prompt: "Which treatment?",
+        images: [{ path: "/tmp/a.png" }, { path: "/tmp/b.png" }],
+        options: [{ label: "A" }, { label: "B" }],
+      }],
+    });
+    assert.deepEqual(fromStages.stages[0].options.map((option) => option.image?.path), ["/tmp/a.png", "/tmp/b.png"]);
+  });
+
+  it("an option's own image wins over the stage-level one", () => {
+    const review = normalizeReview({
+      reviewId: "precedence",
+      stages: [{
+        header: "H", prompt: "P",
+        images: [{ path: "/stage-a.png" }, { path: "/stage-b.png" }],
+        options: [{ label: "A", image: { path: "/option.png" } }, { label: "B" }],
+      }],
+    });
+    assert.deepEqual(review.stages[0].options.map((option) => option.image?.path), ["/option.png", "/stage-b.png"]);
+  });
+
+  it("an image list that cannot be honoured is an error, not a silent drop", () => {
+    assert.throws(() => normalizeReview({
+      reviewId: "too-many",
+      stages: [{ header: "H", prompt: "P", images: [{ path: "/a.png" }, { path: "/b.png" }, { path: "/c.png" }], options: [{ label: "A" }, { label: "B" }] }],
+    }), /carries 3 images for 2 options/);
+    assert.throws(() => normalizeReview({
+      reviewId: "not-an-image",
+      stages: [{ header: "H", prompt: "P", images: ["/a.png"], options: [{ label: "A" }, { label: "B" }] }],
+    }), /image 1 must be an object/);
+  });
+});

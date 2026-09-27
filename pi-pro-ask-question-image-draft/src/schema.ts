@@ -122,6 +122,12 @@ export const ReviewOptionSchema = Type.Object({
 
 export const ReviewStageSchema = Type.Object({
   id: Type.Optional(Type.String({ maxLength: MAX_STAGE_ID_LENGTH, description: "Stable stage identifier for revision/resume." })),
+  images: Type.Optional(
+    Type.Array(ImageInputSchema, {
+      maxItems: MAX_OPTIONS,
+      description: "One image per option, in the same order as options - the same images options[].image carries, for hosts that present them per question.",
+    }),
+  ),
   kind: Type.Optional(
     Type.Union([Type.Literal("choice"), Type.Literal("draft")], {
       description: "Presentation hint. Draft stages are intended for comparing generated visual drafts.",
@@ -335,6 +341,15 @@ interface RawStage {
   prompt: string;
   description?: string;
   options: readonly ReviewOption[];
+  /**
+   * One image per option, in the same order as `options`.
+   *
+   * Hosts present the artwork here rather than on each option, and a stage-level
+   * image that is dropped without a word is the worst possible failure for a
+   * tool whose whole point can be a picture: the review renders perfectly and
+   * simply has nothing to show.
+   */
+  images?: readonly unknown[];
   allowOther?: boolean;
   allowRevision?: boolean;
   multiSelect?: boolean;
@@ -355,6 +370,10 @@ function rawStageFromQuestion(question: Static<typeof QuestionsSchema>[number], 
     multiSelect: question.multiSelect,
     required: question.required,
     imagePrompt: question.imagePrompt,
+    // Hosts present the artwork on the question, one entry per option.
+    images: Array.isArray((question as unknown as { image?: unknown }).image)
+      ? (question as unknown as { image: unknown[] }).image
+      : undefined,
   };
 }
 
@@ -506,6 +525,23 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
     usedStageIds.add(id);
 
     const usedOptionIds = new Set<string>();
+    const stageImages = stage.images ?? [];
+    if (stageImages.length > stage.options.length) {
+      throw new Error(
+        `Stage ${id} carries ${stageImages.length} images for ${stage.options.length} options; put one image per option, in order.`,
+      );
+    }
+    stageImages.forEach((image, imageIndex) => {
+      if (!image || typeof image !== "object" || Array.isArray(image)) {
+        throw new Error(`Stage ${id} image ${imageIndex + 1} must be an object with a path, url or dataUri.`);
+      }
+    });
+    // Hosts present the artwork per question; an option's own image still wins.
+    const stagedReference = (optionIndex: number) => {
+      const staged = stageImages[optionIndex];
+      if (!staged || typeof staged !== "object" || Array.isArray(staged)) return undefined;
+      return staged as { path?: string; url?: string; dataUri?: string; mimeType?: string; alt?: string };
+    };
     const options = stage.options.map((option, optionIndex) => {
       const requestedOptionId = option.id?.trim();
       const optionId = requestedOptionId || uniqueId(`${id}-option`, optionIndex, usedOptionIds);
@@ -520,7 +556,8 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
         recommended: option.recommended === true ? true : undefined,
         value: optionalText(option.value),
         preview: option.preview === undefined ? undefined : normalizeText(option.preview),
-        image: normalizeImage(option.image),
+        // A stage-level image fills in only where the option carries none of its own.
+        image: normalizeImage(option.image ?? stagedReference(optionIndex)),
         generate: option.generate === undefined
           ? undefined
           : normalizeImageGeneration(option.generate, `Stage ${id} option ${optionId}`),
