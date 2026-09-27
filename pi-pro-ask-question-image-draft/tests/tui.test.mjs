@@ -276,7 +276,8 @@ describe("TUI chrome: rows, the preview pane and image-host honesty", () => {
       let result;
       const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 40 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
       await new Promise((r) => setTimeout(r, 200));
-      const text = component.render(110).join("\n");
+      // The sentence is wrapped to the pane, so compare it as prose.
+      const text = component.render(110).join(" ").replace(/\s+/g, " ");
       assert.match(text, /Inline images are off here/, "a host that cannot render images must say so");
       assert.match(text, /detected none/, "and name what it actually detected, not a guess");
       assert.match(text, /Run Pi outside tmux for pictures/, "and say what actually works");
