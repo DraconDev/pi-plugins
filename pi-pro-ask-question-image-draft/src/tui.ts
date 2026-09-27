@@ -25,7 +25,7 @@ import {
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 
-import { canRenderImages, imageFileLink, loadImage, type LoadedImage } from "./image-loader.ts";
+import { canRenderImages, enableImagesThroughMultiplexer, imageFileLink, loadImage, type LoadedImage } from "./image-loader.ts";
 import type { NormalizedOption, NormalizedReview, NormalizedStage } from "./schema.ts";
 import {
   isStageAnswered,
@@ -455,6 +455,10 @@ export class VisualReviewWizard implements Component, Focusable {
       }
     }
 
+    // pi-tui will not emit graphics inside a multiplexer, so the wizard asks the
+    // multiplexer what is on the other side before deciding the review has no
+    // picture to show. One cached probe, and only when `TMUX` is set.
+    enableImagesThroughMultiplexer();
     this.imageMode = canRenderImages() && review.stages.some((stage) => stage.options.some((option) => option.image));
     if (this.signal?.aborted) this.onAbort();
     else this.signal?.addEventListener("abort", this.onAbort, { once: true });

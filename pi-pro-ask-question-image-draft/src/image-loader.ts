@@ -1,8 +1,9 @@
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { basename, extname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { getImageDimensions, getCapabilities, type ImageDimensions } from "@earendil-works/pi-tui";
+import { getImageDimensions, getCapabilities, setCapabilities, type ImageDimensions } from "@earendil-works/pi-tui";
 import type { ImageReference } from "./schema.ts";
 
 export interface LoadedImage {
@@ -107,6 +108,58 @@ export async function loadImage(reference: ImageReference, cwd: string, signal?:
     source,
     remoteUrl,
   };
+}
+
+/** Terminals that speak the Kitty graphics protocol, as tmux names its clients. */
+export function isGraphicsCapableTerminal(name: string | null | undefined): boolean {
+  return /kitty|ghostty|wezterm|warp/i.test(String(name ?? ""));
+}
+
+let probedOuterTerminal: string | null | undefined;
+
+/**
+ * The terminal *behind* the multiplexer, once.
+ *
+ * pi-tui refuses to emit graphics whenever `TMUX` is set, so a review inside
+ * tmux silently loses its pictures even when the terminal underneath is Ghostty
+ * and perfectly capable. Asking tmux costs one cheap call, is cached, and turns
+ * "no images" into "images, through the passthrough envelope the package already
+ * wraps them in".
+ */
+export function outerTerminalKind({ probe = defaultProbe }: { probe?: () => string | null } = {}): string | null {
+  if (probedOuterTerminal !== undefined) return probedOuterTerminal;
+  probedOuterTerminal = null;
+  if (process.env.TMUX) {
+    try {
+      probedOuterTerminal = probe();
+    } catch {
+      probedOuterTerminal = null;
+    }
+  }
+  return probedOuterTerminal;
+}
+
+function defaultProbe(): string | null {
+  const out = execFileSync("tmux", ["display-message", "-p", "#{client_termname}"], { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] });
+  return out.trim() || null;
+}
+
+/**
+ * Turn inline images on when the terminal underneath the multiplexer can draw
+ * them, and report whether it did.
+ *
+ * It never turns them *off*: a host that cannot draw images keeps the honest
+ * fallback. Enabling is strictly an improvement over rendering a review with no
+ * picture in it, and if the picture is erased anyway the user is no worse off
+ * than the text fallback, with the bytes on the wire either way.
+ */
+export function enableImagesThroughMultiplexer({ probe = defaultProbe } = {}): { enabled: boolean; terminal: string | null } {
+  const alreadyOn = getCapabilities().images !== null;
+  if (alreadyOn) return { enabled: true, terminal: null };
+  const terminal = outerTerminalKind({ probe });
+  if (!isGraphicsCapableTerminal(terminal)) return { enabled: false, terminal };
+  setCapabilities({ ...getCapabilities(), images: "kitty" });
+  return { enabled: getCapabilities().images !== null, terminal };
 }
 
 export function canRenderImages(): boolean {
