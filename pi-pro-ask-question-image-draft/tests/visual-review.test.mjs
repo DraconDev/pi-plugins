@@ -490,3 +490,35 @@ describe("images through a multiplexer", () => {
     }
   });
 });
+
+/**
+ * An explicit protocol choice is the host's own.
+ *
+ * The package turns the protocol on when a multiplexer is in the way, which is
+ * helpful; it must never do that to a host that has already said what it wants,
+ * including "none".
+ */
+describe("the host's own image protocol is respected", () => {
+  it("a deliberate PI_IMAGE_PROTOCOL is never overridden", async () => {
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const loader = await import("../src/image-loader.ts");
+    const previousTmux = process.env.TMUX;
+    const previousProtocol = process.env.PI_IMAGE_PROTOCOL;
+    const previousCaps = setCapabilities({ images: null, trueColor: true, hyperlinks: false });
+    try {
+      process.env.TMUX = "fake";
+      process.env.PI_IMAGE_PROTOCOL = "none";
+      loader.resetMultiplexerProbe();
+      const result = loader.enableImagesThroughMultiplexer({ probe: () => "xterm-ghostty" });
+      assert.equal(result.enabled, false, "a host that said none keeps saying none");
+      assert.equal(loader.canRenderImages(), false, "and the review falls back honestly");
+    } finally {
+      if (previousProtocol === undefined) delete process.env.PI_IMAGE_PROTOCOL;
+      else process.env.PI_IMAGE_PROTOCOL = previousProtocol;
+      if (previousTmux === undefined) delete process.env.TMUX;
+      else process.env.TMUX = previousTmux;
+      if (previousCaps) setCapabilities(previousCaps);
+      loader.resetMultiplexerProbe();
+    }
+  });
+});

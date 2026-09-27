@@ -162,6 +162,10 @@ function defaultProbe(): string | null {
 export function enableImagesThroughMultiplexer({ probe = defaultProbe } = {}): { enabled: boolean; terminal: string | null } {
   const alreadyOn = getCapabilities().images !== null;
   if (alreadyOn) return { enabled: true, terminal: null };
+  // An explicit PI_IMAGE_PROTOCOL is the host's own decision - including a
+  // deliberate "none" - and a package that second-guesses it has taken the
+  // choice away.
+  if (process.env.PI_IMAGE_PROTOCOL) return { enabled: false, terminal: null };
   const terminal = outerTerminalKind({ probe });
   if (!isGraphicsCapableTerminal(terminal)) return { enabled: false, terminal };
   setCapabilities({ ...getCapabilities(), images: "kitty" });

@@ -871,3 +871,50 @@ describe("dialogue layout: one line per choice, information over the artwork", (
     }
   });
 });
+
+/**
+ * A stage whose option carries a drawn `mockup` is content, not text.
+ *
+ * `option.mockup` was accepted by the schema and then never drawn: a review
+ * built out of mockups showed its questions and nothing else, and its preview
+ * sat *below* the questions because the stacked layout keyed on images alone.
+ */
+describe("a drawn mockup fills the content area, with the questions under it", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  it("draws the mockup above the question and the menu", async () => {
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    try {
+      const review = normalizeReview({
+        reviewId: "mockup-stage",
+        stages: [{
+          id: "one", header: "Creatures", prompt: "What does that mean concretely?",
+          options: [
+            { id: "a", label: "Farm animals plus one night predator", description: "Two new entity types.", mockup: {
+              layout: "list",
+              header: "NEW ENTITIES",
+              rows: [
+                { label: "cow, sheep", detail: "graze by day" },
+                { label: "nightstalker", detail: "spawns at night" },
+              ],
+            } },
+            { id: "b", label: "Farm animals only", description: "No predator." },
+          ],
+        }],
+      });
+      let result;
+      const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 40 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+      const frame = component.render(100);
+      const plain = frame.map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+      const artAt = frame.findIndex((line) => line.includes("\u001b_G"));
+      const questionAt = plain.findIndex((line) => line.includes("What does that mean concretely?"));
+      const menuAt = plain.findIndex((line) => line.includes("1. Farm animals"));
+      assert.ok(artAt >= 0, "the mockup is drawn, not left as an accepted-but-unused field");
+      assert.ok(artAt < questionAt, "above the question");
+      assert.ok(questionAt < menuAt, "and the questions are under it");
+      component.dispose();
+    } finally {
+      if (previous) setCapabilities(previous);
+    }
+  });
+});

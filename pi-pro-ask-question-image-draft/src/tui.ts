@@ -26,6 +26,7 @@ import {
 } from "@earendil-works/pi-tui";
 
 import { canRenderImages, enableImagesThroughMultiplexer, imageFileLink, loadImage, type LoadedImage } from "./image-loader.ts";
+import { renderMockup, type MockupSpec } from "./mockup-renderer.ts";
 import type { NormalizedOption, NormalizedReview, NormalizedStage } from "./schema.ts";
 import {
   isStageAnswered,
@@ -795,8 +796,9 @@ export class VisualReviewWizard implements Component, Focusable {
     // made the list twice as tall as it needed to be and pushed the picture
     // up; here the information follows the cursor, which is what the reader is
     // actually looking at.
+    const visualStage = Boolean(stage && stage.options.some((option) => option.image || option.mockup || option.preview?.trim()));
     const footerLines: string[] = [];
-    if (this.imageMode && stage && safeWidth >= 60) {
+    if (stage && safeWidth >= 60 && (this.imageMode || visualStage)) {
       const question = stage.prompt.replace(/\s+/g, " ").trim();
       footerLines.push(this.theme.fg("accent", ` ${truncateToWidth(question, safeWidth - 2)}`));
       const highlighted = rows[this.selectedIndex];
@@ -812,6 +814,11 @@ export class VisualReviewWizard implements Component, Focusable {
     // The stacked layout only exists when there is artwork to stack *and* rows
     // to spare for it. Testing the budget alone is true for a text-only review
     // too, and that silently dropped every option row.
+    // The layout is about where the content sits, not about whether it happens to
+    // be a photograph: a mockup or a markdown preview is content too, and a stage
+    // that carries one puts it on top with the questions under it, the same as an
+    // image. Keying this on images alone is what put a review's preview *below*
+    // its own questions.
     const stacked = footerLines.length > 0 && this.stageRows(lines.length + footerLines.length + tailLines.length) > 0;
     const imageBudget = stacked ? this.stageRows(lines.length + footerLines.length + tailLines.length) : 0;
 
@@ -887,6 +894,7 @@ export class VisualReviewWizard implements Component, Focusable {
         if (option) {
           const key = `${stage!.id}:${option.id}`;
           const loaded = this.loadedImages.get(key);
+          const mockupPng = option.mockup ? this.mockupLines(option.mockup, safeWidth - 2, imageBudget) : null;
           if (loaded?.image) {
             // pi-tui derives the row count from the image's aspect ratio and can
             // hand back one row more than the ceiling it was given. Trimming the
@@ -916,6 +924,8 @@ export class VisualReviewWizard implements Component, Focusable {
             }
             lines.push(...frame);
             emitted = true;
+          } else if (mockupPng) {
+            for (const line of mockupPng) lines.push(isImageLine(line) ? line : ` ${line}`);
           } else {
             // No picture yet, or one this terminal cannot draw: the area says so
             // rather than collapsing to nothing.
@@ -1234,6 +1244,28 @@ export class VisualReviewWizard implements Component, Focusable {
    * It is rendered before the artwork so the artwork's budget is the remainder
    * of the terminal, not an estimate of it.
    */
+  /**
+   * A deterministic mockup, drawn at the size the content area actually has.
+   *
+   * `option.mockup` is the option's own content rendered by the package rather
+   * than generated, and it was accepted by the schema and then never drawn: a
+   * review built out of mockups showed its questions and nothing else. The
+   * content area is exactly where it belongs, and it now fills it.
+   */
+  private mockupLines(spec: MockupSpec, width: number, height: number): string[] | null {
+    const widthCells = Math.max(20, Math.min(80, width));
+    const heightCells = Math.max(4, Math.min(30, height));
+    try {
+      const { png } = renderMockup(spec, { widthCells, heightCells });
+      // Through the same image path as a photograph, so the drawable spec gets
+      // the same chunking, the same cell box and the same passthrough handling.
+      return imageLines({ base64: png.toString("base64"), mimeType: "image/png", source: "option.mockup", filename: "mockup.png" }, this.theme, widthCells, heightCells);
+    } catch {
+      // A spec the renderer cannot draw is not a reason to lose the question.
+      return null;
+    }
+  }
+
   private tailLines(stage: NormalizedStage | undefined, safeWidth: number): string[] {
     const out: string[] = [""];
     const current = stage ? this.answers.get(stage.id) : undefined;

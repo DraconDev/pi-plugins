@@ -5,11 +5,22 @@ import { fileURLToPath } from "node:url";
 
 import { setCapabilityOverrides, resetCapabilitiesCache } from "/home/dracon/.npm-global/lib/node_modules/@earendil-works/pi-tui/dist/terminal-image.js";
 import { Key, matchesKey } from "/home/dracon/.npm-global/lib/node_modules/@earendil-works/pi-tui/dist/keys.js";
+import { setCapabilities, getCapabilities } from "@earendil-works/pi-tui";
 import { buildResponse } from "../src/envelope.ts";
 import { VisualReviewWizard } from "../src/tui.ts";
 import { normalizeReview } from "../src/schema.ts";
 
+// The package decides "can I draw an image?" from the copy of pi-tui it imports
+// and renders through the copy pi-tui's own components use. Those are two module
+// instances, so a host that pins only one of them half-believes itself - which
+// is how a stage carrying an image ended up in the side-by-side layout with a
+// text fallback standing in for its picture.
 setCapabilityOverrides({ images: null, trueColor: false, hyperlinks: false, sixel: false, kitty: false });
+setCapabilities({ images: null, trueColor: false, hyperlinks: false });
+// The explicit override is what the package respects, so a smoke that means "a
+// host which cannot draw images" says so rather than hoping the probe stays out
+// of it.
+process.env.PI_IMAGE_PROTOCOL = "none";
 try {
   const fixtureUrl = new URL("../tests/fixtures/tiny.png", import.meta.url);
   const fixturePath = fileURLToPath(fixtureUrl);
@@ -182,4 +193,6 @@ try {
   }, null, 2));
 } finally {
   resetCapabilitiesCache();
+  setCapabilities(getCapabilities());
+  delete process.env.PI_IMAGE_PROTOCOL;
 }
