@@ -620,6 +620,7 @@ describe("a drawn mockup fills the content area, with the questions under it", (
  * what was detected, why, and what to run.
  */
 describe("a host that cannot draw says so in the content area", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
   it("replaces the placeholder with the reason, and keeps the layout", async () => {
     const { setCapabilities } = await import("@earendil-works/pi-tui");
     const previous = setCapabilities({ images: null, trueColor: true, hyperlinks: false });
