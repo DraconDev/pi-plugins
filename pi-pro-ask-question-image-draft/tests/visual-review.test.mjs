@@ -428,3 +428,65 @@ describe("images presented per question are not dropped", () => {
     }), /image 1 has no path, url or dataUri, so there is nothing to draw/);
   });
 });
+
+/**
+ * The terminal behind the multiplexer.
+ *
+ * pi-tui refuses to emit graphics whenever `TMUX` is set, so a review inside
+ * tmux loses its pictures even when Ghostty is underneath and perfectly
+ * capable. The package asks the multiplexer what is on the other side and turns
+ * the protocol on when that terminal speaks it - which it never does when the
+ * host already works, and never when the terminal is unknown.
+ */
+describe("images through a multiplexer", () => {
+  it("enables the protocol when the terminal behind the multiplexer can draw", async () => {
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const loader = await import("../src/image-loader.ts");
+    const previousTmux = process.env.TMUX;
+    const previousCaps = setCapabilities({ images: null, trueColor: true, hyperlinks: false });
+    try {
+      for (const terminal of ["xterm-ghostty", "xterm-kitty", "xterm-wezterm", "xterm-warp"]) {
+        setCapabilities({ images: null, trueColor: true, hyperlinks: false });
+        loader.resetMultiplexerProbe();
+        process.env.TMUX = "fake";
+        const result = loader.enableImagesThroughMultiplexer({ probe: () => terminal });
+        assert.equal(result.enabled, true, `${terminal} speaks the Kitty protocol`);
+        assert.equal(result.terminal, terminal, "and the terminal is named for the message");
+        assert.equal(loader.canRenderImages(), true, `${terminal} can now draw images`);
+      }
+    } finally {
+      if (previousCaps) setCapabilities(previousCaps);
+      if (previousTmux === undefined) delete process.env.TMUX;
+      else process.env.TMUX = previousTmux;
+      loader.resetMultiplexerProbe();
+    }
+  });
+
+  it("leaves a host it cannot vouch for exactly as it found it", async () => {
+    const { setCapabilities, getCapabilities } = await import("@earendil-works/pi-tui");
+    const loader = await import("../src/image-loader.ts");
+    const previousTmux = process.env.TMUX;
+    const previousCaps = setCapabilities({ images: null, trueColor: true, hyperlinks: false });
+    try {
+      process.env.TMUX = "fake";
+      for (const terminal of ["screen", "xterm-256color", "", null]) {
+        setCapabilities({ images: null, trueColor: true, hyperlinks: false });
+        loader.resetMultiplexerProbe();
+        const result = loader.enableImagesThroughMultiplexer({ probe: () => terminal });
+        assert.equal(result.enabled, false, `${terminal ?? "nothing"} is not a terminal we vouch for`);
+        assert.equal(loader.canRenderImages(), false, "so the review still falls back honestly");
+      }
+      // A host that already draws images is never second-guessed.
+      setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+      loader.resetMultiplexerProbe();
+      const already = loader.enableImagesThroughMultiplexer({ probe: () => { throw new Error("must not probe"); } });
+      assert.equal(already.enabled, true, "a working host is left alone");
+      assert.equal(getCapabilities().images, "kitty");
+    } finally {
+      if (previousCaps) setCapabilities(previousCaps);
+      if (previousTmux === undefined) delete process.env.TMUX;
+      else process.env.TMUX = previousTmux;
+      loader.resetMultiplexerProbe();
+    }
+  });
+});

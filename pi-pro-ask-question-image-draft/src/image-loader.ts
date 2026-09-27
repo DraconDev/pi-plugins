@@ -162,6 +162,16 @@ export function enableImagesThroughMultiplexer({ probe = defaultProbe } = {}): {
   return { enabled: getCapabilities().images !== null, terminal };
 }
 
+/**
+ * Forget the cached probe.
+ *
+ * The answer is cached for the process because it costs a subprocess; a `/reload`
+ * or a test that changes the host needs to ask again.
+ */
+export function resetMultiplexerProbe(): void {
+  probedOuterTerminal = undefined;
+}
+
 export function canRenderImages(): boolean {
   return getCapabilities().images !== null;
 }
