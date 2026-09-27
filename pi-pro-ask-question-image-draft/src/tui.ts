@@ -25,7 +25,7 @@ import {
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 
-import { canRenderImages, enableImagesThroughMultiplexer, imageFileLink, loadImage, type LoadedImage } from "./image-loader.ts";
+import { canRenderImages, imageFileLink, loadImage, type LoadedImage } from "./image-loader.ts";
 import { renderMockup, type MockupSpec } from "./mockup-renderer.ts";
 import type { NormalizedOption, NormalizedReview, NormalizedStage } from "./schema.ts";
 import {
@@ -192,77 +192,6 @@ async function loadOptionImages(review: NormalizedReview, cwd: string, signal?: 
 
 function isImageLine(line: string): boolean {
   return line.includes("\u001b_G") || line.includes("\u001b]1337;File=");
-}
-
-/**
- * Collapse a chunked Kitty escape into one escape.
- *
- * pi-tui transmits an image as many `\x1b_G<ctrl>;<chunk>\x1b\` escapes, one per
- * 4 KB. tmux's passthrough envelope ends at the *first* `ESC \` it sees, so a
- * chunked image is cut after its first chunk: the terminal receives a header
- * and 4 KB, and the rest of the picture is discarded. Concatenating the chunks
- * into a single escape carries the whole payload in one envelope - the escape
- * the terminal ends up parsing is the same image.
- */
-export function collapseGraphicsChunks(sequence: string): string {
-  if (!sequence.startsWith("\u001b_G")) return sequence;
-  const chunks = [...sequence.matchAll(/\u001b_G([^;]*);([^\u001b]*)\u001b\\/g)];
-  if (chunks.length <= 1) return sequence;
-  const control = (chunks[0][1].split(",").filter((part) => !/^m=/.test(part))).join(",");
-  const payload = chunks.map((chunk) => chunk[2]).join("");
-  return `\u001b_G${control};${payload}\u001b\\`;
-}
-
-/**
- * Pass inline graphics through tmux.
- *
- * tmux does not forward an application's raw Kitty escape: it parses its own
- * terminal grammar, and an image escape is not in it. Measured on tmux 3.6a,
- * a frame carrying a 527,315-byte PNG reached the attached terminal with
- * **zero** of its 703,088 payload bytes. What tmux *does* forward is anything
- * wrapped in its passthrough envelope (`DCS tmux; <sequence> ST`), the same
- * envelope Ghostty uses for itself; the chunked escape is collapsed first,
- * because the envelope ends at the first `ESC \` inside it. With both, the
- * terminal receives the whole image, byte for byte.
- *
- * What that does *not* fix: a full-screen TUI under tmux. tmux repaints its own
- * grid and the terminal discards graphics tmux does not own, so a picture can
- * still be erased by the next repaint. Bytes arriving is necessary, not
- * sufficient - the configuration that reliably shows images is to run Pi
- * outside tmux (`env -u TMUX pi`), where the transmit and display escapes
- * reach the terminal directly. This wrapper is kept because it is the
- * difference between the payload being dropped and the terminal having it, and
- * it costs one string operation per line.
- */
-/**
- * Terminate an iTerm2 inline-image sequence that the renderer left open.
- *
- * pi-tui emits `ESC ] 1337 ; File=...:<base64>` with **no** BEL or ST; the next
- * escape it writes (an SGR reset, a hyperlink) is what closes the string in
- * practice. A terminal that takes the protocol literally finds no end of image
- * there, and the picture never appears. Closing the sequence is the difference
- * between "maybe" and "drawn", and it costs one byte on a line nobody reads.
- */
-export function terminateITerm2Images(line: string): string {
-  // The payload is taken greedily and *then* checked, rather than with a
-  // lookahead: a lookahead makes the engine backtrack to a shorter payload
-  // whenever the run is followed by another escape, which truncates the image.
-  return line.replace(/\u001b\]1337;File=[^:]*:([A-Za-z0-9+/=]*)/g, (match, _payload, offset, whole) => {
-    const terminator = whole[offset + match.length];
-    return terminator === "\u0007" || match.endsWith("\u001b\\") ? match : `${match}\u0007`;
-  });
-}
-
-export function passthroughGraphicsForHost(line: string, { tmux = Boolean(process.env.TMUX) } = {}): string {
-  const closed = terminateITerm2Images(line);
-  if (!tmux || !isImageLine(closed)) return closed;
-  // A run of consecutive chunk escapes is one image and must become *one*
-  // envelope: matching them one at a time wraps each chunk separately and
-  // leaves a terminated escape in the middle of every envelope.
-  // The data section is optional: pi-tui's display command (`a=d,d=I,i=<id>`)
-  // carries no payload and still has to travel inside the envelope.
-  const runs = /(?:\u001b_G[^;]*(?:;[^\u001b]*)?\u001b\\)+|\u001b\]1337;File=[^\x07\x1b]*(?:\x07|\u001b\\)/g;
-  return closed.replace(runs, (sequence) => `\u001bPtmux;${collapseGraphicsChunks(sequence)}\u001b\\`);
 }
 
 function fitLine(line: string, width: number): string {
@@ -456,10 +385,6 @@ export class VisualReviewWizard implements Component, Focusable {
       }
     }
 
-    // pi-tui will not emit graphics inside a multiplexer, so the wizard asks the
-    // multiplexer what is on the other side before deciding the review has no
-    // picture to show. One cached probe, and only when `TMUX` is set.
-    enableImagesThroughMultiplexer();
     this.imageMode = canRenderImages() && review.stages.some((stage) => stage.options.some((option) => option.image));
     if (this.signal?.aborted) this.onAbort();
     else this.signal?.addEventListener("abort", this.onAbort, { once: true });
@@ -1010,7 +935,7 @@ export class VisualReviewWizard implements Component, Focusable {
       lines.push(border("─".repeat(safeWidth)));
     }
     const bounded = lines.map((line) => isImageLine(line) ? line : fitLine(line, safeWidth));
-    const visible = this.visibleLines(bounded.map((line) => passthroughGraphicsForHost(line)));
+    const visible = this.visibleLines(bounded.map((line) => terminateITerm2Images(line)));
     this.cachedWidth = width;
     this.cachedHeight = terminalRows ?? -1;
     this.cachedLines = visible;
