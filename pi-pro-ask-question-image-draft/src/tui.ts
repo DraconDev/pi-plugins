@@ -324,7 +324,15 @@ function fallbackPreview(option: NormalizedOption, loaded: LoadedOption | undefi
     // of the option. Saying so - with the switch that fixes it - is the
     // difference between "why is there no picture?" and an answer.
     if (!canRenderImages()) {
-      lines.push(...wrapTextWithAnsi(theme.fg("dim", "This terminal cannot draw inline images. Inside tmux that is the default: start Pi with PI_IMAGE_PROTOCOL=kitty and let tmux pass graphics through (allow-passthrough on, terminal-features Kitty)."), width));
+      // Name what was detected and the switch that overrides it. Naming tmux
+      // alone was wrong the moment the host is something else that pi-tui
+      // declines to trust, and a wrong cause sends the reader to fix the wrong
+      // thing.
+      const detected = getCapabilities().images ?? "none";
+      const cause = process.env.TMUX
+        ? "tmux is in the way and pi-tui does not emit graphics through it by default"
+        : "this terminal did not report an image protocol";
+      lines.push(...wrapTextWithAnsi(theme.fg("dim", `Inline images are off here: detected ${detected}, and ${cause}. Start Pi with PI_IMAGE_PROTOCOL=kitty to override the detection.`), width));
     }
   }
   if (option.image?.alt) lines.push(...wrapTextWithAnsi(theme.fg("dim", `Alt: ${option.image.alt}`), width));
@@ -777,12 +785,24 @@ export class VisualReviewWizard implements Component, Focusable {
     // Set once the stacked layout has emitted the footer, the tail and the
     // closing rule itself, so the shared blocks below stand down.
     let emitted = false;
+    // The stacked layout is a dialogue menu: the artwork is the scene, the
+    // question and the highlighted option's own sentence sit over it, and the
+    // choices are one line each along the bottom. Descriptions under every row
+    // made the list twice as tall as it needed to be and pushed the picture
+    // up; here the information follows the cursor, which is what the reader is
+    // actually looking at.
     const footerLines: string[] = [];
     if (this.imageMode && stage && safeWidth >= 60) {
       const question = stage.prompt.replace(/\s+/g, " ").trim();
       footerLines.push(this.theme.fg("accent", ` ${truncateToWidth(question, safeWidth - 2)}`));
+      const highlighted = rows[this.selectedIndex];
+      if (highlighted?.kind === "option" && highlighted.option.description) {
+        for (const line of wrapTextWithAnsi(this.theme.fg("muted", highlighted.option.description), safeWidth - 2)) {
+          footerLines.push(` ${line}`);
+        }
+      }
       footerLines.push("");
-      footerLines.push(...this.renderRows(stage, rows, safeWidth - 2, { describe: true }).map((line) => ` ${line}`));
+      footerLines.push(...this.renderRows(stage, rows, safeWidth - 2, { describe: false }).map((line) => ` ${line}`));
     }
     const tailLines = this.tailLines(stage, safeWidth);
     // The stacked layout only exists when there is artwork to stack *and* rows

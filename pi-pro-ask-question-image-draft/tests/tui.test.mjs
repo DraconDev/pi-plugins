@@ -273,8 +273,9 @@ describe("TUI chrome: rows, the preview pane and image-host honesty", () => {
       const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 40 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
       await new Promise((r) => setTimeout(r, 200));
       const text = component.render(110).join("\n");
-      assert.match(text, /cannot draw inline images/, "a host that cannot render images must say so");
-      assert.match(text, /PI_IMAGE_PROTOCOL=kitty/, "and must name the switch that turns it on");
+      assert.match(text, /Inline images are off here/, "a host that cannot render images must say so");
+      assert.match(text, /detected none/, "and name what it actually detected, not a guess");
+      assert.match(text, /PI_IMAGE_PROTOCOL=kitty/, "and name the switch that turns it on");
       component.dispose();
     } finally {
       if (previous) setCapabilities(previous);
@@ -806,6 +807,61 @@ describe("stacked layout: the picture survives the fit", () => {
     } finally {
       if (previousTmux === undefined) delete process.env.TMUX;
       else process.env.TMUX = previousTmux;
+    }
+  });
+});
+
+/**
+ * The dialogue layout: the artwork is the scene, the information sits over it,
+ * and the choices are one line each along the bottom.
+ *
+ * Descriptions under every row doubled the list's height and pushed the picture
+ * off the top of the screen; the information now follows the cursor, which is
+ * the thing the reader is looking at.
+ */
+describe("dialogue layout: one line per choice, information over the artwork", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  it("the footer names the question, the highlighted option's sentence, and the menu", async () => {
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const { fileURLToPath } = await import("node:url");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    try {
+      const fixture = fileURLToPath(new URL("./fixtures/tiny.png", import.meta.url));
+      const review = normalizeReview({
+        reviewId: "dialogue",
+        stages: [{
+          id: "one", header: "One", prompt: "Which treatment ships?",
+          options: [
+            { id: "a", label: "Transit airy", description: "Scans fastest; secondary states lose their badges.", image: { path: fixture, alt: "Fixture" } },
+            { id: "b", label: "Transit split", description: "Cause beside remedy, at the cost of density.", image: { path: fixture, alt: "Fixture" } },
+            { id: "c", label: "Transit dense", description: "Everything at once.", image: { path: fixture, alt: "Fixture" } },
+          ],
+        }],
+      });
+      let result;
+      const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 40 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 40));
+      assert.ok(component.loadedImages.size > 0, "the image must load");
+      const plain = () => component.render(100).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+      const indexOf = (needle) => plain().findIndex((line) => line.includes(needle));
+
+      // The highlighted option's sentence is on screen, the other two are not.
+      const described = indexOf("Scans fastest");
+      assert.ok(described >= 0, "the highlighted option's sentence is shown");
+      assert.equal(plain().some((line) => line.includes("Cause beside remedy")), false, "and only that one");
+      // The menu is one line per choice, with nothing printed under it.
+      const airy = indexOf("1. Transit airy");
+      assert.match(plain()[airy], /^\s*(> )?1\. Transit airy$/, "a choice is one row");
+      assert.equal(plain()[airy + 1].includes("Scans fastest"), false, "and nothing is printed under it");
+      assert.ok(indexOf("2. Transit split") === airy + 1, "the choices are consecutive");
+      // The artwork is above the information, which is above the menu.
+      const artAt = component.render(100).findIndex((line) => line.includes("\u001b_G"));
+      const questionAt = indexOf("Which treatment ships?");
+      assert.ok(artAt >= 0 && artAt < questionAt && questionAt < airy, "scene, then information, then the menu");
+      component.dispose();
+    } finally {
+      if (previous) setCapabilities(previous);
     }
   });
 });
