@@ -545,8 +545,8 @@ describe("images: the emitted sequence carries the whole image", () => {
   }
 
   it("kitty: one complete PNG, with the placement keys a terminal needs", async () => {
-    const { parseKitty } = await import("../scripts/benchmark/verify-image-protocol.mjs");
-    const images = parseKitty(await frameWith("kitty"));
+    const { parseKitty } = await import("../scripts/benchmark/image-protocol.mjs");
+    const { images } = parseKitty(await frameWith("kitty"));
     assert.equal(images.length, 1, "one inline image for the one option that has one");
     const [image] = images;
     assert.equal(image.more, false, "the transmission is complete - the last chunk is not a continuation");
@@ -557,9 +557,9 @@ describe("images: the emitted sequence carries the whole image", () => {
   });
 
   it("iterm2: the whole image, terminated - the regression that was missing", async () => {
-    const { parseITerm2 } = await import("../scripts/benchmark/verify-image-protocol.mjs");
+    const { parseITerm2 } = await import("../scripts/benchmark/image-protocol.mjs");
     const frame = await frameWith("iterm2");
-    const images = parseITerm2(frame);
+    const { images } = parseITerm2(frame);
     assert.equal(images.length, 1, "one inline image");
     const [image] = images;
     assert.equal(image.keys.inline, "1", "inline, not an attachment");
@@ -572,7 +572,7 @@ describe("images: the emitted sequence carries the whole image", () => {
   });
 
   it("tmux: the same bytes, one escape, inside a passthrough envelope", async () => {
-    const { parseKitty } = await import("../scripts/benchmark/verify-image-protocol.mjs");
+    const { parseKitty } = await import("../scripts/benchmark/image-protocol.mjs");
     const previous = process.env.TMUX;
     process.env.TMUX = "on";
     let frame;
@@ -582,10 +582,62 @@ describe("images: the emitted sequence carries the whole image", () => {
       if (previous === undefined) delete process.env.TMUX;
       else process.env.TMUX = previous;
     }
-    const images = parseKitty(frame);
+    const { images } = parseKitty(frame);
     assert.equal(images.length, 1, "one escape, not one per chunk");
     assert.equal(images[0].wrapped, true, "inside a passthrough envelope");
     assert.deepEqual(Buffer.from(images[0].payload, "base64"), fixtureBytes, "the payload survives the wrapper");
+  });
+
+  it("a multi-chunk image reassembles - the case a small fixture cannot cover", async () => {
+    const { parseKitty } = await import("../scripts/benchmark/image-protocol.mjs");
+    // tests/fixtures/tiny.png is 68 bytes: 92 base64 characters, a single chunk.
+    // Anything over ~3 KB is transmitted as several escapes, and a parser that
+    // starts a new image on the final chunk would report one 71 KB picture as
+    // 69,206 + 2,068 bytes. This is the test that would have caught it.
+    const big = fileURLToPath(new URL("./fixtures/tui-smoke.png", import.meta.url));
+    const bytes = readFileSync(big);
+    assert.ok(bytes.length > 3_072, "this fixture must be big enough to be chunked");
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    // Inside tmux the package collapses the chunks into one passthrough escape,
+    // so this test clears the variable to exercise the raw chunked path - which
+    // is what a terminal outside tmux receives.
+    const previousTmux = process.env.TMUX;
+    delete process.env.TMUX;
+    try {
+      const review = normalizeReview({
+        reviewId: "image-chunks",
+        stages: [{ id: "one", header: "One", prompt: "Pick", options: [
+          { id: "a", label: "A", image: { path: big } },
+          { id: "b", label: "B" },
+        ] }],
+      });
+      let result;
+      const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 46 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 40));
+      assert.ok(component.loadedImages.size > 0, "the image must load");
+      const { images } = parseKitty(component.render(100).join("\r\n"));
+      component.dispose();
+      assert.equal(images.length, 1, "one image, not one per chunk");
+      assert.ok(images[0].chunks > 1, `the transmission must actually be chunked (${images[0].chunks} chunks)`);
+      assert.equal(images[0].more, false, "and it must end on a non-continuation chunk");
+      assert.deepEqual(Buffer.from(images[0].payload, "base64"), bytes, "every chunk, reassembled, is the file");
+    } finally {
+      if (previous) setCapabilities(previous);
+      if (previousTmux === undefined) delete process.env.TMUX;
+      else process.env.TMUX = previousTmux;
+    }
+  });
+
+  it("a control command is not a broken image", async () => {
+    const { parseKitty } = await import("../scripts/benchmark/image-protocol.mjs");
+    // pi-tui sends `a=d,d=I,i=<id>` after the payload: same escape family, no
+    // data. Reporting it as a two-byte image is how a working package looks broken.
+    const { images, commands } = parseKitty("\u001b_Ga=T,f=100,c=2,r=2,m=0;AAAA\u001b\\\u001b_Ga=d,d=I,i=7,q=2\u001b\\");
+    assert.equal(images.length, 1, "one data transmission");
+    assert.equal(commands.length, 1, "and one display command, kept apart");
+    assert.equal(commands[0].keys.a, "d");
   });
 
   it("a terminal that cannot draw images says so, and names the switch", () => {

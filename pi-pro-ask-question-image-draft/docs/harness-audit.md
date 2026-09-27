@@ -1,10 +1,17 @@
 # Harness audit: how the alternatives do it
 
 Scope: what other tools do when an agent needs a human to decide something, and
-where this package stands against them. Everything here is from the tools' own
-READMEs and installed source, checked on 2026-09-27. The incumbent this package
-replaces is `@juicesharp/rpiv-ask-user-question` (installed locally, so its
-source was read directly rather than taken on trust).
+where this package stands against them. Checked on 2026-09-27.
+
+**Two grades of evidence in this document, kept apart on purpose.**
+
+- *Read directly* — claims about `@juicesharp/rpiv-ask-user-question`, which is
+  installed on this machine, so every claim is a file:line in its source.
+- *Reported by the package* — every row about the other tools comes from that
+  project's own published README. None of them is installed here, so nothing in
+  the competitor table has been re-derived independently. The token counts in
+  particular (1,245 / 215 / 1,258) are **the packages' own claims about
+  themselves**, not a measurement made here; treat them as indicative.
 
 ## The reference: rpiv-ask-user-question v2.11.0
 
@@ -37,7 +44,7 @@ gated on every question being answered** (partial answers always flow), and
 | `avtc-pi-ask-user-question` | Questionnaire with ecosystem integrations | single/multi-select, free text, multiline via `Ctrl/Shift/Cmd+Enter`, 4 tabs | **Subagent forwarding**: a question raised inside a subagent is bridged into the parent UI, plus attention alerts and a dialog coordinator that stops two dialogs overlapping. |
 | `@jqwn/pi-ask-user-question` | Straightforward questionnaire | 1–4 tabs, 2–4 options, descriptions, previews, multi-select, `Other` row | Nothing beyond the baseline; a useful "this is the common denominator" data point. |
 | `@juicesharp/rpiv-btw` | `/btw <question>` side question | bottom panel, same model, read-only clone of the conversation | **The answer never enters the transcript and never touches disk** — a side question that cannot pollute context. |
-| `@ssk_dev/rpiv-ask-user-question-lean` | A trimmed fork of rpiv | same UI, schema and previews kept | **215 prompt tokens vs 1,258** (82.9% less) by trimming the tool description. Confirms the description is a real cost centre. |
+| `@ssk_dev/rpiv-ask-user-question-lean` | A trimmed fork of rpiv | same UI, schema and previews kept | *Reports* 215 prompt tokens vs 1,258 (82.9% less) by trimming the tool description. Unverified here, but the direction matches the one measurement we can make: our own tool description is 1,641 characters. |
 | Claude Code `AskUserQuestion` | The origin of the shape | 1–4 questions, 2–4 options, `multiSelect`, per-option preview, `Chat about this` row | The batch shape itself, plus a per-question chat escape. |
 | MCP elicitation | Protocol-level, host-native | Schema-driven forms, single/multi choice, free text, URLs | **Host-native**: the host renders it, so an image is just a MIME-typed field, and there is no terminal to fight. |
 

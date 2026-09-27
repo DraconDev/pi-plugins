@@ -201,9 +201,27 @@ bytes were *written*:
 
 | Protocol | Status |
 |---|---|
-| Kitty APC (`kitty`, Ghostty, WezTerm, Warp) | one escape, complete PNG, `a=T` transmit+display, cell box, quiet — payload byte-identical |
+| Kitty APC (`kitty`, Ghostty, WezTerm, Warp) | complete PNG, `a=T` transmit+display, cell box, quiet — payload byte-identical. A 527 KB image arrives as **172 chunks** that reassemble to 527,315 bytes, byte for byte |
 | iTerm2 OSC 1337 | encoded by this package, full payload, BEL-terminated — pi-tui's own encoder emitted **62 bytes of 527,315** and no terminator, so this path was broken and now is not |
-| tmux passthrough | the same payload, one escape, inside `DCS tmux; … ST` |
+| tmux passthrough | the same payload, one escape per image, inside `DCS tmux; … ST` — the chunks are collapsed because the envelope ends at the first ST inside it |
+
+A run from a shell **with no `TMUX` in the environment** (the case that matters:
+it is the raw chunked path a terminal outside tmux receives):
+
+```json
+{"kitty":{"escapes":1,"chunks":172,"controlCommands":0,"payloadBytes":[527315],
+          "identical":true,"multichunk":{"chunks":172,"payloadBytes":527315}},
+ "iterm2":{"escapes":1,"payloadBytes":[527315],"identical":true},
+ "tmux":{"escapes":1,"wrapped":1,"payloadBytes":[527315],"identical":true},
+ "ok":true,"failures":[]}
+```
+
+The chunk boundary is worth its own note, because getting it wrong makes a
+working package look broken: a parser that starts a new image on the final
+chunk reports one 527 KB picture as 525,312 + 2,003 bytes. `parseKitty` in
+`scripts/benchmark/image-protocol.mjs` merges until the transmission ends, keeps
+payload-free control commands (`a=d,d=I,i=…`) out of the image list, and
+`tests/tui.test.mjs` pins both behaviours against the 71 KB fixture.
 
 What no automated check can answer is whether *your* terminal draws it. To see a
 real image, from a shell **outside tmux**:

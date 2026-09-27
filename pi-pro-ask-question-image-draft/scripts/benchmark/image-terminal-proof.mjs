@@ -1,23 +1,18 @@
 #!/usr/bin/env node
 /**
- * Prove the inline-image path against a real terminal emulator.
+ * Render the real wizard frame into a page a browser can replay.
  *
- * Why this exists
- * ---------------
- * "Is the image feature actually working?" cannot be answered by reading the
- * code, and it cannot be answered by a PTY either: a pseudo-terminal has no
- * renderer, so the smoke only ever proved that image *bytes* were written. The
- * question is whether a terminal that understands the protocol draws them.
+ * What this is: the real `VisualReviewWizard` frame - same component, same
+ * renderer, same inline-image escape a terminal receives - embedded in a page
+ * that runs xterm.js with its image addon, so a person can open it and look.
  *
- * This renders the real `VisualReviewWizard` frame with the iTerm2 inline-image
- * protocol - the same frame a terminal receives, escape sequences and all -
- * and embeds it in a page that runs xterm.js with its image addon. Opening the
- * page in any browser puts a genuine terminal emulator in front of the frame:
- * if the picture is on screen there, the feature works and the only remaining
- * question is which host terminal the user is in.
- *
- * Usage:
- *   node scripts/benchmark/image-terminal-proof.mjs --out .pi/benchmark/shots/image-proof.html
+ * What this is NOT: evidence. It is not part of any gate, it asserts nothing,
+ * and it is not wired into the test suite. In this environment the browser
+ * emulator rendered no rows at all - even a bare `Terminal.write("HELLO")` came
+ * back empty - so the page has not been shown to display an image here, and no
+ * claim in this repository rests on it. The automated answer to "are the bytes
+ * right" is `npm run verify:image`; the answer to "does your terminal draw it"
+ * is a person looking at their own screen, or this page.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
