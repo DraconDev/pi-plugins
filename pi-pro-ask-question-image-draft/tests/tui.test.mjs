@@ -609,3 +609,51 @@ describe("a drawn mockup fills the content area, with the questions under it", (
     }
   });
 });
+
+/**
+ * When the host cannot draw a picture, the frame must read as a questionnaire
+ * with a reason, not as a panel with a placeholder in it.
+ *
+ * pi-tui's own fallback is a single bracketed "[Image: path ...]" line, which
+ * explains nothing and used to occupy the content area on its own. The wizard
+ * recognises it (a render with no graphics escape in it) and speaks for itself:
+ * what was detected, why, and what to run.
+ */
+describe("a host that cannot draw says so in the content area", () => {
+  it("replaces the placeholder with the reason, and keeps the layout", async () => {
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const previous = setCapabilities({ images: null, trueColor: true, hyperlinks: false });
+    const previousTmux = process.env.TMUX;
+    delete process.env.TMUX;
+    try {
+      const image = fileURLToPath(new URL("../.pi/benchmark/images/visual-001-option-1.png", import.meta.url));
+      const review = normalizeReview({
+        reviewId: "no-host",
+        stages: [{ id: "layout", header: "Layout", prompt: "Which treatment ships?", options: [
+          { id: "a", label: "Transit airy", description: "Scans fastest.", image: { path: image, alt: "treatment" } },
+          { id: "b", label: "Transit split", description: "Route beside action.", image: { path: image, alt: "treatment" } },
+        ] }],
+      });
+      let result;
+      const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 40 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+      await new Promise((r) => setTimeout(r, 300));
+      const frame = component.render(110);
+      const prose = frame.map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")).join(" ").replace(/\s+/g, " ");
+      assert.doesNotMatch(prose, /\[Image:/, "the renderer placeholder is not the explanation");
+      assert.match(prose, /Inline images are off here/, "the reason is on screen, where the picture would be");
+      assert.match(prose, /Run Pi outside tmux/, "along with what actually works");
+      // The picture's alt text still carries the content for a host that cannot show it.
+      assert.match(prose, /Alt: treatment/, "and the image's own description is not lost");
+      // The menu is still one line per choice, right under the question.
+      const rows = frame.map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+      const first = rows.findIndex((line) => /1\. Transit airy/.test(line));
+      assert.ok(first >= 0, "the choices are on screen");
+      assert.doesNotMatch(rows[first + 1] ?? "", /Scans fastest/, "and nothing is printed under a choice");
+      component.dispose();
+    } finally {
+      if (previousTmux === undefined) delete process.env.TMUX;
+      else process.env.TMUX = previousTmux;
+      if (previous) setCapabilities(previous);
+    }
+  });
+});
