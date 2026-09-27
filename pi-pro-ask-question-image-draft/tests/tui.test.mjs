@@ -344,6 +344,8 @@ describe("images: the emitted sequence carries the whole image", () => {
     // literal-minded terminal to find.
     assert.match(frame, /\u001b\]1337;File=[^\u0007\u001b]*\u0007/, "the image sequence is closed with BEL");
   });
+});
+
 
 /**
  * Notes, end to end.
