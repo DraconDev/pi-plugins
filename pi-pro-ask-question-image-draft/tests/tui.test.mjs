@@ -261,6 +261,10 @@ describe("TUI chrome: rows, the preview pane and image-host honesty", () => {
   it("says why there is no picture instead of printing a bare file path", async () => {
     const { setCapabilities } = await import("@earendil-works/pi-tui");
     const previous = setCapabilities({ images: null, trueColor: true, hyperlinks: false });
+    // No multiplexer: this is a host that simply cannot draw, and the wizard's
+    // probe must not turn the protocol on behind the test's back.
+    const previousTmux = process.env.TMUX;
+    delete process.env.TMUX;
     try {
       const review = normalizeReview({
         reviewId: "no-images",
@@ -278,6 +282,8 @@ describe("TUI chrome: rows, the preview pane and image-host honesty", () => {
       assert.match(text, /PI_IMAGE_PROTOCOL=kitty/, "and name the switch that turns it on");
       component.dispose();
     } finally {
+      if (previousTmux === undefined) delete process.env.TMUX;
+      else process.env.TMUX = previousTmux;
       if (previous) setCapabilities(previous);
     }
   });
