@@ -194,6 +194,25 @@ function isImageLine(line: string): boolean {
   return line.includes("\u001b_G") || line.includes("\u001b]1337;File=");
 }
 
+/**
+ * Terminate an iTerm2 inline-image sequence that the renderer left open.
+ *
+ * pi-tui emits `ESC ] 1337 ; File=...:<base64>` with **no** BEL or ST; the next
+ * escape it writes (an SGR reset, a hyperlink) is what closes the string in
+ * practice. A terminal that takes the protocol literally finds no end of image
+ * there, and the picture never appears. Closing the sequence is the difference
+ * between "maybe" and "drawn", and it costs one byte on a line nobody reads.
+ */
+export function terminateITerm2Images(line: string): string {
+  // The payload is taken greedily and *then* checked, rather than with a
+  // lookahead: a lookahead makes the engine backtrack to a shorter payload
+  // whenever the run is followed by another escape, which truncates the image.
+  return line.replace(/\u001b\]1337;File=[^:]*:([A-Za-z0-9+/=]*)/g, (match, _payload, offset, whole) => {
+    const terminator = whole[offset + match.length];
+    return terminator === "\u0007" || match.endsWith("\u001b\\") ? match : `${match}\u0007`;
+  });
+}
+
 function fitLine(line: string, width: number): string {
   return truncateToWidth(line, Math.max(1, width), "…");
 }
