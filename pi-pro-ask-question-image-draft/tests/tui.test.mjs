@@ -289,16 +289,6 @@ describe("TUI chrome: rows, the preview pane and image-host honesty", () => {
   });
 });
 
-/**
- * tmux passthrough for inline graphics.
- *
- * Measured on tmux 3.6a: a frame carrying a 527,315-byte PNG reached the
- * attached terminal with *zero* payload bytes, because tmux does not forward
- * an escape it does not parse. Wrapping in the passthrough envelope - with the
- * chunked escape collapsed first, because the envelope ends at the first ST
- * inside it - delivered the whole image. These pin that transformation, and
- * pin that it stays inert everywhere else.
- */
 describe("images: the emitted sequence carries the whole image", () => {
   const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
   const fixture = fileURLToPath(new URL("./fixtures/tiny.png", import.meta.url));
