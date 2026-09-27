@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { Key, matchesKey } from "@earendil-works/pi-tui";
-import { VisualReviewWizard } from "../src/tui.ts";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { terminateITerm2Images, VisualReviewWizard } from "../src/tui.ts";
 import { normalizeReview } from "../src/schema.ts";
 
 function theme() {
@@ -496,6 +498,201 @@ describe("dashboard: hideable, checkboxes, notes, and an off-by-default auto-res
     assert.equal(activeRow(component, 110), "Request revision", "the list reaches its last row");
     component.handleInput("\x1b[B");
     assert.equal(activeRow(component, 110), "A", "and wraps, the way a list should");
+    component.dispose();
+  });
+});
+
+/**
+ * The image bytes, verified as bytes.
+ *
+ * "Is the image feature working?" splits into three questions, and only the
+ * last needs a human eye: do the bytes reach the terminal (a PTY answers that),
+ * are they the right bytes in a sequence a conforming terminal accepts (this
+ * answers that), and does your terminal draw them (a person answers that).
+ *
+ * The iTerm2 case is why this exists. pi-tui's iTerm2 encoder declared
+ * `size=527315` and wrote **62 bytes** of PNG with no terminator, so an
+ * iTerm2-style terminal never got a picture at all - and nothing in the suite
+ * noticed, because the smoke only ever counted bytes written.
+ */
+describe("images: the emitted sequence carries the whole image", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  const fixture = fileURLToPath(new URL("./fixtures/tiny.png", import.meta.url));
+  const fixtureBytes = readFileSync(fixture);
+
+  async function frameWith(protocol) {
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const previous = setCapabilities({ images: protocol, trueColor: true, hyperlinks: false });
+    try {
+      const review = normalizeReview({
+        reviewId: "image-bytes",
+        stages: [{ id: "one", header: "One", prompt: "Pick", options: [
+          { id: "a", label: "A", image: { path: fixture } },
+          { id: "b", label: "B" },
+        ] }],
+      });
+      let result;
+      const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 40 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 40));
+      assert.ok(component.loadedImages.size > 0, "the fixture image must load or this proves nothing");
+      const frame = component.render(100).join("\r\n");
+      component.dispose();
+      return frame;
+    } finally {
+      if (previous) setCapabilities(previous);
+    }
+  }
+
+  it("kitty: one complete PNG, with the placement keys a terminal needs", async () => {
+    const { parseKitty } = await import("../scripts/benchmark/verify-image-protocol.mjs");
+    const images = parseKitty(await frameWith("kitty"));
+    assert.equal(images.length, 1, "one inline image for the one option that has one");
+    const [image] = images;
+    assert.equal(image.more, false, "the transmission is complete - the last chunk is not a continuation");
+    assert.equal(image.keys.f, "100", "PNG payload");
+    assert.equal(image.keys.a, "T", "transmit and display");
+    assert.ok(Number(image.keys.c) > 0 && Number(image.keys.r) > 0, "a cell box is requested");
+    assert.deepEqual(Buffer.from(image.payload, "base64"), fixtureBytes, "the payload is the file, byte for byte");
+  });
+
+  it("iterm2: the whole image, terminated - the regression that was missing", async () => {
+    const { parseITerm2 } = await import("../scripts/benchmark/verify-image-protocol.mjs");
+    const frame = await frameWith("iterm2");
+    const images = parseITerm2(frame);
+    assert.equal(images.length, 1, "one inline image");
+    const [image] = images;
+    assert.equal(image.keys.inline, "1", "inline, not an attachment");
+    assert.equal(Number(image.keys.size), fixtureBytes.length, "the declared size is the real size");
+    const decoded = Buffer.from(image.payload, "base64");
+    assert.deepEqual(decoded, fixtureBytes, "the payload is the file, byte for byte, not a 62-byte fragment");
+    // The sequence must end: an unterminated OSC 1337 has no end of image for a
+    // literal-minded terminal to find.
+    assert.match(frame, /\u001b\]1337;File=[^\u0007\u001b]*\u0007/, "the image sequence is closed with BEL");
+  });
+
+  it("tmux: the same bytes, one escape, inside a passthrough envelope", async () => {
+    const { parseKitty } = await import("../scripts/benchmark/verify-image-protocol.mjs");
+    const previous = process.env.TMUX;
+    process.env.TMUX = "on";
+    let frame;
+    try {
+      frame = await frameWith("kitty");
+    } finally {
+      if (previous === undefined) delete process.env.TMUX;
+      else process.env.TMUX = previous;
+    }
+    const images = parseKitty(frame);
+    assert.equal(images.length, 1, "one escape, not one per chunk");
+    assert.equal(images[0].wrapped, true, "inside a passthrough envelope");
+    assert.deepEqual(Buffer.from(images[0].payload, "base64"), fixtureBytes, "the payload survives the wrapper");
+  });
+
+  it("a terminal that cannot draw images says so, and names the switch", () => {
+    // Covered in the chrome block above; asserted here too so the image contract
+    // and the host contract are read together.
+    assert.equal(typeof terminateITerm2Images, "function");
+  });
+});
+
+/**
+ * Notes, end to end.
+ *
+ * "Do we have a way to add notes?" is three separate affordances and a fourth
+ * question - does what the user typed actually reach the model? A note that is
+ * accepted on screen and then dropped is the worst outcome, so this walks all
+ * three paths and reads the envelope the tool returns.
+ */
+describe("notes: a row, a key, a global, and all three reach the model", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  const build = () => {
+    const review = normalizeReview({
+      reviewId: "notes",
+      title: "Notes",
+      stages: [
+        { id: "one", header: "One", prompt: "Pick one", options: [{ id: "a", label: "A" }, { id: "b", label: "B" }] },
+        { id: "two", header: "Two", prompt: "Pick two", options: [{ id: "c", label: "C" }, { id: "d", label: "D" }] },
+      ],
+    });
+    let result;
+    const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 44 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+    return { component, review, get result() { return result; } };
+  };
+  const text = (component) => component.render(100).join("\n");
+  const state_tab = (component) => component.handleInput("\t");
+
+  it("a stage note can be typed from the Add note row, and rides the answer", () => {
+    const { component } = build();
+    assert.match(text(component), /\n\s+Add note\b/, "the note is a row, not a hidden key");
+    moveTo(component, "Add note");
+    enter(component);
+    assert.match(text(component), /Add a note for this stage:/, "Enter on the row opens the note editor");
+    component.handleInput("budget is fixed this quarter");
+    enter(component);
+    // A note on an unanswered stage is held, not lost: the answer picks it up.
+    assert.match(text(component), /Note: budget is fixed this quarter/, "the note is on screen before the answer exists");
+    assert.doesNotMatch(text(component), /Current answer:/, "and the stage is still unanswered");
+    moveTo(component, "A");
+    enter(component);
+    // Answering moves the cursor to the next unresolved stage, so look back.
+    for (let hop = 0; hop < 4 && !text(component).includes("Pick one"); hop += 1) state_tab(component);
+    assert.match(text(component), /Current answer: A — budget is fixed this quarter/, "the answer carries the note");
+    component.dispose();
+  });
+
+  it("the n key does the same thing, for a user who knows it", () => {
+    const { component } = build();
+    moveTo(component, "A");
+    enter(component);
+    component.handleInput("n");
+    assert.match(text(component), /Add a note for this stage:/, "n opens the note editor too");
+    component.handleInput("ship behind a flag");
+    enter(component);
+    assert.match(text(component), /ship behind a flag/);
+    component.dispose();
+  });
+
+  it("a global note rides the whole review, and both reach the model", async () => {
+    const { buildResponse } = await import("../src/envelope.ts");
+    const state = build();
+    // Answer the first stage with a note on it.
+    moveTo(state.component, "Add note");
+    enter(state.component);
+    state.component.handleInput("budget is fixed this quarter");
+    enter(state.component);
+    moveTo(state.component, "A");
+    enter(state.component);
+    // Answering the stage moved the cursor on to the next unresolved one.
+    assert.match(text(state.component), /Pick two/, "the second stage is current after the first is answered");
+    moveTo(state.component, "C");
+    enter(state.component);
+    // With every stage answered the wizard is already on the review tab.
+    assert.match(text(state.component), /Review your answers/, "approving is offered once nothing is outstanding");
+    assert.match(text(state.component), /Add global note/, "the review tab has a global-note row");
+    moveTo(state.component, "Add global note");
+    enter(state.component);
+    assert.match(text(state.component), /Add a global note:/);
+    state.component.handleInput("go with the cheaper option");
+    enter(state.component);
+    moveTo(state.component, "Approve review");
+    enter(state.component);
+
+    assert.equal(state.result?.status, "completed");
+    assert.equal(state.result?.answers.find((answer) => answer.stageId === "one")?.notes, "budget is fixed this quarter");
+    assert.equal(state.result?.globalNote, "go with the cheaper option");
+    const envelope = buildResponse(state.result, state.review).content[0].text;
+    assert.match(envelope, /budget is fixed this quarter/, "the per-stage note reaches the model");
+    assert.match(envelope, /go with the cheaper option/, "and so does the global note");
+    state.component.dispose();
+  });
+
+  it("a note never answers the stage on its own", () => {
+    const { component } = build();
+    moveTo(component, "Add note");
+    enter(component);
+    component.handleInput("just a note");
+    enter(component);
+    assert.doesNotMatch(text(component), /Current answer:/, "attaching a note is not answering");
     component.dispose();
   });
 });

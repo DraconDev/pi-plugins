@@ -66,17 +66,17 @@ const isSourceImage = (buffer) => sourceDigests.has(sha256(buffer));
  */
 export function parseKitty(text) {
   const images = [];
-  const pattern = /(?:\u001bPtmux;)?\u001b_G([^;]*);([^\u001b]*)\u001b\\/g;
+  const pattern = /(\u001bPtmux;)?\u001b_G([^;]*);([^\u001b]*)\u001b\\/g;
   for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
-    const keys = Object.fromEntries(match[1].split(",").map((pair) => pair.split("=")).filter((pair) => pair.length === 2));
-    const wrapped = text.slice(Math.max(0, match.index - 6), match.index) === "\u001bPtmux;";
+    const keys = Object.fromEntries(match[2].split(",").map((pair) => pair.split("=")).filter((pair) => pair.length === 2));
+    const wrapped = match[1] === "\u001bPtmux;";
     const previous = images.at(-1);
     if (previous && keys.m === "1") {
-      previous.payload += match[2];
+      previous.payload += match[3];
       previous.chunks += 1;
       continue;
     }
-    images.push({ keys, payload: match[2], chunks: 1, wrapped, more: keys.m === "1" });
+    images.push({ keys, payload: match[3], chunks: 1, wrapped, more: keys.m === "1" });
   }
   return images;
 }

@@ -3,6 +3,8 @@ import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { editWithExternalEditor } from "./external-editor.ts";
 import {
   Editor,
+  getCapabilities,
+  getCellDimensions,
   HStack,
   Image,
   Key,
@@ -231,22 +233,66 @@ export function collapseGraphicsChunks(sequence: string): string {
  * difference between the payload being dropped and the terminal having it, and
  * it costs one string operation per line.
  */
+/**
+ * Terminate an iTerm2 inline-image sequence that the renderer left open.
+ *
+ * pi-tui emits `ESC ] 1337 ; File=...:<base64>` with **no** BEL or ST; the next
+ * escape it writes (an SGR reset, a hyperlink) is what closes the string in
+ * practice. A terminal that takes the protocol literally finds no end of image
+ * there, and the picture never appears. Closing the sequence is the difference
+ * between "maybe" and "drawn", and it costs one byte on a line nobody reads.
+ */
+export function terminateITerm2Images(line: string): string {
+  // The payload is taken greedily and *then* checked, rather than with a
+  // lookahead: a lookahead makes the engine backtrack to a shorter payload
+  // whenever the run is followed by another escape, which truncates the image.
+  return line.replace(/\u001b\]1337;File=[^:]*:([A-Za-z0-9+/=]*)/g, (match, _payload, offset, whole) => {
+    const terminator = whole[offset + match.length];
+    return terminator === "\u0007" || match.endsWith("\u001b\\") ? match : `${match}\u0007`;
+  });
+}
+
 export function passthroughGraphicsForHost(line: string, { tmux = Boolean(process.env.TMUX) } = {}): string {
-  if (!tmux || !isImageLine(line)) return line;
+  const closed = terminateITerm2Images(line);
+  if (!tmux || !isImageLine(closed)) return closed;
   // A run of consecutive chunk escapes is one image and must become *one*
   // envelope: matching them one at a time wraps each chunk separately and
   // leaves a terminated escape in the middle of every envelope.
   // The data section is optional: pi-tui's display command (`a=d,d=I,i=<id>`)
   // carries no payload and still has to travel inside the envelope.
   const runs = /(?:\u001b_G[^;]*(?:;[^\u001b]*)?\u001b\\)+|\u001b\]1337;File=[^\x07\x1b]*(?:\x07|\u001b\\)/g;
-  return line.replace(runs, (sequence) => `\u001bPtmux;${collapseGraphicsChunks(sequence)}\u001b\\`);
+  return closed.replace(runs, (sequence) => `\u001bPtmux;${collapseGraphicsChunks(sequence)}\u001b\\`);
 }
 
 function fitLine(line: string, width: number): string {
   return truncateToWidth(line, Math.max(1, width), "…");
 }
 
+/**
+ * The iTerm2 inline image, encoded here rather than by pi-tui.
+ *
+ * pi-tui's iTerm2 encoder is broken in a way no caller can work around: it
+ * declares `size=527315` and then writes **62 bytes** of PNG, with no BEL or
+ * ST closing the sequence. Verified on the real frame - an iTerm2-style
+ * terminal therefore never gets a picture from this package, whatever the
+ * review looks like on every other terminal. The bytes are already in hand
+ * (`LoadedImage.base64`), so the sequence is written correctly here: full
+ * payload, explicit cell box, proper terminator.
+ */
+function iTerm2ImageLines(image: LoadedImage, width: number, maxHeight: number): string[] {
+  const cell = getCellDimensions();
+  const cells = Math.max(1, Math.min(width - 2, image.dimensions?.widthPx ?? width * cell.widthPx));
+  const rows = Math.max(1, Math.min(maxHeight, Math.ceil((cells * cell.widthPx) / Math.max(1, cell.heightPx))));
+  const payload = Buffer.from(image.base64, "base64");
+  const sequence = `\u001b]1337;File=inline=1;size=${payload.length};width=${cells};height=${rows}:${image.base64}\u0007`;
+  // The TUI reserves the rows the picture occupies, the same way the Kitty path
+  // does: blank lines above, the sequence on the last one.
+  const blank = Array.from({ length: Math.max(0, rows - 1) }, () => "");
+  return [...blank, sequence];
+}
+
 function imageLines(image: LoadedImage, theme: Theme, width: number, maxHeight = 16): string[] {
+  if (getCapabilities().images === "iterm2") return iTerm2ImageLines(image, Math.max(1, width), maxHeight);
   const component = new Image(
     image.base64,
     image.mimeType,

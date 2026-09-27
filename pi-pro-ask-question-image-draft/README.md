@@ -178,6 +178,45 @@ npm run shot:review -- --honour-host --out .pi/benchmark/shots/tmux-fallback.png
 npm run shot:review -- --emit --hold 60                                            # paint it into a real terminal
 ```
 
+## Notes
+
+Every review carries notes, and all three paths are covered by tests
+(`tests/tui.test.mjs`, "notes: a row, a key, a global"):
+
+- **`Add note`** is a row in the option list — press it, type, `Enter`.
+- **`n`** opens the same editor from any row, for a user who knows the key.
+- **`Add global note`** on the review tab annotates the whole review.
+
+A note never answers the stage it is attached to, and it rides the answer that
+belongs to it. Both kinds reach the model in the returned envelope
+(`user notes: …` per stage, `global note: …` for the review) — asserted against
+`buildResponse`, not just the screen.
+
+## Images: what is actually verified
+
+`npm run verify:image` renders the real wizard frame and parses the image escapes
+back out, reassembling each payload and comparing it to the source file byte for
+byte. It is deliberately separate from the live smoke, which can only prove that
+bytes were *written*:
+
+| Protocol | Status |
+|---|---|
+| Kitty APC (`kitty`, Ghostty, WezTerm, Warp) | one escape, complete PNG, `a=T` transmit+display, cell box, quiet — payload byte-identical |
+| iTerm2 OSC 1337 | encoded by this package, full payload, BEL-terminated — pi-tui's own encoder emitted **62 bytes of 527,315** and no terminator, so this path was broken and now is not |
+| tmux passthrough | the same payload, one escape, inside `DCS tmux; … ST` |
+
+What no automated check can answer is whether *your* terminal draws it. To see a
+real image, from a shell **outside tmux**:
+
+```sh
+npm run shot:review -- --emit --hold 60 \
+  --images .pi/benchmark/images/visual-001-option-{1,2,3}.png --option 1
+```
+
+Inside tmux the bytes now arrive (measured: all 527,315), but a full-screen TUI
+under tmux repaints over pictures tmux does not own. `env -u TMUX pi` is the
+configuration that shows them.
+
 ## Benchmark infrastructure
 
 The benchmark answers one question: **is this package ready to replace
