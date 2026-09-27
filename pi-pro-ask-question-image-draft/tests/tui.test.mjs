@@ -217,14 +217,14 @@ describe("TUI chrome: rows, the preview pane and image-host honesty", () => {
     component.dispose();
   });
 
-  it("keeps one line per row beside an image, and spells the option out with its preview", async () => {
+  it("stacks the artwork above the action, one row per option, nothing clipped", async () => {
     const { setCapabilities } = await import("@earendil-works/pi-tui");
     const { fileURLToPath } = await import("node:url");
     const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
     try {
       const fixture = fileURLToPath(new URL("./fixtures/tiny.png", import.meta.url));
       const review = normalizeReview({
-        reviewId: "side-by-side",
+        reviewId: "stacked",
         stages: [{
           id: "one", header: "One", prompt: "Pick a treatment",
           options: [
@@ -236,18 +236,22 @@ describe("TUI chrome: rows, the preview pane and image-host honesty", () => {
       let result;
       const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 40 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
       const deadline = Date.now() + 10_000;
-      while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 50));
-      assert.ok(component.loadedImages.size > 0, "the fixture image must load or this proves nothing about the side-by-side layout");
-      const frame = component.render(110);
-      // Side by side, every terminal line carries the left column and the
-      // preview, so the column is read as the leading slice of each line.
-      const leftColumn = frame.map((line) => line.slice(0, 45));
-      const rightColumn = frame.map((line) => line.slice(45));
-      assert.equal(leftColumn.filter((line) => line.includes("1. Transit airy")).length, 1, "an option is one row, not a label plus three wrapped lines");
-      assert.ok(!leftColumn.some((line) => line.includes("Favors quick orientation")), "the description must not wrap into the narrow column");
-      assert.ok(rightColumn.some((line) => line.includes("Favors quick orientation")), "the description is spelled out with the preview");
-      // The image really is inline.
-      assert.ok(frame.some((line) => line.includes("\u001b_G")), "the preview carries the graphics escape");
+      while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 40));
+      assert.ok(component.loadedImages.size > 0, "the image must load");
+      const frame = component.render(100);
+      const rows = [...frame].map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+      // One row per option, and the sentence on its own line at full width -
+      // not wrapped into a narrow column beside the artwork.
+      assert.equal(rows.filter((line) => /^ > 1\. Transit airy$/.test(line)).length, 1, "the option is one row");
+      assert.equal(rows.filter((line) => /Favors quick orientation; trade-off: less detail in secondary states\./.test(line)).length, 1, "its description is spelled out once, at full width");
+      // The artwork is inline and comes before the action.
+      const artAt = frame.findIndex((line) => line.includes("\u001b_G"));
+      const questionAt = rows.findIndex((line) => /^\s*Pick a treatment$/.test(line));
+      assert.ok(artAt >= 0, "the artwork is inline");
+      assert.ok(questionAt > artAt, "and it sits above the question and the options");
+      // Nothing is cut off: the frame is exactly the terminal, with no scroll hints.
+      assert.equal(frame.length, 40, "the frame fills the terminal exactly");
+      assert.doesNotMatch(rows.join("\n"), /content (above|below)/, "and no row is clipped");
       component.dispose();
     } finally {
       if (previous) setCapabilities(previous);

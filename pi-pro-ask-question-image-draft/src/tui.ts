@@ -765,7 +765,39 @@ export class VisualReviewWizard implements Component, Focusable {
     tabs.push(reviewTab ? " ✓ Review " : " □ Review ");
     lines.push(` ${tabs.join(" ")} `);
     lines.push("");
+    // The layout is decided before anything is drawn, because in the stacked
+    // layout the question belongs in the footer with the options - printing it
+    // at the top as well is how it ended up on screen twice.
+    //
+    // The footer and the tail are rendered *first* so the artwork gets exactly
+    // the rows that are left. Budgeting the artwork from a guessed chrome
+    // constant is what clipped the last action row off the bottom: the terminal
+    // is the only thing that knows how tall the frame is allowed to be.
+    const rows = this.currentRows();
+    // Set once the stacked layout has emitted the footer, the tail and the
+    // closing rule itself, so the shared blocks below stand down.
+    let emitted = false;
+    const footerLines: string[] = [];
+    if (this.imageMode && stage && safeWidth >= 60) {
+      const question = stage.prompt.replace(/\s+/g, " ").trim();
+      footerLines.push(this.theme.fg("accent", ` ${truncateToWidth(question, safeWidth - 2)}`));
+      footerLines.push("");
+      footerLines.push(...this.renderRows(stage, rows, safeWidth - 2, { describe: true }).map((line) => ` ${line}`));
+    }
+    const tailLines = this.tailLines(stage, safeWidth);
+    // The stacked layout only exists when there is artwork to stack *and* rows
+    // to spare for it. Testing the budget alone is true for a text-only review
+    // too, and that silently dropped every option row.
+    const stacked = footerLines.length > 0 && this.stageRows(lines.length + footerLines.length + tailLines.length) > 0;
+    const imageBudget = stacked ? this.stageRows(lines.length + footerLines.length + tailLines.length) : 0;
+
     if (stage) {
+      // In the stacked layout the question is already in the footer, so the
+      // top block is skipped entirely rather than falling through to the review
+      // list, which is what a bare `stage && !stacked` guard did.
+      if (stacked) {
+        // nothing here: the footer owns the question.
+      } else {
       // A prompt can be a paragraph. The reference dialog shows the question
       // and gets out of the way; a full page of model prose pushed the options
       // off the screen, so it is clamped to a few lines with the rest one
@@ -784,6 +816,7 @@ export class VisualReviewWizard implements Component, Focusable {
       if (stage.description) {
         lines.push("");
         addWrapped(this.theme.fg("muted", stage.description));
+      }
       }
     } else {
       addWrapped(this.theme.bold("Review your answers"));
@@ -815,13 +848,56 @@ export class VisualReviewWizard implements Component, Focusable {
       lines.push(this.theme.fg("dim", `Enter to submit • Esc to go back${this.inputMode === "other" && this.externalEditorConfigured ? " • Ctrl+G external editor" : ""}`));
     } else {
       this.editor.focused = false;
-      const rows = this.currentRows();
       const sideBySide = Boolean(this.imageMode && stage && safeWidth >= 88);
       const leftWidth = sideBySide ? Math.min(44, Math.max(30, Math.floor(safeWidth * 0.34))) : safeWidth - 2;
       // Beside an image the column is too narrow for wrapped descriptions, so
       // the selected option's own sentence is rendered with its preview instead.
       const listLines = stage ? this.renderRows(stage, rows, leftWidth, { describe: !sideBySide }) : this.renderRowsForReview(rows, leftWidth);
-      if (sideBySide) {
+      // The panel is the screen, so the thing being judged gets the screen: the
+      // artwork sits above and the action sits under it in a fat footer. A
+      // 32 x 16 cell box in the corner of a 110-column dialog made the artefact
+      // the smallest thing on the page.
+      if (stacked) {
+        const selected = rows[this.selectedIndex];
+        const option = selected?.kind === "option" ? selected.option : undefined;
+        if (option) {
+          const key = `${stage!.id}:${option.id}`;
+          const loaded = this.loadedImages.get(key);
+          if (loaded?.image) {
+            // pi-tui derives the row count from the image's aspect ratio and can
+            // hand back one row more than the ceiling it was given. Trimming the
+            // trailing blanks - never the escape on the first line - is what keeps
+            // the frame exactly as tall as the terminal, so the last action row is
+            // not clipped off the bottom.
+            const art = imageLines(loaded.image, this.theme, safeWidth - 2, imageBudget);
+            const frame: string[] = art.map((line) => (isImageLine(line) ? line : ` ${line}`));
+            const artRows = frame.length;
+            frame.push(...footerLines, ...tailLines);
+            // The artwork is the only elastic part of the frame, so if pi-tui's
+            // aspect arithmetic handed back more rows than the budget allowed,
+            // the excess comes out of the artwork's padding and never out of the
+            // options. Guessing the chrome instead is what clipped the last action
+            // row off the bottom of a 40-row terminal.
+            const terminalRows = this.tui.terminal?.rows ?? 0;
+            const total = lines.length + frame.length;
+            if (terminalRows > 0 && total > terminalRows) {
+              const excess = Math.min(artRows, total - terminalRows);
+              frame.splice(Math.max(0, artRows - excess), excess);
+            }
+            lines.push(...frame);
+            emitted = true;
+          } else {
+            // No picture yet, or one this terminal cannot draw: the area says so
+            // rather than collapsing to nothing.
+            for (const line of fallbackPreview(option, loaded, this.theme, safeWidth - 4)) lines.push(`  ${line}`);
+          }
+        }
+        // A stage whose selected row is not an option still gets its footer.
+        if (!emitted) {
+          lines.push(...footerLines, ...tailLines);
+          emitted = true;
+        }
+      } else if (sideBySide) {
         const rightWidth = Math.max(1, safeWidth - leftWidth - 5);
         const left = new LinesComponent(listLines);
         const selected = rows[this.selectedIndex];
@@ -862,6 +938,10 @@ export class VisualReviewWizard implements Component, Focusable {
           }
         }
       }
+      if (emitted) {
+        // The stacked layout already laid out the footer, the current answer,
+        // the key hints and the closing border.
+      } else {
       lines.push("");
       const current = stage ? this.answers.get(stage.id) : undefined;
       if (current) lines.push(this.theme.fg("success", `Current answer: ${current.answer ?? current.optionLabels?.join(", ") ?? "(empty)"}${current.notes ? ` — ${current.notes}` : ""}`));
@@ -882,10 +962,13 @@ export class VisualReviewWizard implements Component, Focusable {
       if (stage?.multiSelect && selection.size > 0) {
         lines.push(this.theme.fg("accent", `Selected: ${stage.options.filter((option) => selection.has(option.id)).map((option) => option.label).join(", ")}`));
       }
+      }
     }
 
-    lines.push("");
-    lines.push(border("─".repeat(safeWidth)));
+    if (!emitted) {
+      lines.push("");
+      lines.push(border("─".repeat(safeWidth)));
+    }
     const bounded = lines.map((line) => isImageLine(line) ? line : fitLine(line, safeWidth));
     const visible = this.visibleLines(bounded.map((line) => passthroughGraphicsForHost(line)));
     this.cachedWidth = width;
@@ -1097,6 +1180,52 @@ export class VisualReviewWizard implements Component, Focusable {
     // Text only: the option's own sentence is the whole preview, so the pane
     // does not also announce that there is nothing to show.
     return lines;
+  }
+
+  /**
+   * How many rows the artwork may take above the action footer.
+   *
+   * The footer is sized first - one line for the question, one per row, one for
+   * the current answer, two for the key hints - and whatever is left above it is
+   * the picture. A negative result means the terminal is too short for the
+   * stacked layout, and the caller falls back to the side-by-side one rather
+   * than crushing both.
+   */
+  private stageRows(alreadyRendered: number): number {
+    const terminalRows = this.tui.terminal?.rows ?? 0;
+    if (!Number.isFinite(terminalRows) || terminalRows <= 0) return 0;
+    return Math.max(0, terminalRows - alreadyRendered);
+  }
+
+  /**
+   * The part of the frame below the option list: the current answer, the note,
+   * the key hints, the auto-resolve state and the closing border.
+   *
+   * It is rendered before the artwork so the artwork's budget is the remainder
+   * of the terminal, not an estimate of it.
+   */
+  private tailLines(stage: NormalizedStage | undefined, safeWidth: number): string[] {
+    const out: string[] = [""];
+    const current = stage ? this.answers.get(stage.id) : undefined;
+    if (current) out.push(this.theme.fg("success", `Current answer: ${current.answer ?? current.optionLabels?.join(", ") ?? "(empty)"}${current.notes ? ` — ${current.notes}` : ""}`));
+    const currentNote = stage ? this.currentNote() : undefined;
+    if (currentNote && !current?.notes) out.push(this.theme.fg("muted", `Note: ${currentNote}`));
+    const selection = stage ? this.selection(stage.id) : new Set<string>();
+    const help = stage?.multiSelect
+      ? `↑↓ move • Space check • Enter confirm • n note • Tab stages • Ctrl+] hide • Esc cancel`
+      : stage
+        ? `↑↓ move • Enter select • n note • Tab/←→ stages • Ctrl+] hide • Esc cancel${this.promptClamped ? " • Ctrl+R prompt" : ""}`
+        : "↑↓ move • Enter review action • Tab stages • Ctrl+] hide • Esc cancel";
+    out.push(this.theme.fg("dim", help));
+    out.push(this.theme.fg(this.autoResolve ? "success" : "dim", this.autoResolve
+      ? "auto-resolve: on — Enter takes the recommended option (Ctrl+A off)"
+      : "auto-resolve: off — Ctrl+A answers with the recommended option"));
+    if (stage?.multiSelect && selection.size > 0) {
+      out.push(this.theme.fg("accent", `Selected: ${stage.options.filter((option) => selection.has(option.id)).map((option) => option.label).join(", ")}`));
+    }
+    out.push("");
+    out.push(this.theme.fg("borderAccent", "─".repeat(Math.max(1, safeWidth))));
+    return out;
   }
 
   /**
