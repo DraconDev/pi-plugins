@@ -535,6 +535,14 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
       if (!image || typeof image !== "object" || Array.isArray(image)) {
         throw new Error(`Stage ${id} image ${imageIndex + 1} must be an object with a path, url or dataUri.`);
       }
+      // An object that carries none of them is a shape we cannot draw, and a
+      // shape we cannot draw must say so: normalizeImage names the problem, and
+      // a stage-level entry gets the stage and position with it.
+      try {
+        normalizeImage(image as { path?: string; url?: string; dataUri?: string });
+      } catch {
+        throw new Error(`Stage ${id} image ${imageIndex + 1} has no path, url or dataUri, so there is nothing to draw.`);
+      }
     });
     // Hosts present the artwork per question; an option's own image still wins.
     const stagedReference = (optionIndex: number) => {

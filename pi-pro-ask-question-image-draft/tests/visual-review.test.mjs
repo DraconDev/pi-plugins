@@ -420,5 +420,11 @@ describe("images presented per question are not dropped", () => {
       reviewId: "not-an-image",
       stages: [{ header: "H", prompt: "P", images: ["/a.png"], options: [{ label: "A" }, { label: "B" }] }],
     }), /image 1 must be an object/);
+    // An object with nothing drawable in it - a nested wrapper, say - is the
+    // shape that was quietly dropped when a live review showed no picture.
+    assert.throws(() => normalizeReview({
+      reviewId: "empty-image",
+      stages: [{ header: "H", prompt: "P", images: [{ item: { path: "/a.png" } }], options: [{ label: "A" }, { label: "B" }] }],
+    }), /image 1 has no path, url or dataUri, so there is nothing to draw/);
   });
 });
