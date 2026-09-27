@@ -231,16 +231,26 @@ npm run shot:review -- --emit --hold 60 \
   --images .pi/benchmark/images/visual-001-option-{1,2,3}.png --option 1
 ```
 
-Inside tmux the package asks the multiplexer what terminal is behind it and
-turns the protocol on when that terminal speaks it, so no environment variable
-is needed. The one thing it will not do is override a host that has already
-decided: `PI_IMAGE_PROTOCOL` is respected, including `PI_IMAGE_PROTOCOL=none`,
-which is how images are turned off on purpose.
+**tmux 3.6a cannot carry inline images, and that was measured, not guessed.**
+With a hand-made sequence and a client recording exactly what tmux sent it:
 
-The probe is worth knowing about because it explains a review that shows a file
-path and an explanation where the picture should be: pi-tui refuses to emit
-graphics whenever `TMUX` is set, so inside tmux a review had no image and no
-reason. It now reports what it detected and the switch that overrides it.
+- the raw Kitty escape arrives at the terminal with the introducer's `ESC`
+  stripped - `_Ga=T,f=100,...` with no escape in front of it;
+- the passthrough envelope (`DCS tmux; … ST`) is not forwarded at all.
+
+So the payload can be perfect and the picture still cannot appear, which no
+check on our own bytes would ever catch - the check and the screen disagree for
+a reason outside the process. This package therefore does **not** try to smuggle
+graphics through a multiplexer: a review inside tmux says so, names what it
+detected, and tells you to run Pi outside it.
+
+```sh
+env -u TMUX pi        # the configuration that shows images
+```
+
+The iTerm2 path is the one fix that survived the measurement: closing the
+`OSC 1337` sequence that pi-tui leaves open. That is a plain OSC string, which
+is the part of the protocol a multiplexer *does* pass.
 
 ## Benchmark infrastructure
 
