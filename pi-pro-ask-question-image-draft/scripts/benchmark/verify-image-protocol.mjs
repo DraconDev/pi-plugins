@@ -136,24 +136,15 @@ async function main() {
     report.iterm2.identical = images.length > 0 && images.every((image) => isSourceImage(Buffer.from(image.payload, "base64")));
   }
 
-  // --- The same bytes, wrapped for tmux --------------------------------------
-  {
-    const previous = process.env.TMUX;
-    process.env.TMUX = "on"; // the wrapper keys off this at render time
-    const frame = await renderWith("kitty");
-    if (previous === undefined) delete process.env.TMUX;
-    else process.env.TMUX = previous;
-    const { images } = parseKitty(frame);
-    const wrapped = images.filter((image) => image.wrapped);
-    report.tmux = { escapes: images.length, wrapped: wrapped.length };
-    check("tmux: every escape travels inside a passthrough envelope", images.length > 0 && wrapped.length === images.length, `${wrapped.length}/${images.length} wrapped`);
-    // One escape per image, because the envelope ends at the first ST inside it.
-    check("tmux: the chunks are collapsed to one escape per image", images.every((image) => image.chunks === 1), images.map((image) => image.chunks).join(","));
-    const decoded = images.map((image) => Buffer.from(image.payload, "base64"));
-    report.tmux.payloadBytes = decoded.map((buffer) => buffer.length);
-    report.tmux.identical = decoded.length > 0 && decoded.every((buffer) => isSourceImage(buffer));
-    check("tmux: the payload survives the wrapper", report.tmux.identical);
-  }
+  // --- tmux ------------------------------------------------------------------
+  // Deliberately not checked, and deliberately recorded. Measured on tmux 3.6a
+  // with a hand-made sequence and a client recording what tmux sent it: the raw
+  // Kitty escape arrives with the introducer's ESC stripped, and the passthrough
+  // envelope is not forwarded at all. So the payload can be perfect and the
+  // picture still cannot appear, which no check on our own bytes would ever
+  // catch. It is a property of the multiplexer, and the honest answer is to run
+  // Pi outside it.
+  report.tmux = { checked: false, reason: "tmux 3.6a delivers no usable graphics introducer (measured: raw escape loses its ESC, passthrough is not forwarded)" };
 
   report.ok = failures.length === 0;
   report.failures = failures;
