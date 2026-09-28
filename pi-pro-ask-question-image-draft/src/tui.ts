@@ -1308,7 +1308,7 @@ export class VisualReviewWizard implements Component, Focusable {
     }
     const reference = option.image?.path ?? option.image?.url ?? option.image?.dataUri ?? "image";
     const name = reference.split("/").pop() ?? reference;
-    lines.push(...wrapTextWithAnsi(this.theme.fg("muted", `Image: ${name}${size}`), Math.max(1, width)));
+    lines.push(...wrapTextWithAnsi(this.theme.fg("muted", `Image: ${name}`), Math.max(1, width)));
     if (!canRenderImages()) {
       const cause = process.env.TMUX
         ? "a multiplexer is in the way: measured here, tmux 3.6a delivers no usable graphics introducer"
