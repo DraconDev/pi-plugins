@@ -1313,7 +1313,7 @@ export class VisualReviewWizard implements Component, Focusable {
       const cause = process.env.TMUX
         ? "a multiplexer is in the way: measured here, tmux 3.6a delivers no usable graphics introducer"
         : "this terminal did not report an image protocol";
-      lines.push(...wrapTextWithAnsi(this.theme.fg("dim", `Inline images are off here (detected ${getCapabilities().images ?? "none"}): ${cause}. Run Pi outside tmux for pictures.`), Math.max(1, width)));
+      lines.push(...wrapTextWithAnsi(this.theme.fg("dim", `Inline images are off here (detected ${getCapabilities().images ?? "none"}): ${cause}. Run Pi outside tmux for pictures; PI_IMAGE_PROTOCOL=kitty overrides the detection where that is enough.`), Math.max(1, width)));
     }
     if (option.image?.alt) lines.push(...wrapTextWithAnsi(this.theme.fg("muted", `Alt: ${option.image.alt}`), Math.max(1, width)));
     return lines;
