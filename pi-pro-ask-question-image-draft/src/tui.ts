@@ -83,6 +83,9 @@ const REJECT_LABEL = "Reject review";
  */
 const PANEL_FURNITURE_ROWS = 5;
 const PANEL_MAX_ROWS = 32;
+const MIN_PANEL_ROWS = 14;
+/** An option that carries a picture gets this many rows, even on a short screen. */
+const MIN_ART_ROWS = 6;
 const CHROME_ROWS = 6;
 
 const NOTE_LABEL = "Add note";
@@ -790,8 +793,33 @@ export class VisualReviewWizard implements Component, Focusable {
     // that carries one puts it on top with the questions under it, the same as an
     // image. Keying this on images alone is what put a review's preview *below*
     // its own questions.
-    const stacked = footerLines.length > 0 && this.panelRows(footerLines.length + tailLines.length + CHROME_ROWS) > 0;
-    const imageBudget = stacked ? this.panelRows(footerLines.length + tailLines.length + CHROME_ROWS) : 0;
+    // Two footers, and the screen picks: the full one carries the highlighted
+    // option's sentence, the essential one is the question and the choices. A
+    // short screen gets the essential one rather than the old side-by-side
+    // layout, which is the arrangement this layout exists to replace.
+    const essentialFooter = stage && safeWidth >= 60
+      ? [
+        this.theme.fg("accent", ` ${truncateToWidth(stage.prompt.replace(/\s+/g, " ").trim(), safeWidth - 2)}`),
+        ...this.renderRows(stage, rows, safeWidth - 2, { describe: false }).map((line) => ` ${line}`),
+      ]
+      : [];
+    const room = (footer: string[], tail: string[]) => this.panelRows(footer.length + tail.length + CHROME_ROWS);
+    if (footerLines.length > 0 && room(footerLines, tailLines) < MIN_ART_ROWS) {
+      if (room(essentialFooter, tailLines) >= MIN_ART_ROWS) {
+        footerLines.length = 0;
+        footerLines.push(...essentialFooter);
+      } else if (room(essentialFooter, [tailLines[1] ?? ""]) >= MIN_ART_ROWS) {
+        footerLines.length = 0;
+        footerLines.push(...essentialFooter);
+        tailLines.length = 0;
+        tailLines.push(tailLines[1] ?? "");
+      }
+    }
+    // Any room at all is enough: an option that carries a picture should never
+    // silently lose it because the screen is short. MIN_ART_ROWS is a *preference*
+    // used when choosing between the full and the essential footer, not a gate.
+    const stacked = footerLines.length > 0 && room(footerLines, tailLines) > 0;
+    const imageBudget = stacked ? room(footerLines, tailLines) : 0;
 
     if (stage) {
       // In the stacked layout the question is already in the footer, so the
@@ -862,53 +890,45 @@ export class VisualReviewWizard implements Component, Focusable {
       if (stacked) {
         const selected = rows[this.selectedIndex];
         const option = selected?.kind === "option" ? selected.option : undefined;
+        // The detail area, whatever is in it: the picture when it is there, the
+        // reason when it is not. Either way it is padded to the panel's fixed
+        // height, so the frame does not resize the moment a picture finishes
+        // loading - a layout that jumps under the cursor is worse than one that
+        // is a little empty.
+        const detail: string[] = [];
         if (option) {
-          const key = `${stage!.id}:${option.id}`;
-          const loaded = this.loadedImages.get(key);
-          const mockupPng = option.mockup ? this.mockupLines(option.mockup, safeWidth - 2, imageBudget) : null;
-          const art = loaded?.image ? imageLines(loaded.image, this.theme, safeWidth - 2, imageBudget) : [];
+          const loaded = this.loadedImages.get(`${stage!.id}:${option.id}`);
+          const art = loaded?.image
+            ? imageLines(loaded.image, this.theme, safeWidth - 2, imageBudget)
+            : (option.mockup ? this.mockupLines(option.mockup, safeWidth - 2, imageBudget) ?? [] : []);
           if (art.length > 0) {
-            // pi-tui derives the row count from the image's aspect ratio and can
-            // hand back one row more than the ceiling it was given. Trimming the
-            // trailing blanks - never the escape on the first line - is what keeps
-            // the frame exactly as tall as the terminal, so the last action row is
-            // not clipped off the bottom.
-            const frame: string[] = art.map((line) => (isImageLine(line) ? line : ` ${line}`));
-            const artRows = frame.length;
-            frame.push(...footerLines, ...tailLines);
-            // The artwork is the only elastic part of the frame, so if pi-tui's
-            // aspect arithmetic handed back more rows than the budget allowed,
-            // the excess comes out of the artwork's padding and never out of the
-            // options. Guessing the chrome instead is what clipped the last action
-            // row off the bottom of a 40-row terminal.
-            const terminalRows = this.tui.terminal?.rows ?? 0;
-            let excess = Math.max(0, lines.length + frame.length - terminalRows);
-            // Only padding is trimmed. The Kitty escape is the artwork's first
-            // line and the iTerm2 escape its last, so cutting from the end by
-            // position deletes the picture itself - which is how the iterm2 path
-            // went from one image to none.
-            for (let index = artRows - 1; index >= 0 && excess > 0; index -= 1) {
-              if (/^\s*$/.test(frame[index] ?? "")) {
-                frame.splice(index, 1);
-                excess -= 1;
-              }
-            }
-            lines.push(...frame);
-            emitted = true;
-          } else if (mockupPng) {
-            for (const line of mockupPng) lines.push(isImageLine(line) ? line : ` ${line}`);
+            detail.push(...art.map((line) => (isImageLine(line) ? line : ` ${line}`)));
           } else {
-            // No picture yet, or one this terminal cannot draw: the area says so
-            // rather than collapsing to nothing.
-            for (const line of fallbackPreview(option, loaded, this.theme, safeWidth - 4)) lines.push(`  ${line}`);
+            for (const line of fallbackPreview(option, loaded, this.theme, safeWidth - 4)) detail.push(`  ${line}`);
           }
         }
-        // A stage whose selected row is not an option still gets its footer.
-        if (!emitted) {
-          lines.push(...footerLines, ...tailLines);
-          emitted = true;
+        const panelTotal = this.panelHeight();
+        const detailRows = detail.length;
+        const used = lines.length + detailRows + footerLines.length + tailLines.length;
+        if (panelTotal > used) detail.push(...Array.from({ length: panelTotal - used }, () => ""));
+        // A short screen gives up the hints before it gives up the picture or the
+        // choices: those two are the review, the hints are a convenience.
+        while (lines.length + detail.length + footerLines.length + tailLines.length > panelTotal && tailLines.length > 1) {
+          tailLines.splice(tailLines.length - 2, 1);
         }
-      } else if (sideBySide) {
+        // Only the detail's own padding is ever trimmed: the Kitty escape is the
+        // artwork's first line and the iTerm2 escape its last, so cutting by
+        // position would delete the picture itself.
+        let excess = lines.length + detail.length + footerLines.length + tailLines.length - panelTotal;
+        for (let index = detailRows - 1; index >= 0 && excess > 0; index -= 1) {
+          if (/^\s*$/.test(detail[index] ?? "")) {
+            detail.splice(index, 1);
+            excess -= 1;
+          }
+        }
+        lines.push(...detail, ...footerLines, ...tailLines);
+        emitted = true;
+      } else if (sideBySide) {      } else if (sideBySide) {
         const rightWidth = Math.max(1, safeWidth - leftWidth - 5);
         const left = new LinesComponent(listLines);
         const selected = rows[this.selectedIndex];
@@ -1211,12 +1231,18 @@ export class VisualReviewWizard implements Component, Focusable {
    * one keeps at least a usable dozen rows; either way the detail area is what
    * is left, and the answers stay pinned to the bottom of the panel.
    */
+  private panelHeight(): number {
+    const terminalRows = this.tui.terminal?.rows ?? 0;
+    if (!Number.isFinite(terminalRows) || terminalRows <= 0) return 0;
+    return Math.max(MIN_PANEL_ROWS, Math.min(terminalRows - PANEL_FURNITURE_ROWS, PANEL_MAX_ROWS));
+  }
+
   private panelRows(footerHeight: number): number {
     const terminalRows = this.tui.terminal?.rows ?? 0;
     if (!Number.isFinite(terminalRows) || terminalRows <= 0) return 0;
     // Five rows of the host's own furniture: the input line, its blank, the
     // cwd/status line and the multiplexer bar.
-    const usable = Math.max(12, Math.min(terminalRows - PANEL_FURNITURE_ROWS, PANEL_MAX_ROWS));
+    const usable = Math.max(MIN_PANEL_ROWS, Math.min(terminalRows - PANEL_FURNITURE_ROWS, PANEL_MAX_ROWS));
     return Math.max(0, usable - footerHeight);
   }
 
