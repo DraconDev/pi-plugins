@@ -1303,12 +1303,11 @@ export class VisualReviewWizard implements Component, Focusable {
   private compactFallback(option: NormalizedOption, loaded: LoadedOption | undefined, width: number): string[] {
     const lines: string[] = [];
     if (loaded?.error) {
-      lines.push(...wrapTextWithAnsi(this.theme.fg("warn", `Image unavailable: ${loaded.error}`), Math.max(1, width)));
+      lines.push(...wrapTextWithAnsi(this.theme.fg("error", `Image unavailable: ${loaded.error}`), Math.max(1, width)));
       return lines;
     }
     const reference = option.image?.path ?? option.image?.url ?? option.image?.dataUri ?? "image";
     const name = reference.split("/").pop() ?? reference;
-    const size = loaded?.dimensions ? ` (${loaded.dimensions.widthPx}x${loaded.dimensions.heightPx})` : "";
     lines.push(...wrapTextWithAnsi(this.theme.fg("muted", `Image: ${name}${size}`), Math.max(1, width)));
     if (!canRenderImages()) {
       const cause = process.env.TMUX
