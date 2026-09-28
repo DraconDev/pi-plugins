@@ -768,6 +768,10 @@ export class VisualReviewWizard implements Component, Focusable {
     const visualStage = Boolean(stage && stage.options.some((option) => option.image || option.mockup || option.preview?.trim()));
     const footerLines: string[] = [];
     if (stage && safeWidth >= 60 && (this.imageMode || visualStage)) {
+      // A seam. Without one the picture, the sentence and the question read as
+      // one undifferentiated run, and a block that is 32 rows of mixed content
+      // is much harder to scan than three labelled bands.
+      const seam = () => this.theme.fg("borderAccent", "─".repeat(Math.max(1, safeWidth - 2)));
       // Information first, then the question, then the choices: the bottom of
       // the screen is the decision, and what you are deciding about sits above
       // it. The question reading the way it does - a line under the scene, over
@@ -782,7 +786,14 @@ export class VisualReviewWizard implements Component, Focusable {
       const question = stage.prompt.replace(/\s+/g, " ").trim();
       footerLines.push(this.theme.fg("accent", ` ${truncateToWidth(question, safeWidth - 2)}`));
       footerLines.push("");
-      footerLines.push(...this.renderRows(stage, rows, safeWidth - 2, { describe: false }).map((line) => ` ${line}`));
+      // The choices get their own band, and the actions below them get a third.
+      const choices = this.renderRows(stage, rows, safeWidth - 2, { describe: false }).map((line) => ` ${line}`);
+      const firstAction = choices.findIndex((line) => /^\s+(?![>\s]*\d+\.)/.test(line));
+      if (firstAction > 0) {
+        footerLines.push(...choices.slice(0, firstAction), seam(), ...choices.slice(firstAction));
+      } else {
+        footerLines.push(...choices);
+      }
     }
     const tailLines = this.tailLines(stage, safeWidth);
     // The stacked layout only exists when there is artwork to stack *and* rows
@@ -910,7 +921,11 @@ export class VisualReviewWizard implements Component, Focusable {
         const panelTotal = this.panelHeight();
         const detailRows = detail.length;
         const used = lines.length + detailRows + footerLines.length + tailLines.length;
-        if (panelTotal > used) detail.push(...Array.from({ length: panelTotal - used }, () => ""));
+        // The slack goes *above* the content, never into the middle of it. A gap
+        // between the picture and the sentence reads as a hole in the block; a gap
+        // under the tab strip reads as room to breathe, and the picture, the
+        // information and the answers stay one solid run down to the bottom.
+        if (panelTotal > used) detail.unshift(...Array.from({ length: panelTotal - used }, () => ""));
         // A short screen gives up the hints before it gives up the picture or the
         // choices: those two are the review, the hints are a convenience.
         while (lines.length + detail.length + footerLines.length + tailLines.length > panelTotal && tailLines.length > 1) {
