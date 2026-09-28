@@ -805,10 +805,10 @@ export class VisualReviewWizard implements Component, Focusable {
       : [];
     const room = (footer: string[], tail: string[]) => this.panelRows(footer.length + tail.length + CHROME_ROWS);
     if (footerLines.length > 0 && room(footerLines, tailLines) < MIN_ART_ROWS) {
-      if (room(essentialFooter, tailLines) >= MIN_ART_ROWS) {
+      if (room(essentialFooter, tailLines) > 0) {
         footerLines.length = 0;
         footerLines.push(...essentialFooter);
-      } else if (room(essentialFooter, [tailLines[1] ?? ""]) >= MIN_ART_ROWS) {
+      } else if (room(essentialFooter, [tailLines[1] ?? ""]) > 0) {
         footerLines.length = 0;
         footerLines.push(...essentialFooter);
         tailLines.length = 0;
