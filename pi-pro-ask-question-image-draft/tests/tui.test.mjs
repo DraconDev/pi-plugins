@@ -582,6 +582,32 @@ describe("dialogue layout: one line per choice, information over the artwork", (
  * built out of mockups showed its questions and nothing else, and its preview
  * sat *below* the questions because the stacked layout keyed on images alone.
  */
+describe("a missing image file is its own reason", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  it("names the file, not the host", async () => {
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    try {
+      const review = normalizeReview({
+        reviewId: "missing",
+        stages: [{ id: "one", header: "One", prompt: "Pick", options: [
+          { id: "a", label: "A", description: "First.", image: { path: "/nowhere/missing.png" } },
+          { id: "b", label: "B", description: "Second.", image: { path: "/nowhere/missing.png" } },
+        ] }],
+      });
+      let result;
+      const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 40 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+      await new Promise((r) => setTimeout(r, 300));
+      const prose = component.render(110).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")).join(" ").replace(/\s+/g, " ");
+      assert.match(prose, /Image unavailable/, "a missing file is not a host that cannot draw");
+      assert.doesNotMatch(prose, /tmux 3\.6a/, "and the message must not blame the multiplexer for a bad path");
+      component.dispose();
+    } finally {
+      if (previous) setCapabilities(previous);
+    }
+  });
+});
+
 describe("a drawn mockup fills the content area, with the questions under it", () => {
   const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
   it("draws the mockup above the question and the menu", async () => {
@@ -639,6 +665,7 @@ describe("a host that cannot draw says so in the content area", () => {
     const previousTmux = process.env.TMUX;
     delete process.env.TMUX;
     try {
+      // A real image: this case is the *host*, not a broken path.
       const image = fileURLToPath(new URL("../.pi/benchmark/images/visual-001-option-1.png", import.meta.url));
       const review = normalizeReview({
         reviewId: "no-host",
@@ -653,6 +680,7 @@ describe("a host that cannot draw says so in the content area", () => {
       const frame = component.render(110);
       const prose = frame.map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")).join(" ").replace(/\s+/g, " ");
       assert.doesNotMatch(prose, /\[Image:/, "the renderer placeholder is not the explanation");
+      assert.doesNotMatch(prose, /file:\/\//, "and the path is not printed twice");
       assert.match(prose, /Inline images are off here/, "the reason is on screen, where the picture would be");
       assert.match(prose, /Run Pi outside tmux/, "along with what actually works");
       // The picture's alt text still carries the content for a host that cannot show it.
