@@ -783,6 +783,7 @@ export class VisualReviewWizard implements Component, Focusable {
         }
         footerLines.push("");
       }
+      footerLines.push(seam());
       const question = stage.prompt.replace(/\s+/g, " ").trim();
       footerLines.push(this.theme.fg("accent", ` ${truncateToWidth(question, safeWidth - 2)}`));
       footerLines.push("");
@@ -915,7 +916,7 @@ export class VisualReviewWizard implements Component, Focusable {
           if (art.length > 0) {
             detail.push(...art.map((line) => (isImageLine(line) ? line : ` ${line}`)));
           } else {
-            for (const line of fallbackPreview(option, loaded, this.theme, safeWidth - 4)) detail.push(`  ${line}`);
+            for (const line of this.compactFallback(option, loaded, safeWidth)) detail.push(`  ${line}`);
           }
         }
         const panelTotal = this.panelHeight();
@@ -1288,6 +1289,35 @@ export class VisualReviewWizard implements Component, Focusable {
       // A spec the renderer cannot draw is not a reason to lose the question.
       return null;
     }
+  }
+
+  /**
+   * Why there is no picture, in two lines instead of five.
+   *
+   * The full fallback prints the path as a markdown link *and* again as a
+   * `file://` URL, then wraps the reason over three lines - in a panel whose
+   * top half exists to hold a picture, that is a wall of path for nothing. The
+   * name, the size and the reason are what a reader needs here; the full link
+   * stays on the stage's own preview.
+   */
+  private compactFallback(option: NormalizedOption, loaded: LoadedOption | undefined, width: number): string[] {
+    const lines: string[] = [];
+    if (loaded?.error) {
+      lines.push(...wrapTextWithAnsi(this.theme.fg("warn", `Image unavailable: ${loaded.error}`), Math.max(1, width)));
+      return lines;
+    }
+    const reference = option.image?.path ?? option.image?.url ?? option.image?.dataUri ?? "image";
+    const name = reference.split("/").pop() ?? reference;
+    const size = loaded?.dimensions ? ` (${loaded.dimensions.widthPx}x${loaded.dimensions.heightPx})` : "";
+    lines.push(...wrapTextWithAnsi(this.theme.fg("muted", `Image: ${name}${size}`), Math.max(1, width)));
+    if (!canRenderImages()) {
+      const cause = process.env.TMUX
+        ? "a multiplexer is in the way: measured here, tmux 3.6a delivers no usable graphics introducer"
+        : "this terminal did not report an image protocol";
+      lines.push(...wrapTextWithAnsi(this.theme.fg("dim", `Inline images are off here (detected ${getCapabilities().images ?? "none"}): ${cause}. Run Pi outside tmux for pictures.`), Math.max(1, width)));
+    }
+    if (option.image?.alt) lines.push(...wrapTextWithAnsi(this.theme.fg("muted", `Alt: ${option.image.alt}`), Math.max(1, width)));
+    return lines;
   }
 
   private tailLines(stage: NormalizedStage | undefined, safeWidth: number): string[] {
