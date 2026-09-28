@@ -543,10 +543,13 @@ describe("dialogue layout: one line per choice, information over the artwork", (
       const plain = () => component.render(100).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
       const indexOf = (needle) => plain().findIndex((line) => line.includes(needle));
 
-      // The highlighted option's sentence is on screen, the other two are not.
+      // The highlighted option's sentence is on screen, the other two are not,
+      // and it sits *above* the question: the bottom of the screen is the
+      // decision, what it is about sits above it.
       const described = indexOf("Scans fastest");
       assert.ok(described >= 0, "the highlighted option's sentence is shown");
       assert.equal(plain().some((line) => line.includes("Cause beside remedy")), false, "and only that one");
+      assert.ok(described < indexOf("Which treatment ships?"), "the information is above the question");
       // The menu is one line per choice, with nothing printed under it.
       const airy = indexOf("1. Transit airy");
       assert.match(plain()[airy], /^\s*(> )?1\. Transit airy$/, "a choice is one row");

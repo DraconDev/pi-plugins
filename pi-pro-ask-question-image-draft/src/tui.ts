@@ -752,14 +752,19 @@ export class VisualReviewWizard implements Component, Focusable {
     const visualStage = Boolean(stage && stage.options.some((option) => option.image || option.mockup || option.preview?.trim()));
     const footerLines: string[] = [];
     if (stage && safeWidth >= 60 && (this.imageMode || visualStage)) {
-      const question = stage.prompt.replace(/\s+/g, " ").trim();
-      footerLines.push(this.theme.fg("accent", ` ${truncateToWidth(question, safeWidth - 2)}`));
+      // Information first, then the question, then the choices: the bottom of
+      // the screen is the decision, and what you are deciding about sits above
+      // it. The question reading the way it does - a line under the scene, over
+      // the menu - is the shape a dialogue menu has.
       const highlighted = rows[this.selectedIndex];
       if (highlighted?.kind === "option" && highlighted.option.description) {
         for (const line of wrapTextWithAnsi(this.theme.fg("muted", highlighted.option.description), safeWidth - 2)) {
           footerLines.push(` ${line}`);
         }
+        footerLines.push("");
       }
+      const question = stage.prompt.replace(/\s+/g, " ").trim();
+      footerLines.push(this.theme.fg("accent", ` ${truncateToWidth(question, safeWidth - 2)}`));
       footerLines.push("");
       footerLines.push(...this.renderRows(stage, rows, safeWidth - 2, { describe: false }).map((line) => ` ${line}`));
     }
