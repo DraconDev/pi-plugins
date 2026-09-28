@@ -70,6 +70,7 @@ async function main() {
     setCapabilities({ images: protocol, trueColor: true, hyperlinks: false });
     const review = normalizeReview({
       reviewId: "image-verify",
+      images: "on",
       title: "Incident Queue Layout",
       stages: [{
         id: "treatment", kind: "draft", header: "Treatment", prompt: "Which treatment ships?",

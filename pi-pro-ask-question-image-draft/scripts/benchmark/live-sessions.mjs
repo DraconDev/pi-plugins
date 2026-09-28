@@ -46,6 +46,9 @@ export const LABELS = Object.freeze({
 function happyReview(imagePath) {
   return {
     reviewId: "live-smoke",
+  // The live smoke exists to prove the image path, so it asks for pictures; a
+  // real review gets the default, which is structure only.
+  images: "on",
     title: "Live TTY smoke",
     stages: [
       {
@@ -75,6 +78,9 @@ function noteReview(imagePath) {
     reviewId: "live-smoke-note",
     title: "Live TTY smoke (note)",
     round: 1,
+    // Pictures are off by default; the smoke opts in, because the note session
+    // asserts against a frame that carries one.
+    images: "on",
     stages: [
       {
         id: "direction", kind: "draft", header: "Direction", prompt: "Pick the visual treatment",

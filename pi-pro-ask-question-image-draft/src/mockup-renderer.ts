@@ -208,10 +208,26 @@ export interface MockupSpec {
 
 const GLYPH_CACHE = new Map<string, Uint8Array>();
 
+/**
+ * Typographic characters the 5x7 font does not carry, folded to ones it does.
+ *
+ * "22 min late · 3 stops behind" drew a hollow box where the middot was: a box
+ * in the middle of a sentence reads as corruption, and a dash reads as a dash.
+ */
+const FOLDED_CHARACTERS: Record<string, string> = {
+  "\u00b7": "-", "\u2022": "-", "\u2013": "-", "\u2014": "-", "\u2018": "'", "\u2019": "'",
+  "\u201c": '"', "\u201d": '"', "\u2026": ".", "\u2192": ">", "\u00d7": "x", "\u2022-": "-",
+};
+
+function foldCharacter(character: string): string {
+  return FOLDED_CHARACTERS[character] ?? character;
+}
+
 function glyphRows(character: string): Uint8Array {
-  const cached = GLYPH_CACHE.get(character);
+  const folded = foldCharacter(character);
+  const cached = GLYPH_CACHE.get(folded);
   if (cached) return cached;
-  const art = GLYPHS[character] ?? MISSING;
+  const art = GLYPHS[folded] ?? MISSING;
   const rows = art.split("/").map((row) => row.split("").map((bit) => (bit === "1" ? 1 : 0)));
   // Column-major bits: 5 columns, 7 rows, bit n of column c.
   const packed = new Uint8Array(5);
@@ -220,7 +236,7 @@ function glyphRows(character: string): Uint8Array {
     for (let row = 0; row < 7; row += 1) bits |= (rows[row]?.[column] ?? 0) << row;
     packed[column] = bits;
   }
-  GLYPH_CACHE.set(character, packed);
+  GLYPH_CACHE.set(folded, packed);
   return packed;
 }
 
@@ -284,6 +300,31 @@ export class Canvas {
   }
 
   /** Copy another canvas into this one at a pixel offset. */
+  /** A copy of the top `cellRows` rows, for a frame sized to its content. */
+  croppedTo(cellRows: number): Canvas {
+    const height = Math.max(1, Math.min(this.height, cellRows * CELL_HEIGHT));
+    const cropped = new Canvas(this.width, height, [0, 0, 0]);
+    this.blitInto(cropped, 0, 0, this.width, height);
+    return cropped;
+  }
+
+  /** Copy a rectangle of this canvas into another, clipped at both edges. */
+  blitInto(target: Canvas, atX: number, atY: number, width: number, height: number): void {
+    const destination = target.pixelsForWrite();
+    const source = this.pixels;
+    const stride = this.width * 3;
+    for (let row = 0; row < height; row += 1) {
+      const from = row * stride;
+      if (from + stride > source.length) break;
+      destination.set(source.subarray(from, from + stride), (atY + row) * target.width * 3 + atX * 3);
+    }
+  }
+
+  /** The raw pixel buffer, for canvas-to-canvas copies. */
+  pixelsForWrite(): Uint8Array {
+    return this.pixels;
+  }
+
   blit(source: Canvas, atX = 0, atY = 0): void {
     this.drawRgb({ width: source.width, height: source.height, data: source.toRgb() }, atX, atY);
   }
@@ -405,8 +446,17 @@ function statusColour(style: MockupStyle, status: MockupRow["status"]): Rgb {
 }
 
 /** One row: a status chip, a dense code, a label, an optional value bar. */
-function drawRow(canvas: Canvas, row: MockupRow, cellX: number, cellY: number, cellWidth: number, style: MockupStyle, options: { bar?: boolean; barWidth?: number } = {}): void {
-  canvas.fillRect(cellX * CELL_WIDTH, cellY * CELL_HEIGHT, cellWidth * CELL_WIDTH, CELL_HEIGHT - 1, style.surface);
+function drawRow(
+  canvas: Canvas,
+  row: MockupRow,
+  cellX: number,
+  cellY: number,
+  cellWidth: number,
+  style: MockupStyle,
+  options: { bar?: boolean; barWidth?: number; detailBelow?: boolean } = {},
+): void {
+  const rowCells = options.detailBelow ? 2 : 1;
+  canvas.fillRect(cellX * CELL_WIDTH, cellY * CELL_HEIGHT, cellWidth * CELL_WIDTH, rowCells * CELL_HEIGHT - 1, style.surface);
   const colour = statusColour(style, row.status);
   canvas.fillRect(cellX * CELL_WIDTH + 1, cellY * CELL_HEIGHT + 4, 4, 8, colour);
   let cursor = cellX + 1;
@@ -417,6 +467,13 @@ function drawRow(canvas: Canvas, row: MockupRow, cellX: number, cellY: number, c
   const barCells = options.bar && row.value !== undefined ? (options.barWidth ?? 8) : 0;
   const labelCells = cellWidth - (cursor - cellX) - barCells - 1;
   canvas.text(row.label, cursor, cellY, labelCells, style.ink);
+  // The detail, on its own line, when the row was given a second cell for it.
+  // `detail` was in the schema from the start and was drawn in exactly one
+  // layout, which is why a composed preview showed four labels and no content:
+  // the column that made a row worth reading was simply never rendered.
+  if (options.detailBelow && row.detail) {
+    canvas.text(row.detail, cursor, cellY + 1, cellWidth - (cursor - cellX) - 1, style.muted);
+  }
   if (barCells > 0) {
     const filled = Math.max(0, Math.min(barCells, Math.round((row.value ?? 0) * barCells)));
     canvas.fillRect((cellX + cellWidth - barCells) * CELL_WIDTH, cellY * CELL_HEIGHT + 6, barCells * CELL_WIDTH - 2, 4, style.muted);
@@ -487,7 +544,7 @@ function drawEmphasis(canvas: Canvas, spec: MockupSpec, style: MockupStyle): voi
  * the same drawing - `src/preview-composer.ts` puts generated art inside the
  * structure this function draws - without decoding the bytes again.
  */
-export function renderMockupCanvas(spec: MockupSpec, { widthCells = 31, heightCells = 16 } = {}): Canvas {
+export function renderMockupCanvas(spec: MockupSpec, { widthCells = 31, heightCells = 16, fit = "fill" }: { widthCells?: number; heightCells?: number; fit?: "fill" | "content" } = {}): Canvas {
   const style = { ...DEFAULT_STYLE, ...(spec.style ?? {}) };
   const canvas = new Canvas(widthCells * CELL_WIDTH, heightCells * CELL_HEIGHT, style.background);
   const columns = widthCells;
@@ -581,20 +638,47 @@ export function renderMockupCanvas(spec: MockupSpec, { widthCells = 31, heightCe
     // screen; it now takes the requested pitch and defaults to 2, so "airy"
     // still has the air in its name without emptying the frame.
     const requested = Math.max(1, Math.min(3, Math.round(spec.rowPitch ?? 1)));
+    // Two lines per row when the rows carry a detail and the frame can afford
+    // it. The detail *is* the content - "22 min late" beside "Route 14" - and a
+    // preview that shows only the labels is a list with a border.
+    const wantsDetail = rowsToDraw.some((row) => Boolean(row.detail?.trim()));
+    const twoLine = wantsDetail && rows - top >= rowsToDraw.length * 2 + 1 && columns >= 28;
     const pitch = layout === "airy" ? Math.max(2, requested) : requested;
-    const capacity = Math.max(0, Math.floor((rows - top) / pitch) - 1);
-    const airyCap = Math.max(3, Math.floor((rows - top) / pitch) - 1);
+    const rowCells = twoLine ? 2 : pitch;
+    const capacity = Math.max(0, Math.floor((rows - top) / rowCells) - 1);
+    const airyCap = Math.max(3, Math.floor((rows - top) / rowCells) - 1);
     const count = Math.min(layout === "airy" ? 4 : airyCap, rowsToDraw.length, capacity);
     for (let index = 0; index < count; index += 1) {
       const row = rowsToDraw[index];
       if (!row) break;
-      drawRow(canvas, row, 0, top + index * pitch, columns, style, { bar: true, barWidth: 8 });
+      drawRow(canvas, row, 0, top + index * rowCells, columns, style, { bar: true, barWidth: 8, detailBelow: twoLine });
     }
   }
 
   if (spec.emphasis) drawEmphasis(canvas, spec, style);
 
+  // "content" trims the frame to what the rows actually used. Asking for thirty
+  // rows and drawing five leaves two thirds of the frame empty, and an empty
+  // third of a preview reads as a layout mistake rather than as breathing room.
+  if (fit === "content") {
+    const usedCells = Math.min(heightCells, usedContentCells(spec, layout, top, widthCells));
+    if (usedCells < heightCells) return canvas.croppedTo(usedCells);
+  }
   return canvas;
+}
+
+/** How many cell rows the drawn content occupies, chrome included. */
+function usedContentCells(spec: MockupSpec, layout: string, top: number, columns: number): number {
+  const count = spec.rows.slice(0, 64).length;
+  if (!count) return top + 1;
+  if (layout === "tiles") return top + Math.ceil(count / Math.max(2, columns >= 24 ? 3 : 2)) * 3;
+  if (layout === "steps") return top + Math.min(Math.max(2, Math.min(count, 4)), 4) * 2;
+  const wantsDetail = spec.rows.some((row) => Boolean(row.detail?.trim()));
+  const perRow = layout === "list" || layout === "dense"
+    ? (wantsDetail && columns >= 28 ? 2 : Math.max(1, Math.min(3, Math.round(spec.rowPitch ?? 1))))
+    : layout === "airy" ? Math.max(2, Math.round(spec.rowPitch ?? 1))
+    : 1;
+  return top + count * perRow + 1;
 }
 
 /** Render a mockup on a cell grid and return the PNG bytes. */

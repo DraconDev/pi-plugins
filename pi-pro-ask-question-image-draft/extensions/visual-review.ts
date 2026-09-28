@@ -227,6 +227,8 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
 
       const previous = getPriorState(ctx, review.reviewId);
       review = restoreReviewArtifacts(review, previous);
+  // A resumed review keeps the presentation it was opened with.
+  if (review.images === "off" && previous?.images === "on") review = { ...review, images: "on" };
       const initialAnswers = initialAnswersFor(review, previous);
       const initialSkippedStageIds = initialSkippedStageIdsFor(review, previous);
       const initialGlobalNote = previous?.globalNote ?? "";

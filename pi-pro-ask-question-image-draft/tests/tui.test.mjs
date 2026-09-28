@@ -224,6 +224,7 @@ describe("TUI chrome: rows, the preview pane and image-host honesty", () => {
     try {
       const fixture = fileURLToPath(new URL("./fixtures/tiny.png", import.meta.url));
       const review = normalizeReview({
+        images: "on",
         reviewId: "stacked",
         stages: [{
           id: "one", header: "One", prompt: "Pick a treatment",
@@ -279,6 +280,7 @@ describe("TUI chrome: rows, the preview pane and image-host honesty", () => {
       // file is a different reason and has its own test.
       const real = fileURLToPath(new URL("./fixtures/tui-smoke.png", import.meta.url));
       const review = normalizeReview({
+        images: "on",
         reviewId: "no-images",
         stages: [{ id: "one", header: "One", prompt: "Pick", options: [
           { id: "a", label: "A", image: { path: real, alt: "fixture" } },
@@ -313,6 +315,7 @@ describe("images: the emitted sequence carries the whole image", () => {
     const previous = setCapabilities({ images: protocol, trueColor: true, hyperlinks: false });
     try {
       const review = normalizeReview({
+        images: "on",
         reviewId: "image-bytes",
         stages: [{ id: "one", header: "One", prompt: "Pick", options: [
           { id: "a", label: "A", image: { path: fixture } },
@@ -486,6 +489,7 @@ describe("stacked layout: the picture survives the fit", () => {
         const previous = setCapabilities({ images: protocol, trueColor: true, hyperlinks: false });
         try {
           const review = normalizeReview({
+            images: "on",
             reviewId: `fit-${protocol}`,
             stages: [{ id: "one", header: "One", prompt: "Pick", options: [
               { id: "a", label: "A", image: { path: fixture } },
@@ -537,6 +541,7 @@ describe("dialogue layout: one line per choice, information over the artwork", (
     try {
       const fixture = fileURLToPath(new URL("./fixtures/tiny.png", import.meta.url));
       const review = normalizeReview({
+        images: "on",
         reviewId: "dialogue",
         stages: [{
           id: "one", header: "One", prompt: "Which treatment ships?",
@@ -592,6 +597,7 @@ describe("a missing image file is its own reason", () => {
     const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
     try {
       const review = normalizeReview({
+        images: "on",
         reviewId: "missing",
         stages: [{ id: "one", header: "One", prompt: "Pick", options: [
           { id: "a", label: "A", description: "First.", image: { path: "/nowhere/missing.png" } },
@@ -671,6 +677,7 @@ describe("a host that cannot draw says so in the content area", () => {
       // A real image: this case is the *host*, not a broken path.
       const image = fileURLToPath(new URL("../.pi/benchmark/images/visual-001-option-1.png", import.meta.url));
       const review = normalizeReview({
+        images: "on",
         reviewId: "no-host",
         stages: [{ id: "layout", header: "Layout", prompt: "Which treatment ships?", options: [
           { id: "a", label: "Transit airy", description: "Scans fastest.", image: { path: image, alt: "treatment" } },

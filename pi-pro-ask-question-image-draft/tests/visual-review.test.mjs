@@ -151,6 +151,7 @@ describe("strict staged state gate", () => {
 
   it("persists generated image references without making them answers", () => {
     const review = normalizeReview({
+      images: "on",
       reviewId: "generated-state",
       stages: [{
         id: "layout",
@@ -429,3 +430,51 @@ describe("images presented per question are not dropped", () => {
   });
 });
 
+
+/**
+ * Images are off unless a review asks for them.
+ *
+ * The photograph is the part of a preview that carries no information, and the
+ * part that needs a terminal speaking a graphics protocol. The drawn structure
+ * is the default; `images: "on"` is how the benchmark and the live smoke still
+ * get a picture to look at.
+ */
+describe("images are off by default, and opt-in", () => {
+  it("normalises to off unless the review says on", () => {
+    assert.equal(normalizeReview({ reviewId: "a", stages: [{ header: "H", prompt: "P", options: [{ label: "A" }, { label: "B" }] }] }).images, "off");
+    assert.equal(normalizeReview({ reviewId: "b", images: "on", stages: [{ header: "H", prompt: "P", options: [{ label: "A" }, { label: "B" }] }] }).images, "on");
+    assert.throws(
+      () => normalizeReview({ reviewId: "c", images: "maybe", stages: [{ header: "H", prompt: "P", options: [{ label: "A" }, { label: "B" }] }] }),
+      /images must be "off" or "on"/,
+    );
+  });
+
+  it("a review with an image and no opt-in does not draw it, and says why", async () => {
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const { fileURLToPath } = await import("node:url");
+    const { VisualReviewWizard } = await import("../src/tui.ts");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    const fixture = fileURLToPath(new URL("./fixtures/tiny.png", import.meta.url));
+    const theme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+    try {
+      const stage = { id: "one", header: "One", prompt: "Pick", options: [
+        { id: "a", label: "A", description: "First.", image: { path: fixture, alt: "fixture" } },
+        { id: "b", label: "B", description: "Second.", image: { path: fixture, alt: "fixture" } },
+      ] };
+      for (const images of [undefined, "on"]) {
+        let result;
+        const review = normalizeReview({ reviewId: images ? "on" : "off", ...(images ? { images } : {}), stages: [stage] });
+        const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 40 } }, theme, review, process.cwd(), (value) => { result = value; });
+        const deadline = Date.now() + 10_000;
+        while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 40));
+        const frame = component.render(100);
+        const drawn = frame.some((line) => line.includes("\u001b_G") || line.includes("1337"));
+        if (images) assert.equal(drawn, true, "images: on draws the picture");
+        else assert.equal(drawn, false, "the default does not draw it");
+        component.dispose();
+      }
+    } finally {
+      if (previous) setCapabilities(previous);
+    }
+  });
+});

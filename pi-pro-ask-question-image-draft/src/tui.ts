@@ -356,6 +356,8 @@ export class VisualReviewWizard implements Component, Focusable {
   private readonly editExternal?: (value: string) => Promise<string | undefined>;
   private overlayHandle?: OverlayHandle;
   private readonly imageMode: boolean;
+  /** Whether this review asked for its option images to be drawn at all. */
+  private readonly imagesEnabled: boolean;
   private collapsed = false;
   private _focused = false;
   private stageIndex = 0;
@@ -429,7 +431,11 @@ export class VisualReviewWizard implements Component, Focusable {
       }
     }
 
-    this.imageMode = canRenderImages() && review.stages.some((stage) => stage.options.some((option) => option.image));
+    // Images are decoration and the structure is the decision, so a review
+    // draws pictures only when it asks for them. `images: "on"` is how the
+    // benchmark and the live smoke still get a picture to look at.
+    this.imagesEnabled = review.images === "on";
+    this.imageMode = this.imagesEnabled && canRenderImages() && review.stages.some((stage) => stage.options.some((option) => option.image));
     if (this.signal?.aborted) this.onAbort();
     else this.signal?.addEventListener("abort", this.onAbort, { once: true });
     void loadOptionImages(review, cwd, signal).then((loaded) => {
@@ -910,11 +916,23 @@ export class VisualReviewWizard implements Component, Focusable {
         const detail: string[] = [];
         if (option) {
           const loaded = this.loadedImages.get(`${stage!.id}:${option.id}`);
-          const art = loaded?.image
+          // The picture only when the review asked for one; the structure
+          // otherwise. A mockup is drawn either way - it *is* the content.
+          const art = this.imagesEnabled && loaded?.image
             ? imageLines(loaded.image, this.theme, safeWidth - 2, imageBudget)
             : (option.mockup ? this.mockupLines(option.mockup, safeWidth - 2, imageBudget) ?? [] : []);
           if (art.length > 0) {
             detail.push(...art.map((line) => (isImageLine(line) ? line : ` ${line}`)));
+          } else if (!this.imagesEnabled && option.image) {
+            const reference = option.image.path ?? option.image.url ?? "image";
+            const name = String(reference).split("/").pop() ?? String(reference);
+            for (const line of wrapTextWithAnsi(
+              this.theme.fg("dim", `Image: ${name} — pictures are off for this review; the structure is drawn instead. Set images: "on" to show it.`),
+              Math.max(1, safeWidth - 4),
+            )) detail.push(`  ${line}`);
+            if (option.image.alt) {
+              for (const line of wrapTextWithAnsi(this.theme.fg("muted", `Alt: ${option.image.alt}`), Math.max(1, safeWidth - 4))) detail.push(`  ${line}`);
+            }
           } else {
             for (const line of this.compactFallback(option, loaded, safeWidth)) detail.push(`  ${line}`);
           }

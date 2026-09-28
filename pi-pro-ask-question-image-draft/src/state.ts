@@ -61,6 +61,8 @@ export interface ReviewState {
   version: 1;
   reviewId: string;
   round: number;
+  /** Whether this review asked for its option images; off unless it said on. */
+  images?: "off" | "on";
   title?: string;
   provider?: string;
   model?: string;
@@ -231,6 +233,7 @@ export function isReviewState(value: unknown): value is ReviewState {
     validateReview({
       reviewId: value.reviewId,
       round: value.round as number,
+      images: (value.images as "off" | "on" | undefined) ?? "off",
       title: value.title as string | undefined,
       provider: value.provider as string | undefined,
       model: value.model as string | undefined,
@@ -259,7 +262,7 @@ export function isReviewState(value: unknown): value is ReviewState {
     return !stage || stage.required || answers.some((answer) => answer.stageId === id);
   })) return false;
   if (value.status === "completed" && unresolvedStages(
-    { reviewId: value.reviewId, round: value.round as number, resetStageIds: value.resetStageIds as string[], stages },
+    { reviewId: value.reviewId, round: value.round as number, images: (value.images as "off" | "on" | undefined) ?? "off", resetStageIds: value.resetStageIds as string[], stages },
     answers,
     skippedStageIds,
   ).length > 0) return false;
@@ -320,6 +323,7 @@ export function makeReviewState(
     version: 1,
     reviewId: review.reviewId,
     round: review.round,
+    images: review.images,
     title: review.title,
     provider: review.provider,
     model: review.model,
@@ -529,6 +533,7 @@ export function resultFromState(state: ReviewState, decision: ReviewDecision, re
   const review: NormalizedReview = {
     reviewId: state.reviewId,
     round: state.round,
+    images: state.images === "on" ? "on" : "off",
     title: state.title,
     provider: state.provider,
     model: state.model,

@@ -115,6 +115,7 @@ try {
   const imageBytes = await readFile(imagePath);
   const review = normalizeReview({
     reviewId: "review-shot",
+    images: "on",
     title: "Incident Queue Layout",
     stages: [
       {

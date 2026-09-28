@@ -183,6 +183,9 @@ export const ReviewParamsSchema = Type.Object({
   title: Type.Optional(Type.String({ maxLength: 200, description: "Optional title for the review wizard." })),
   reviewId: Type.Optional(Type.String({ maxLength: 200, description: "Stable id used to resume a review after a revision." })),
   round: Type.Optional(Type.Integer({ minimum: 1, description: "Revision round, starting at 1." })),
+  images: Type.Optional(Type.Union([Type.Literal("off"), Type.Literal("on")], {
+    description: "Whether an option's image is drawn. Off by default: a generated image is decoration, and the structure is the part a reviewer decides on. Set \"on\" to show it as well.",
+  })),
   autoResolve: Type.Optional(Type.Boolean({
     description: "Pre-select the recommended option on every stage, so Enter resolves it. Off by default; the user toggles it with Ctrl+A and always still presses Enter themselves.",
   })),
@@ -256,6 +259,14 @@ export interface NormalizedReview {
   stages: NormalizedStage[];
   reviewId: string;
   round: number;
+  /**
+   * Off unless the review asks for pictures.
+   *
+   * The photograph is the part of a preview that carries no information, and it
+   * is also the part that needs a terminal that speaks a graphics protocol. The
+   * drawn structure is the default; `images: "on"` opts back in.
+   */
+  images: "off" | "on";
   /** Pre-select the recommended option per stage. Off unless asked for. */
   autoResolve?: boolean;
   resetStageIds: string[];
@@ -616,12 +627,16 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
   if (params.autoResolve !== undefined && typeof params.autoResolve !== "boolean") {
     throw new Error("autoResolve must be a boolean.");
   }
+  if (params.images !== undefined && params.images !== "off" && params.images !== "on") {
+    throw new Error("images must be \"off\" or \"on\".");
+  }
 
   return {
     title: optionalText(params.title),
     stages,
     reviewId: optionalText(params.reviewId) || `review-${now.toString(36)}-${randomUUID().slice(0, 8)}`,
     round,
+    images: params.images === "on" ? "on" : "off",
     autoResolve: params.autoResolve === true ? true : undefined,
     resetStageIds: [
       ...new Set(
