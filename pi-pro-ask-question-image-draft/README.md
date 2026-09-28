@@ -178,6 +178,27 @@ npm run shot:review -- --honour-host --out .pi/benchmark/shots/tmux-fallback.png
 npm run shot:review -- --emit --hold 60                                            # paint it into a real terminal
 ```
 
+## The panel: a fixed block, not a full-screen takeover
+
+The review is a **fixed-height block anchored at the bottom of the
+conversation**, not a takeover of the screen. It leaves five rows of the host's
+own furniture alone - the input line, its blank, the cwd/status line and a
+multiplexer bar - because you still have to read the conversation and see what
+you are typing into while a question is open. A big screen gets a big panel
+(32 rows), a small one keeps at least 14, and either way **the height does not
+depend on the content**: the detail area absorbs the slack, so the frame does not
+resize when the cursor moves between options or when a picture finishes loading.
+
+Inside the block, from the top down: the **picture or the reason there is none**,
+the **information** (the highlighted option's own sentence), the **question**,
+then the **answers** - one line per choice, pinned to the bottom - and the
+actions and key hints under them. `Ctrl+]` collapses the whole thing to one dim
+line.
+
+On a short screen the panel gives things up in a fixed order: the hints first,
+then the highlighted sentence, then picture space - but never the picture itself
+and never the choices. A review that carries an image never silently loses it.
+
 ## Notes
 
 Every review carries notes, and all three paths are covered by tests
