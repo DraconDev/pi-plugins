@@ -275,16 +275,20 @@ describe("TUI chrome: rows, the preview pane and image-host honesty", () => {
     const previousTmux = process.env.TMUX;
     delete process.env.TMUX;
     try {
+      // A real image path: this case is the *host*, not a broken file. A missing
+      // file is a different reason and has its own test.
+      const real = fileURLToPath(new URL("./fixtures/tui-smoke.png", import.meta.url));
       const review = normalizeReview({
         reviewId: "no-images",
         stages: [{ id: "one", header: "One", prompt: "Pick", options: [
-          { id: "a", label: "A", image: { path: "/nowhere/missing.png" } },
-          { id: "b", label: "B", image: { path: "/nowhere/also-missing.png" } },
+          { id: "a", label: "A", image: { path: real, alt: "fixture" } },
+          { id: "b", label: "B", image: { path: real, alt: "fixture" } },
         ] }],
       });
       let result;
       const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 40 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
-      await new Promise((r) => setTimeout(r, 200));
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 40));
       // The sentence is wrapped to the pane, so compare it as prose.
       const text = component.render(110).join(" ").replace(/\s+/g, " ");
       assert.match(text, /Inline images are off here/, "a host that cannot render images must say so");
