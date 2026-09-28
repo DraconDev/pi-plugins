@@ -424,14 +424,23 @@ export function compositionSentence(option, siblings = []) {
  */
 export const DISPLAY_STYLE = Object.freeze([
   `Style: flat vector shapes, seen straight on, filling the whole frame, on a pure white background. Solid fills, thick black outlines at least 12 pixels wide, no thin lines, no grey tints, no gradients, no shadows, no 3D, no perspective, no photo, no device frame, no texture.`,
-  "Budget: at most nine shapes in the whole image, each at least a fifth of the frame across, with wide white gaps between neighbouring shapes so each keeps its own outline when the image is shrunk.",
+  // The preview area grew from 31x16 cells to roughly 80x20, so the shape budget
+  // grew with it. Nine shapes at postage-stamp size was the old constraint; at
+  // the new size the shapes can carry more of the subject.
+  "Budget: between twelve and twenty shapes in the whole image, each at least a seventh of the frame across, with wide white gaps between neighbouring shapes so each keeps its own outline when the image is shrunk.",
   "Colours: three flat colours at most - black, white, and one bold accent colour.",
-  "Text: at most one very large uppercase word per block, drawn in a heavy sans-serif, and only from this list: LATE, OK, HOLD, DONE, NEW, ALERT, PAID, SENT, WAIT, SAFE, LOW, HIGH. Each word is at least a tenth of the image height so it is still readable when the image is shrunk. Never write a treatment name, a product name, a title, a caption or a number, and never write anything smaller.",
+  // The word list is gone, and it is the most important line in this file. A
+  // prompt that says "one large word per block, from this list" cannot produce
+  // information: the model has nothing to say, so it fills blocks with status
+  // words that read as fake UI - the measured result was cards reading
+  // "OK / SAFE LOW" and "NEW / WAIT LOW" for a bus-operations dashboard.
+  // A preview earns its space by showing the *subject*, not by labelling blocks.
+  "Text: none at all. No words, no letters, no numbers, no captions, no labels, no icons that are letters. If a shape would need a word to mean anything, draw the thing the word would have named instead.",
 ].join(" "));
 
 /** The negative prompt sent alongside every generation. */
 export const DISPLAY_NEGATIVE_PROMPT = Object.freeze([
-  "small text, fine print, captions, titles, numbers, logos, watermarks, signature",
+  "any text at all, any word, any letter, any number, any label, captions, titles, numbers, logos, watermarks, signature, status words like OK or LATE or WAIT",
   "thin lines, hairlines, fine detail, small icons, tiny text, dense grids, clutter, many small elements",
   "gradients, drop shadows, 3d rendering, isometric view, perspective, photo texture, noise",
   "device bezel, browser chrome, hands, people, poster layout, marketing copy",
