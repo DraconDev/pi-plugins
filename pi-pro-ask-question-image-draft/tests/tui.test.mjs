@@ -249,9 +249,18 @@ describe("TUI chrome: rows, the preview pane and image-host honesty", () => {
       const questionAt = rows.findIndex((line) => /^\s*Pick a treatment$/.test(line));
       assert.ok(artAt >= 0, "the artwork is inline");
       assert.ok(questionAt > artAt, "and it sits above the question and the options");
-      // Nothing is cut off: the frame is exactly the terminal, with no scroll hints.
-      assert.equal(frame.length, 40, "the frame fills the terminal exactly");
+      // The panel is a fixed block that leaves the host's own furniture - the
+      // input line, its blank, the cwd/status line, a multiplexer bar - alone,
+      // so a question never covers what you type into or the session's status.
+      assert.ok(frame.length <= 40 - 5, `the panel leaves the host furniture alone (got ${frame.length} rows)`);
+      assert.ok(frame.length >= 12, "and is a big enough block to work in");
       assert.doesNotMatch(rows.join("\n"), /content (above|below)/, "and no row is clipped");
+      // The same question, one row more or less of content, must not resize it.
+      const taller = { ...review, stages: [{ ...review.stages[0], prompt: `${review.stages[0].prompt} ${"extra ".repeat(40)}` }] };
+      let tallerResult;
+      const tallerWizard = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 40 } }, plainTheme, normalizeReview(taller), process.cwd(), (value) => { tallerResult = value; });
+      assert.equal(tallerWizard.render(100).length, frame.length, "the layout is fixed, not content-driven");
+      tallerWizard.dispose();
       component.dispose();
     } finally {
       if (previous) setCapabilities(previous);

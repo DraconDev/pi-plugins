@@ -615,12 +615,18 @@ describe("VISUAL-006: the image prompt is written for the display it is judged a
         // A composition is countable. "A well-organised interface" is not.
         assert.match(prompt, /\b(one|two|three|four|five|six|nine)\b[^.]*\b(block|panel|cell|tile|circle|bar|band|band|disc|rectangle)/i,
           `${scenario.id}/${option.label} has no countable composition`);
-        assert.match(prompt, /at most nine shapes/i);
+        assert.match(prompt, /between twelve and twenty shapes/i);
         assert.match(prompt, /wide white gaps/i);
         assert.match(prompt, /thick black outlines/i);
         // The hairline style that measured as texture is gone for good.
         assert.doesNotMatch(prompt, /thin dark outline/i);
         assert.doesNotMatch(prompt, /fill the frame: every region/i);
+        // And so is the word list. "One large word per block, from this list" is
+        // what produced the fake UI text: a model given nothing to say fills
+        // blocks with status words, and the measured result was cards reading
+        // "OK / SAFE LOW" for a bus-operations dashboard.
+        assert.doesNotMatch(prompt, /LATE, OK, HOLD/, "the status-word list is what made the previews look like UI");
+        assert.match(prompt, /Text: none at all/, "and the prompt now says so outright");
         // The prompt is deterministic: the cache and the 600-image budget both
         // depend on the same scenario producing the same string.
         assert.equal(prompt, imageOptionPrompt(scenario, option));

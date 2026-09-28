@@ -72,6 +72,19 @@ const DONE_LABEL = "Done selecting";
 const SKIP_LABEL = "Skip stage";
 const APPROVE_LABEL = "Approve review";
 const REJECT_LABEL = "Reject review";
+/**
+ * The panel's fixed geometry.
+ *
+ * `FURNITURE_ROWS` are the host's own lines at the bottom of the terminal - the
+ * input line, its blank, the cwd/status line and a multiplexer bar - which a
+ * review must not cover: you still have to be able to read the conversation and
+ * see what you are typing into. `CHROME_ROWS` is the panel's own fixed header and
+ * footer, and `MAX_ROWS` caps how much of a tall screen a question may take.
+ */
+const PANEL_FURNITURE_ROWS = 5;
+const PANEL_MAX_ROWS = 32;
+const CHROME_ROWS = 6;
+
 const NOTE_LABEL = "Add note";
 const EDIT_LABEL = "Edit answers";
 const GLOBAL_NOTE_LABEL = "Add global note";
@@ -777,8 +790,8 @@ export class VisualReviewWizard implements Component, Focusable {
     // that carries one puts it on top with the questions under it, the same as an
     // image. Keying this on images alone is what put a review's preview *below*
     // its own questions.
-    const stacked = footerLines.length > 0 && this.stageRows(lines.length + footerLines.length + tailLines.length) > 0;
-    const imageBudget = stacked ? this.stageRows(lines.length + footerLines.length + tailLines.length) : 0;
+    const stacked = footerLines.length > 0 && this.panelRows(footerLines.length + tailLines.length + CHROME_ROWS) > 0;
+    const imageBudget = stacked ? this.panelRows(footerLines.length + tailLines.length + CHROME_ROWS) : 0;
 
     if (stage) {
       // In the stacked layout the question is already in the footer, so the
@@ -1189,10 +1202,22 @@ export class VisualReviewWizard implements Component, Focusable {
    * stacked layout, and the caller falls back to the side-by-side one rather
    * than crushing both.
    */
-  private stageRows(alreadyRendered: number): number {
+  /**
+   * How many rows the panel is, whatever the question contains.
+   *
+   * Fixed, because a panel that grows and shrinks with the content makes the
+   * conversation jump every time the cursor moves between options, and a
+   * full-screen one hides the input line. A big screen gets a big panel; a small
+   * one keeps at least a usable dozen rows; either way the detail area is what
+   * is left, and the answers stay pinned to the bottom of the panel.
+   */
+  private panelRows(footerHeight: number): number {
     const terminalRows = this.tui.terminal?.rows ?? 0;
     if (!Number.isFinite(terminalRows) || terminalRows <= 0) return 0;
-    return Math.max(0, terminalRows - alreadyRendered);
+    // Five rows of the host's own furniture: the input line, its blank, the
+    // cwd/status line and the multiplexer bar.
+    const usable = Math.max(12, Math.min(terminalRows - PANEL_FURNITURE_ROWS, PANEL_MAX_ROWS));
+    return Math.max(0, usable - footerHeight);
   }
 
   /**
@@ -1384,11 +1409,16 @@ export async function runVisualReviewWizard(
       // half-height drawer both truncated the list and covered the conversation
       // the user needed to check the answer against. Ctrl+] still collapses the
       // whole thing to one line, which is the way back to the transcript.
+      // Not a full-screen takeover. The review is a fixed-height block anchored
+      // at the bottom of the conversation, so the transcript above it and the
+      // input line, cwd/status line and multiplexer bar below it stay readable
+      // while a question is open. The height is the frame's, and the frame is
+      // the same size whatever the question contains.
       overlayOptions: {
-        anchor: "top-left",
+        anchor: "bottom-center",
         width: "100%",
         maxHeight: "100%",
-        margin: 0,
+        margin: { left: 0, right: 0, bottom: 0 },
       },
       onHandle: (handle) => {
         overlayHandle = handle;
