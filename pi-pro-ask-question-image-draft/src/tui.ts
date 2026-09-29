@@ -1028,50 +1028,48 @@ export class VisualReviewWizard implements Component, Focusable {
             }
           }
         }
+        // The panel is a fixed block and a hard bound. The order of sacrifice,
+        // once, in the order a reviewer needs things:
+        //
+        //   1. the artwork's own padding - it is the elastic part of the frame;
+        //   2. the current answer, the note and the selected-items line, which
+        //      echo what the review already shows;
+        //   3. never the key hints, the auto-resolve mode or the density mode:
+        //      those are how the person knows which mode they are in and what
+        //      the keys do, and a review that hides its own controls is a review
+        //      nobody can drive.
         const panelTotal = this.panelHeight();
-        const detailRows = detail.length;
-        const used = lines.length + detailRows + footerLines.length + tailLines.length;
-        // The slack goes *above* the content, never into the middle of it. A gap
-        // between the picture and the sentence reads as a hole in the block; a gap
-        // under the tab strip reads as room to breathe, and the picture, the
-        // information and the answers stay one solid run down to the bottom.
-        if (panelTotal > used) detail.unshift(...Array.from({ length: panelTotal - used }, () => ""));
-        // A short screen gives up the least essential line first. What is *not*
-        // droppable is the tail from the key hints onward: the hints, the
-        // auto-resolve mode and the density mode are how the person knows which
-        // mode they are in and what it does, and a review that hides its own
-        // controls is a review nobody can drive. The current answer and the
-        // selected-items line go before any of that.
-        const floor = Math.max(1, tailLines.findIndex((line) => /↑↓ move/.test(stripPlain(line))));
-        const order: ((line: string) => boolean)[] = [
+        const overhead = () => lines.length + detail.length + footerLines.length + tailLines.length;
+        const droppable: ((line: string) => boolean)[] = [
           (line) => /Selected:/.test(line),
           (line) => /Current answer:|Note:/.test(line),
           (line) => line === "",
         ];
-        for (const isDroppable of order) {
-          let index = tailLines.findIndex(isDroppable);
-          while (index >= 0 && lines.length + detail.length + footerLines.length + tailLines.length > panelTotal) {
-            tailLines.splice(index, 1);
-            index = tailLines.findIndex(isDroppable, index);
+        let guard = 0;
+        while (overhead() > panelTotal && guard < 24) {
+          guard += 1;
+          // Only the detail's blank padding, never an escape: the Kitty escape is
+          // the artwork's first line and the iTerm2 escape its last, so cutting
+          // by position would delete the picture itself.
+          let removed = false;
+          for (let index = detail.length - 1; index >= 0; index -= 1) {
+            if (/^\s*$/.test(detail[index] ?? "")) {
+              detail.splice(index, 1);
+              removed = true;
+              break;
+            }
+          }
+          if (!removed) {
+            const next = droppable.find((isDroppable) => tailLines.some(isDroppable));
+            if (!next) break;
+            const at = tailLines.findIndex(next);
+            tailLines.splice(at, 1);
           }
         }
-        // Only the detail's own padding is ever trimmed: the Kitty escape is the
-        // artwork's first line and the iTerm2 escape its last, so cutting by
-        // position would delete the picture itself.
-        let excess = lines.length + detail.length + footerLines.length + tailLines.length - panelTotal;
-        for (let index = detailRows - 1; index >= 0 && excess > 0; index -= 1) {
-          if (/^\s*$/.test(detail[index] ?? "")) {
-            detail.splice(index, 1);
-            excess -= 1;
-          }
-        }
-        // The panel is a hard bound. The artwork's padding is what gives rows
-        // back, and it is given before anything else: the controls, the choices
-        // and the frame's own height outrank a picture that is one row shorter.
-        const panelTotal = this.panelHeight();
-        const overhead = lines.length + footerLines.length + tailLines.length;
-        if (panelTotal > 0 && detail.length > Math.max(0, panelTotal - overhead)) {
-          detail.length = Math.max(0, panelTotal - overhead);
+        // Whatever slack is left goes above the content, so the picture, the
+        // information and the answers read as one solid run down to the bottom.
+        if (panelTotal > overhead()) {
+          detail.unshift(...Array.from({ length: panelTotal - overhead() }, () => ""));
         }
         lines.push(...detail, ...footerLines, ...tailLines);
         emitted = true;
