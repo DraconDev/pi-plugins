@@ -771,7 +771,11 @@ export class VisualReviewWizard implements Component, Focusable {
     // made the list twice as tall as it needed to be and pushed the picture
     // up; here the information follows the cursor, which is what the reader is
     // actually looking at.
-    const visualStage = Boolean(stage && stage.options.some((option) => option.image || option.mockup || option.preview?.trim()));
+    // A stage has content to put in the content area when any option carries an
+    // image, a mockup, a preview, or its own change list. A change list counts:
+    // it is the model's way of saying what the option would change, and it is
+    // the reason the block is the size it is.
+    const visualStage = Boolean(stage && stage.options.some((option) => option.image || option.mockup || option.preview?.trim() || (option.changes && option.changes.length > 0)));
     const footerLines: string[] = [];
     if (stage && safeWidth >= 60 && (this.imageMode || visualStage)) {
       // A seam. Without one the picture, the sentence and the question read as
