@@ -1171,7 +1171,13 @@ export class VisualReviewWizard implements Component, Focusable {
           // and the rows above it go first.
           const excess = stackedFrame.length - headroom;
           const artIndex = stackedFrame.findIndex(isImageLine);
-          const cut = artIndex < 0 ? excess : Math.min(excess, artIndex);
+          // Never cut into the artwork (its first line for Kitty, its last for
+          // iTerm2) and never cut away the row the cursor is on: a frame with
+          // no visible cursor is a frame where Enter can answer with a choice
+          // the person was never shown.
+          let cut = artIndex < 0 ? excess : Math.min(excess, artIndex);
+          const markedAt = stackedFrame.findIndex((line) => /^\s*>\s/.test(stripPlain(line)));
+          if (markedAt >= 0 && markedAt < cut) cut = markedAt;
           lines.push(...stackedFrame.slice(cut));
         } else {
           lines.push(...stackedFrame);
