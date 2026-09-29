@@ -1469,7 +1469,7 @@ describe("the cursor is never scrolled out of its own frame", () => {
  * the top while the offset is still zero.
  */
 describe("the panel keeps its closing rule, whatever the scroll does", () => {
-  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, underline: (t) => t, inverse: (t) => t };
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
   const RULE = /^[─━═_-]{10,}$/;
 
   const review = ({ options, rows: _rows, multiSelect, recommended, autoResolve }) => normalizeReview({
@@ -1585,8 +1585,10 @@ describe("the wheel scrolls the content and the cursor still comes back to it", 
         `the wheel scrolls the content at ${rows} rows: ${before[0]}..${before.at(-1)} then ${scrolled[0]}..${scrolled.at(-1)}`,
       );
 
-      // The next cursor move takes the frame back to where the cursor is.
-      component.handleInput("\u001b[A");
+      // The next cursor move takes the frame back to where the cursor is. Down
+      // rather than up: the first row is the first option, and Up from there
+      // wraps round to the revision row, which carries no option number.
+      component.handleInput("\u001b[B");
       const marked = component.render(100)
         .map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""))
         .some((line) => /^\s*>\s*\d+\.\s+Option \d+\s*$/.test(line));
