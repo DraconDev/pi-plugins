@@ -140,11 +140,33 @@ const measure = (component, width, { rows, hasArtwork }) => {
   return { failures, lines: lines.length, marked: marked.length };
 };
 
-const settleImages = async (component) => {
+/**
+ * Wait for every image-carrying option to have an entry, and report the ones
+ * that did not produce a picture.
+ *
+ * The map's *size* is not the test. `loadOptionImages` records one entry per
+ * option either way - `{ image }` when the bytes were read, `{ error }` when
+ * they were not - so a size check passes on a file that could not be opened and
+ * on a file that is not an image at all. Nor is a loaded image enough: `loadImage`
+ * catches a failed dimension probe and returns `dimensions: undefined`, so a
+ * truncated PNG is in the map and has nothing to draw. A picture is an entry
+ * whose `image` is there *and* whose dimensions decoded, and that is what this
+ * looks for.
+ */
+const settleImages = async (component, expected) => {
   const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline && component.loadedImages.size === 0) {
+  while (Date.now() < deadline && component.loadedImages.size < expected) {
     await new Promise((resolve_) => setTimeout(resolve_, 25));
   }
+  const undecoded = [];
+  for (const [key, entry] of component.loadedImages) {
+    if (!entry?.image) undecoded.push(`${key}: ${entry?.error ?? "no entry"}`);
+    else if (!entry.image.dimensions) undecoded.push(`${key}: loaded, but no dimensions decoded`);
+  }
+  for (let missing = component.loadedImages.size; missing < expected; missing += 1) {
+    undecoded.push(`option ${missing}: no entry after settling`);
+  }
+  return undecoded;
 };
 
 const configurations = [];
@@ -176,18 +198,18 @@ try {
       process.cwd(),
       () => {},
     );
+    const tag = `${config.rows}x${config.columns} ${config.withImage ? "image" : "text "} ${config.density} multi=${config.multiSelect} n=${config.options}`;
     if (config.withImage) {
-      await settleImages(component);
-      // The fixture is untracked, so a clean checkout has none. Without this the
-      // image half of the matrix measures a frame with no artwork in it and
-      // still reports a clean run - the one case where the harness would be
-      // reporting on something that is not there.
-      if (component.loadedImages.size === 0) {
-        broken.push(`${config.rows}x${config.columns} image ${config.density} multi=${config.multiSelect} n=${config.options} first frame: no artwork decoded`);
+      // The fixture is untracked, so a clean checkout has none; and one that is
+      // present can still be unreadable, truncated, or not an image. Any of
+      // those would leave the image half of the matrix measuring frames with
+      // nothing to draw and still reporting a clean run.
+      const undecoded = await settleImages(component, config.options);
+      for (const reason of undecoded) {
+        broken.push(`${tag} first frame: artwork — ${reason}`);
         summary.artwork += 1;
       }
     }
-    const tag = `${config.rows}x${config.columns} ${config.withImage ? "image" : "text "} ${config.density} multi=${config.multiSelect} n=${config.options}`;
     // The first frame, then the list walked down and back up, checking every
     // keystroke: an invariant that holds only at rest is not an invariant.
     const states = [];
