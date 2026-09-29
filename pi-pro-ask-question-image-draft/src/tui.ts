@@ -887,7 +887,11 @@ export class VisualReviewWizard implements Component, Focusable {
       guard += 1;
     }
     const stacked = footerLines.length > 0 && room(footerLines, tailLines) > 0;
-    const imageBudget = Math.max(0, room(footerLines, tailLines));
+    // The artwork gets the remainder, and the remainder is bounded by the panel:
+    // `room` already subtracts the band, the controls and the chrome from the
+    // fixed panel height, so a band that grew past the panel cannot buy rows the
+    // panel does not have.
+    const imageBudget = stacked ? Math.max(0, room(footerLines, tailLines)) : 0;
 
     if (stage) {
       // In the stacked layout the question is already in the footer, so the
