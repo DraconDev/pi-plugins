@@ -234,7 +234,7 @@ walking each list down and back up rather than measuring it at rest:
 | `tail` | The key hints, the auto-resolve line, the density line and the closing rule, as one block in that order |
 | `height` | The frame never outgrows the terminal, and with artwork the panel stays a fixed block rather than becoming the screen |
 | `marker` | Exactly one row carries the cursor marker - none means the cursor is off screen, more than one means it is painted by position rather than by the cursor |
-| `artwork` | An image configuration whose picture never decoded - the fixture is untracked, and a matrix that reports clean while measuring frames with no artwork in them is worse than no matrix |
+| `artwork` | An image configuration whose picture did not arrive whole - the fixture is untracked, and a matrix that reports clean while measuring frames with nothing to draw is worse than no matrix. The bar is a complete payload, not a loaded file: an unreadable file, a file that is not an image, and a PNG cut to 2000 of its 512,739 bytes each break the run, because `getImageDimensions` reads the header and a header survives almost any truncation |
 
 The width is the width the frame is *rendered* at, not `terminal.columns`: the
 panel never reads that, so varying it alone measures one frame three times and

@@ -17,7 +17,9 @@
  *               and the one way to lose that is for a band to be emptied and the
  *               slack that was padding the picture to be handed to nothing. A
  *               text-only review has nothing to reserve, so it grows with its
- *               content - 24 rows at four options, 32 at eight - and the promise
+ *               content - 24 rows at four options and 32 at eight when rendered
+ *               at 80 columns, 28 and 40 at 60, where the question and every
+ *               reason line wrap - and the promise
  *               there is only that it stops at the terminal.
  *   marker    - the row the cursor is on carries the `>` marker and is inside
  *               the frame. A frame with no visible cursor is a frame where
