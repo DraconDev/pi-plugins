@@ -383,6 +383,8 @@ export class VisualReviewWizard implements Component, Focusable {
   private density: "comfortable" | "compact";
   /** True when this frame dropped the reasons under the choices to make room. */
   private reasonsDropped = false;
+  /** Whether the frame being built prints a reason under every choice. */
+  private reasonsShown = false;
   private collapsed = false;
   private _focused = false;
   private stageIndex = 0;
@@ -894,9 +896,11 @@ export class VisualReviewWizard implements Component, Focusable {
         if (footerLines.length === 0) break;
       }
     }
+    this.reasonsDropped = false;
     if (footerLines.length > essentialFooter.length && room(footerLines, tailLines) < MIN_ART_ROWS) {
       footerLines.length = 0;
       footerLines.push(...essentialFooter);
+      this.reasonsDropped = true;
     }
     // Even the reason-free band can crowd the picture out on a long list, and a
     // picture printed two cells wide is not a picture. So the band gives up whole
