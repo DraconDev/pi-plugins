@@ -951,3 +951,77 @@ describe("density in the image layout, where the picture is", () => {
     component.dispose();
   });
 });
+
+/**
+ * The regression the last round shipped, pinned.
+ *
+ * Rendering a reason under every choice doubled the height of the default
+ * mode's choice band, which tipped 8–10 options into a short-panel fallback
+ * whose body read the array it had just cleared — so the whole footer tail
+ * vanished: the key hints, the auto-resolve line, the density line and the
+ * closing rule. Every image-layout density test used **two** options, which is
+ * exactly the size that still fits, so a green suite proved nothing about it.
+ *
+ * These render 8 and 10 options with a picture, in both modes, at the heights
+ * the object names.
+ */
+describe("the footer survives a long option list, with the picture", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  const fixture = new URL("./fixtures/tiny.png", import.meta.url).pathname;
+  const build = async (extra, options, rows) => {
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    const review = normalizeReview({
+      reviewId: "long", images: "on", ...extra,
+      stages: [{
+        id: "one", header: "Treatment", prompt: "Which treatment ships first?",
+        options: Array.from({ length: options }, (_, index) => ({
+          id: `o${index}`, label: `Option ${index + 1}`,
+          description: `Favors option ${index + 1}; trade-off: a one-to-two sentence reason line.`,
+          image: { path: fixture, alt: "Fixture" },
+        })),
+      }],
+    });
+    let result;
+    const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 40));
+    if (previous) setCapabilities(previous);
+    const text = component.render(100).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+    return { component, text, get result() { return result; } };
+  };
+
+  for (const options of [8, 10]) {
+    for (const rows of [40, 44]) {
+      it(`keeps the hints, auto-resolve, density and the closing rule at ${options} options, ${rows} rows, comfortable`, async () => {
+        const { component, text } = await build({}, options, rows);
+        const joined = text.join("\n");
+        assert.match(joined, /↑↓ move/, "the key hints are still on screen");
+        assert.match(joined, /auto-resolve: /, "the auto-resolve line is still on screen");
+        assert.match(joined, /density: /, "and so is the mode");
+        assert.match(text[text.length - 1], /^─+$/, "the frame is closed by its rule");
+        component.dispose();
+      });
+      it(`keeps the same four at ${options} options, ${rows} rows, compact`, async () => {
+        const { component, text } = await build({ density: "compact" }, options, rows);
+        const joined = text.join("\n");
+        assert.match(joined, /density: compact/, "the mode is stated");
+        assert.match(joined, /auto-resolve: /, "the auto-resolve line is still on screen");
+        assert.match(text[text.length - 1], /^─+$/, "the frame is closed by its rule");
+        component.dispose();
+      });
+    }
+  }
+
+  it("stays inside the fixed panel instead of spilling into the host's rows", async () => {
+    for (const options of [8, 11, 14]) {
+      for (const rows of [36, 40, 44]) {
+        const { component, text } = await build({}, options, rows);
+        // PANEL_MAX_ROWS is 32 and five rows belong to the host.
+        assert.ok(text.length <= 32, `${options} options at ${rows} rows stays in the panel (got ${text.length})`);
+        assert.ok(text.length <= rows - 5 + 1, `${options} options at ${rows} rows leaves the host's rows alone (got ${text.length})`);
+        component.dispose();
+      }
+    }
+  });
+});
