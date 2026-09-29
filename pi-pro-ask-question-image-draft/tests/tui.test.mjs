@@ -1611,3 +1611,115 @@ describe("the wheel scrolls the content and the cursor still comes back to it", 
     }, { timeout: 30000 });
   }
 });
+
+/**
+ * Every view of the review carries its footer tail.
+ *
+ * The panel pins four things at the bottom: the key hints, the auto-resolve
+ * line, the density line and the closing rule. They are the controls - without
+ * them a review cannot be driven, and a frame that has quietly lost its tail is
+ * a frame where the person is looking at a form with no way to fill it in. The
+ * rule that degrades the footer, `footerLines.length = 0` followed by a push of
+ * the essential band, is the one place that could take them: it empties the
+ * array before rebuilding it, so a mistake in what it reads back would leave a
+ * band of blanks rather than the controls. It reads a separate `essentialFooter`
+ * const, built before the clear, and these cases hold that line.
+ *
+ * The note editor is a different view and is deliberately not on this list: it
+ * is a modal field with its own line ("Enter to submit"), and asserting the
+ * review's controls on it is asserting the wrong thing.
+ */
+describe("every review view keeps the panel's footer tail", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  const RULE = /^[─━═_-]{10,}$/;
+  const HINTS = /↑↓ move/;
+  const AUTO = /auto-resolve/;
+  const DENSITY = /density: (comfortable|compact)/;
+
+  const build = (options, multiSelect) => normalizeReview({
+    reviewId: "tail", images: "on",
+    stages: [
+      {
+        id: "one", header: "One", prompt: "Which treatment ships first?", multiSelect,
+        options: Array.from({ length: options }, (_, index) => ({
+          id: `a${index}`, label: `Option ${index + 1}`,
+          description: `Favors option ${index + 1}; trade-off: a one-to-two sentence reason line.`,
+        })),
+      },
+      {
+        id: "two", header: "Two", prompt: "And the second?", multiSelect: false,
+        options: [
+          { id: "b0", label: "Second A", description: "one reason line" },
+          { id: "b1", label: "Second B", description: "one reason line" },
+        ],
+      },
+    ],
+  });
+
+  const assertTail = (component, width, tag) => {
+    const lines = component.render(width).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+    const frame = lines.join("\n");
+    assert.ok(HINTS.test(frame), `${tag}: the key hints are on screen`);
+    assert.ok(AUTO.test(frame), `${tag}: the auto-resolve line is on screen`);
+    assert.ok(DENSITY.test(frame), `${tag}: the density line is on screen`);
+    assert.ok(lines.some((line) => RULE.test(line.trim())), `${tag}: the closing rule is on screen`);
+    // The tail is a block, not four lines scattered across the frame: the hints
+    // sit directly above the auto-resolve and density lines, and the rule is the
+    // last thing on screen. A tail whose parts survive but fall apart is a tail
+    // that has come unstuck.
+    const hintAt = lines.findIndex((line) => HINTS.test(line));
+    const autoAt = lines.findIndex((line) => AUTO.test(line));
+    const densityAt = lines.findIndex((line) => DENSITY.test(line));
+    // The frame is ruled at the top as well as the bottom, so the closing rule
+    // is the *last* one on screen.
+    const ruleAt = lines.findLastIndex((line) => RULE.test(line.trim()));
+    assert.ok(
+      hintAt >= 0 && autoAt === hintAt + 1 && densityAt === autoAt + 1 && ruleAt > densityAt,
+      `${tag}: the tail is one block - hints ${hintAt}, auto ${autoAt}, density ${densityAt}, rule ${ruleAt}`,
+    );
+  };
+
+  // 59 and 61 straddle the `safeWidth >= 60` gate that builds the footer band,
+  // so the essential-band fallback is exercised on both sides of it.
+  for (const columns of [59, 60, 61, 80]) {
+    for (const rows of [44, 30]) {
+      it(`keeps the tail on the stage, after a note, and on the review tab at ${columns}x${rows}`, async () => {
+        for (const options of [3, 14]) {
+          for (const multiSelect of [false, true]) {
+            const component = new VisualReviewWizard(
+              { requestRender: () => {}, terminal: { rows, columns } },
+              plainTheme, build(options, multiSelect), process.cwd(), () => {},
+            );
+            const tag = `${options} options, multiSelect=${multiSelect}, ${columns}x${rows}`;
+
+            assertTail(component, 100, `${tag}, first frame`);
+
+            // A note adds rows to the tail, which is the row the squeeze has to
+            // give up first.
+            component.handleInput("\t");
+            component.handleInput("n");
+            component.handleInput("a short note");
+            component.handleInput("\r");
+            component.handleInput("\u001b");
+            assertTail(component, 100, `${tag}, with a note`);
+
+            // Answer the first stage, then the second, which lands on the review
+            // tab - the one view with no stage of its own.
+            component.handleInput("\u001b[B");
+            component.handleInput("\r");
+            assertTail(component, 100, `${tag}, stage answered`);
+            if (multiSelect) {
+              component.handleInput(" ");
+              component.handleInput("\u001b[B");
+              component.handleInput("\u001b[B");
+              component.handleInput("\u001b[B");
+            }
+            component.handleInput("\r");
+            assertTail(component, 100, `${tag}, review tab`);
+            component.dispose();
+          }
+        }
+      }, { timeout: 30000 });
+    }
+  }
+});
