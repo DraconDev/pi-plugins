@@ -1354,13 +1354,16 @@ export class VisualReviewWizard implements Component, Focusable {
     const body = lines.slice(headerCount, Math.max(headerCount, lines.length - footerCount));
     const maxOffset = Math.max(0, body.length - 1);
 
-    // The cursor's row is always in view, and the scroll follows it *because*
-    // the cursor moved. The offset is the reader's place in the content and a
-    // wheel moves it on purpose - they are looking at something else - so the
-    // frame only snaps back when the cursor is somewhere else. Anchoring on
-    // the cursor's index rather than on a flag at the key sites means a stage
-    // change, a tab or a restored round is a cursor move too, and none of them
-    // can be missed.
+    // Two things move the frame, and they own different things. A keypress
+    // moves the cursor, and the frame follows it, because a frame that does not
+    // show where the cursor is is a frame where Enter answers on a choice
+    // nobody was shown. A wheel moves the *offset* - the reader's place in the
+    // content - and leaves the frame there, because somebody reading a long
+    // list is looking at something other than the cursor's row. The next cursor
+    // move takes the frame back. That is what the `anchoredCursor` comparison
+    // decides, and comparing the cursor index rather than a flag set at the key
+    // sites means a stage change, a tab or a restored round counts as a cursor
+    // move too, so none of them can be missed.
     //
     // The offset is settled here rather than in the key handler because only
     // here is it known how tall the frame ended up: the band can be windowed by

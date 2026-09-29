@@ -1459,14 +1459,18 @@ describe("the cursor is never scrolled out of its own frame", () => {
  * assembles the frame a row too long takes the border with it. The window's
  * visible height and its two indicator lines are a fixed point - the indicators
  * depend on where the window sits, and the window's size depends on how many
- * indicators there are - and computing the indicators from the *pre-settled*
- * scroll offset broke it: when re-anchoring on the cursor pushed the window off
- * the top, an extra "↑ content above" line was inserted after the body had
- * already been sized, the frame came out one row too long, and the border was
- * the row that went. Measured 60 frames over 120 configurations, the worst at
- * eight options on a 22-row terminal, where auto-resolve lands the cursor near
- * the bottom of an unscrolled list - the cheapest way to make the window leave
- * the top while the offset is still zero.
+ * indicators there are - and the code used to size the body from the scroll
+ * offset *before* re-anchoring it on the cursor, then insert the indicators
+ * from the settled offset. When the two disagreed, an extra "content above"
+ * line went in after the body had been sized, the frame came out a row longer
+ * than the terminal, and the border was the row that had to go. The two are now
+ * resolved together, so the assembled frame is at most `height` rows by
+ * construction, and the body gives up rows before the footer does.
+ *
+ * These cases are guards on that invariant rather than reproductions of a
+ * specific loss: walking the list and jumping the cursor onto an unscrolled
+ * frame did not make the old code lose the border in the shapes tried here, so
+ * they pin the property rather than claim to catch a known failure.
  */
 describe("the panel keeps its closing rule, whatever the scroll does", () => {
   const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
@@ -1543,8 +1547,11 @@ describe("the panel keeps its closing rule, whatever the scroll does", () => {
  * than the row the cursor is on. So the wheel scrolls, and the frame stays
  * where they put it. A keypress moves the cursor, and then the frame follows,
  * because a frame that does not show where the cursor is is a frame where Enter
- * answers on a choice nobody was shown. Re-anchoring on every render instead
- * made the wheel inert, which is a documented feature gone.
+ * answers on a choice nobody was shown. The code used to re-anchor on every
+ * render, so the two rules contradicted each other: a wheel that moved the
+ * offset was pulled straight back to the cursor before anyone could read the
+ * row it had just scrolled to. The rule is now decided by whether the cursor
+ * moved, which is what this pins.
  */
 describe("the wheel scrolls the content and the cursor still comes back to it", () => {
   const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
