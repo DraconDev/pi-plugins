@@ -1202,3 +1202,86 @@ describe("every option is reachable and marked, at every length", () => {
     assert.equal(sawOverflowMarker, false, "eight options fit, so there is nothing to scroll to");
   }, { timeout: 30000 });
 });
+
+/**
+ * The band window, across the content a review actually carries.
+ *
+ * The reachability cases above all put an `image` on every option, which is the
+ * one layout that happened to work. A stage whose content is a `preview` or a
+ * `changes` list renders different rows - and a multi-select row is a checkbox,
+ * not a number - so the window has to recognise the shapes that are really
+ * rendered. When it did not, the first frame came up with no cursor marker at
+ * all and the person could answer with an option nobody had seen.
+ *
+ * These walk the list **by option**, advancing until the marked option changes,
+ * because a band that carries reasons moves more than one row per keypress and
+ * counting keypresses overshoots the end.
+ */
+describe("the band window, for every kind of content a review carries", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  const image = new URL("../.pi/benchmark/images/visual-001-option-1.png", import.meta.url).pathname;
+
+  const optionFor = (component) => {
+    const plain = component.render(100).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+    // The cursor marker, whichever shape the row has: "1. Option 3" or "[ ] Option 3".
+    const marked = plain.find((line) => /^\s*>\s*(?:\d+\.\s+|\[[ x]\]\s+)Option (\d+)\s*$/.exec(line));
+    return marked ? Number(/Option (\d+)/.exec(marked)[1]) : 0;
+  };
+
+  const walk = async (content, { options: count, multiSelect, density, rows }) => {
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    try {
+      const build = (base) => content === "image" ? { ...base, image: { path: image, alt: "Fixture" } }
+        : content === "preview" ? { ...base, preview: "a short preview block" }
+        : { ...base, changes: [`change one for ${base.label}`, "change two"] };
+      const review = normalizeReview({
+        reviewId: "window", images: "on", ...(density === "compact" ? { density } : {}),
+        stages: [{
+          id: "one", header: "Treatment", prompt: "Which treatment ships first?", multiSelect,
+          options: Array.from({ length: count }, (_, index) => build({
+            id: `o${index}`, label: `Option ${index + 1}`,
+            description: `Favors option ${index + 1}; trade-off: a one-to-two sentence reason line.`,
+          })),
+        }],
+      });
+      let result;
+      const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline && component.loadedImages.size === 0 && content === "image") await new Promise((r) => setTimeout(r, 50));
+      const seen = new Set([optionFor(component)]);
+      let current = [...seen][0];
+      assert.ok(current > 0, "the first option is marked on the very first frame");
+      for (let step = 1; step < count; step += 1) {
+        let advanced = false;
+        for (let guard = 0; guard < 8 && !advanced; guard += 1) {
+          component.handleInput("\u001b[B");
+          const now = optionFor(component);
+          if (now !== current) { current = now; advanced = true; }
+        }
+        assert.ok(advanced, `↓ reaches the option after ${current}`);
+        seen.add(current);
+      }
+      component.dispose();
+      return seen;
+    } finally {
+      if (previous) setCapabilities(previous);
+    }
+  };
+
+  for (const content of ["image", "preview", "changes"]) {
+    for (const multiSelect of [false, true]) {
+      for (const density of ["comfortable", "compact"]) {
+        it(`marks every option with ${content} content, multiSelect=${multiSelect}, ${density}`, async () => {
+          const seen = await walk(content, { options: 20, multiSelect, density, rows: 44 });
+          assert.equal(seen.size, 20, `every option was marked on screen: ${[...seen].join(",")}`);
+        }, { timeout: 30000 });
+      }
+    }
+  }
+
+  it("holds on a short terminal, where the panel cannot fit the list", async () => {
+    const seen = await walk("changes", { options: 20, multiSelect: true, density: "comfortable", rows: 30 });
+    assert.equal(seen.size, 20, "a cramped panel scrolls the band rather than losing options");
+  }, { timeout: 30000 });
+});
