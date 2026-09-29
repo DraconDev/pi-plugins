@@ -657,13 +657,6 @@ export function renderMockupCanvas(spec: MockupSpec, { widthCells = 31, heightCe
 
   if (spec.emphasis) drawEmphasis(canvas, spec, style);
 
-  // "content" trims the frame to what the rows actually used. Asking for thirty
-  // rows and drawing five leaves two thirds of the frame empty, and an empty
-  // third of a preview reads as a layout mistake rather than as breathing room.
-  if (fit === "content") {
-    const usedCells = Math.min(heightCells, usedContentCells(spec, layout, top, widthCells));
-    if (usedCells < heightCells) return canvas.croppedTo(usedCells);
-  }
   return canvas;
 }
 
