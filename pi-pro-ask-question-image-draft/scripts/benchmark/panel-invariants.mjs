@@ -9,10 +9,16 @@
  *               closing rule are on screen, as one block, in that order. They
  *               are the controls; a frame that has lost them is a form nobody
  *               can drive.
- *   height    - the panel is a fixed block, not the terminal. The one way to
- *               lose this is for a band to be emptied and the slack that was
- *               padding the picture to be handed to nothing, at which point the
- *               frame grows until it fills every row.
+ *   height    - the frame never outgrows the terminal, and when the review has
+ *               artwork the panel is a fixed block rather than the screen. The
+ *               two are different promises and the difference is the picture: a
+ *               stage with a treatment in it reserves the panel's rows for it,
+ *               so the frame sits at the same height whatever the option count,
+ *               and the one way to lose that is for a band to be emptied and the
+ *               slack that was padding the picture to be handed to nothing. A
+ *               text-only review has nothing to reserve, so it grows with its
+ *               content - 24 rows at four options, 32 at eight - and the promise
+ *               there is only that it stops at the terminal.
  *   marker    - the row the cursor is on carries the `>` marker and is inside
  *               the frame. A frame with no visible cursor is a frame where
  *               Enter answers on a choice nobody was shown.
@@ -46,9 +52,11 @@ const AUTO = /auto-resolve/;
 const DENSITY = /density: (comfortable|compact)/;
 const MARKER = /^\s*>\s/;
 
-// The panel's own bound. A review is allowed to outgrow it only once the option
-// list is long enough to be the panel's whole job, so the check is per
-// configuration rather than a flat line count.
+// The panel's bound when the review carries artwork: measured, not guessed.
+// Fourteen options at both densities and one to twenty options with a picture
+// all render at 32 rows, and twenty at 33, so 36 is the ceiling with room to
+// spare. A text-only review is *meant* to grow with its content, so this does
+// not apply to it - see the module comment.
 const PANEL_CEILING = 36;
 
 const theme = {
@@ -82,7 +90,7 @@ const build = ({ options, multiSelect, density, withImage }) => normalizeReview(
 });
 
 /** Every invariant, as a list of failures with the reason. */
-const measure = (component, width) => {
+const measure = (component, width, { rows, hasArtwork }) => {
   const lines = plain(component.render(width));
   const frame = lines.join("\n");
   const failures = [];
@@ -100,8 +108,13 @@ const measure = (component, width) => {
   if (hintAt >= 0 && (autoAt !== hintAt + 1 || densityAt !== autoAt + 1 || ruleAt <= densityAt)) {
     failures.push(`tail: not one block (hints ${hintAt}, auto ${autoAt}, density ${densityAt}, rule ${ruleAt})`);
   }
-  if (lines.length > PANEL_CEILING) {
-    failures.push(`height: the frame is ${lines.length} rows, past the panel's ${PANEL_CEILING}`);
+  if (lines.length > rows) {
+    failures.push(`height: the frame is ${lines.length} rows, past the ${rows}-row terminal`);
+  } else if (hasArtwork && lines.length > PANEL_CEILING) {
+    // The picture is what makes the panel a fixed block. Without one there is
+    // nothing to reserve, and a text-only review that stops short of what its
+    // content needs is just a review that hides options.
+    failures.push(`height: with artwork the panel is ${lines.length} rows, past its ${PANEL_CEILING}`);
   }
   const marked = lines.filter((line) => MARKER.test(line));
   if (marked.length === 0) failures.push("marker: no marked row on screen");
@@ -150,7 +163,7 @@ try {
     // keystroke: an invariant that holds only at rest is not an invariant.
     const states = [];
     const record = (label) => {
-      const result = measure(component, 100);
+      const result = measure(component, 100, { rows: config.rows, hasArtwork: config.withImage });
       frames += 1;
       for (const failure of result.failures) summary[failure.split(":")[0]] += 1;
       if (result.failures.length) broken.push(`${tag} ${label}: ${result.failures.join("; ")}`);
