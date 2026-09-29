@@ -96,6 +96,13 @@ be toggled on and off without losing a thing.
   `recommended` (or the first one) for every stage, so `Enter` takes it. It
   never submits by itself: a review that answers itself is a review nobody
   read. A review can also set `autoResolve: true` up front.
+- `Ctrl+D`: switch row density. **Comfortable** (the default) prints a reason
+  under every choice; **compact** lists the choices alone and shows the
+  highlighted option's reason once, leading the list, so roughly twice as many
+  options fit in the same fixed block. A review may ask for either with
+  `density: "comfortable" | "compact"`, and this key overrides it for the
+  session. The current mode is stated in the footer, because a switch nobody can
+  see is one nobody trusts.
 - `n` or the `Add note` row: attach a note to this stage. The review tab carries
   an `Add global note` row for the whole review. Neither marks anything answered.
 - `Ctrl+G`: edit a custom-answer draft in Pi's configured external editor.

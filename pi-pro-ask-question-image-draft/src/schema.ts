@@ -194,6 +194,17 @@ export const ReviewParamsSchema = Type.Object({
   title: Type.Optional(Type.String({ maxLength: 200, description: "Optional title for the review wizard." })),
   reviewId: Type.Optional(Type.String({ maxLength: 200, description: "Stable id used to resume a review after a revision." })),
   round: Type.Optional(Type.Integer({ minimum: 1, description: "Revision round, starting at 1." })),
+  /**
+   * How much fits in the fixed block.
+   *
+   * `comfortable` prints a reason under every choice; `compact` prints the
+   * choices alone and moves the highlighted option's reason into the content
+   * area, so a long list fits and the conversation stays readable. The default
+   * is unchanged from what the panel has always done.
+   */
+  density: Type.Optional(Type.Union([Type.Literal("comfortable"), Type.Literal("compact")], {
+    description: "Row density for the option list. \"comfortable\" (default) puts a reason under each choice; \"compact\" lists the choices and shows the highlighted one's reason in the content area.",
+  })),
   images: Type.Optional(Type.Union([Type.Literal("off"), Type.Literal("on")], {
     description: "Whether an option's image is drawn. Off by default: a generated image is decoration, and the structure is the part a reviewer decides on. Set \"on\" to show it as well.",
   })),
@@ -280,6 +291,8 @@ export interface NormalizedReview {
    * drawn structure is the default; `images: "on"` opts back in.
    */
   images: "off" | "on";
+  /** Row density for the option list; comfortable unless the review says compact. */
+  density: "comfortable" | "compact";
   /** Pre-select the recommended option per stage. Off unless asked for. */
   autoResolve?: boolean;
   resetStageIds: string[];
@@ -647,6 +660,9 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
   if (params.images !== undefined && params.images !== "off" && params.images !== "on") {
     throw new Error("images must be \"off\" or \"on\".");
   }
+  if (params.density !== undefined && params.density !== "comfortable" && params.density !== "compact") {
+    throw new Error("density must be \"comfortable\" or \"compact\".");
+  }
 
   return {
     title: optionalText(params.title),
@@ -654,6 +670,7 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
     reviewId: optionalText(params.reviewId) || `review-${now.toString(36)}-${randomUUID().slice(0, 8)}`,
     round,
     images: params.images === "on" ? "on" : "off",
+    density: params.density === "compact" ? "compact" : "comfortable",
     autoResolve: params.autoResolve === true ? true : undefined,
     resetStageIds: [
       ...new Set(

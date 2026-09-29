@@ -244,7 +244,10 @@ describe("TUI chrome: rows, the preview pane and image-host honesty", () => {
       // One row per option, and the sentence on its own line at full width -
       // not wrapped into a narrow column beside the artwork.
       assert.equal(rows.filter((line) => /^ > 1\. Transit airy$/.test(line)).length, 1, "the option is one row");
-      assert.equal(rows.filter((line) => /Favors quick orientation; trade-off: less detail in secondary states\./.test(line)).length, 1, "its description is spelled out once, at full width");
+      // Comfortable prints a reason under *every* choice, so one per option is
+      // the count, and no reason is repeated above the question.
+      const reasons = rows.filter((line) => /Favors quick orientation|Favors balanced context/.test(line)).length;
+      assert.equal(reasons, 2, "one reason per option, and no second copy above the question");
       // The artwork is inline and comes before the action.
       const artAt = frame.findIndex((line) => line.includes("\u001b_G"));
       const questionAt = rows.findIndex((line) => /^\s*Pick a treatment$/.test(line));
@@ -560,18 +563,16 @@ describe("dialogue layout: one line per choice, information over the artwork", (
       const plain = () => component.render(100).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
       const indexOf = (needle) => plain().findIndex((line) => line.includes(needle));
 
-      // The highlighted option's sentence is on screen, the other two are not,
-      // and it sits *above* the question: the bottom of the screen is the
-      // decision, what it is about sits above it.
-      const described = indexOf("Scans fastest");
-      assert.ok(described >= 0, "the highlighted option's sentence is shown");
-      assert.equal(plain().some((line) => line.includes("Cause beside remedy")), false, "and only that one");
-      assert.ok(described < indexOf("Which treatment ships?"), "the information is above the question");
-      // The menu is one line per choice, with nothing printed under it.
+      // Comfortable is the default: a reason under every choice, and the reason
+      // appears exactly once - the panel must not say the same sentence twice.
       const airy = indexOf("1. Transit airy");
       assert.match(plain()[airy], /^\s*(> )?1\. Transit airy$/, "a choice is one row");
-      assert.equal(plain()[airy + 1].includes("Scans fastest"), false, "and nothing is printed under it");
-      assert.ok(indexOf("2. Transit split") === airy + 1, "the choices are consecutive");
+      const reasons = plain().filter((line) => /Scans fastest|Cause beside remedy/.test(line));
+      assert.equal(reasons.length, 2, "one reason per option, and no second copy above the question");
+      assert.ok(reasons.some((line) => line.includes("Scans fastest")), "the highlighted option's reason is on screen");
+      assert.ok(indexOf("Which treatment ships?") < airy, "and the question is above the list");
+      // Compact is where the information moves above the question; its own
+      // ordering is asserted in the density suite below.
       // The artwork is above the information, which is above the menu.
       const artAt = component.render(100).findIndex((line) => line.includes("\u001b_G"));
       const questionAt = indexOf("Which treatment ships?");
@@ -771,6 +772,93 @@ describe("content area: the option's changes, in plain text", () => {
     const text = prose(component);
     assert.equal(text.includes("This option changes:"), false, "no change list is claimed");
     assert.equal(text.includes("No change"), true, "the question and its options are still there");
+    component.dispose();
+  });
+});
+
+/**
+ * Density is a setting, not a habit.
+ *
+ * Comfortable is what the panel has always done: a reason under every choice.
+ * Compact lists the choices alone and shows the highlighted option's reason
+ * once, above the question. The review seeds it, Ctrl+D flips it, the footer
+ * always says which one is in force, and the choice is remembered across rounds.
+ */
+describe("density: comfortable by default, compact on request, Ctrl+D either way", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  const eightOptions = (extra = {}) => normalizeReview({
+    reviewId: "density",
+    title: "Which treatment?",
+    ...extra,
+    stages: [{
+      id: "one", header: "Treatment", prompt: "Which treatment ships first?",
+      options: Array.from({ length: 8 }, (_, index) => ({
+        id: `o${index}`, label: `Option ${index + 1}`, description: `Reason number ${index + 1}, long enough to matter on its own line.`,
+      })),
+    }],
+  });
+  const build = (review) => {
+    let result;
+    const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 44 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+    return { component, review, get result() { return result; } };
+  };
+  const rows = (component) => component.render(100).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+  const prose = (component) => rows(component).join(" ").replace(/\s+/g, " ");
+  const isChoice = (line) => /^\s*>?\s*\d+\.\s+Option \d+\s*$/.test(line);
+  const reasonOf = (line) => /Reason number (\d+)/.exec(line)?.[1];
+
+  it("comfortable is the default: a reason under every choice", () => {
+    const { component, review } = build(eightOptions());
+    assert.equal(review.density, "comfortable", "the default is unchanged behaviour");
+    const lines = rows(component);
+    for (let index = 1; index <= 8; index += 1) {
+      const at = lines.findIndex((line) => isChoice(line) && line.includes(`Option ${index}`));
+      assert.ok(at >= 0, `option ${index} is listed`);
+      assert.equal(reasonOf(lines[at + 1] ?? ""), String(index), `option ${index} has its own reason beneath it`);
+    }
+    component.dispose();
+  });
+
+  it("compact lists the choices alone and shows one reason, above the question", () => {
+    const { component, review } = build(eightOptions({ density: "compact" }));
+    assert.equal(review.density, "compact");
+    const lines = rows(component);
+    assert.equal(lines.filter(isChoice).length, 8, "all eight options, one row each");
+    const reasons = lines.filter((line) => reasonOf(line));
+    assert.equal(reasons.length, 1, "exactly one reason on screen");
+    assert.equal(reasonOf(reasons[0]), "1", "and it is the highlighted option's");
+    const reasonAt = lines.indexOf(reasons[0]);
+    const firstChoiceAt = lines.findIndex(isChoice);
+    assert.ok(reasonAt >= 0 && reasonAt < firstChoiceAt, "the highlighted reason leads the list");
+    component.dispose();
+  });
+
+  it("compact spends fewer rows on the same options than comfortable", () => {
+    const comfortable = build(eightOptions());
+    const compact = build(eightOptions({ density: "compact" }));
+    const filled = (component) => rows(component).filter((line) => line.trim()).length;
+    assert.ok(filled(compact.component) < filled(comfortable.component), `compact is shorter: ${filled(compact.component)} vs ${filled(comfortable.component)} rows`);
+    comfortable.component.dispose();
+    compact.component.dispose();
+  });
+
+  it("Ctrl+D toggles both ways and the footer always names the mode", () => {
+    const { component } = build(eightOptions());
+    assert.match(prose(component), /density: comfortable/, "the default is stated");
+    component.handleInput("\u0004");
+    assert.match(prose(component), /density: compact/, "Ctrl+D switches to compact");
+    assert.equal(rows(component).filter(isChoice).length, 8, "and the choices are one row each");
+    component.handleInput("\u0004");
+    assert.match(prose(component), /density: comfortable/, "Ctrl+D switches back");
+    assert.equal(rows(component).filter((line) => reasonOf(line)).length, 8, "and the reasons are back under their choices");
+    component.dispose();
+  });
+
+  it("the review's density is honoured, and the person can still override it", () => {
+    const { component } = build(eightOptions({ density: "compact" }));
+    assert.match(prose(component), /density: compact/, "the review's density is honoured");
+    component.handleInput("\u0004");
+    assert.match(prose(component), /density: comfortable/, "and Ctrl+D overrides it for the session");
     component.dispose();
   });
 });

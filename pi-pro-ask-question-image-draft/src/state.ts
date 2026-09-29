@@ -63,6 +63,8 @@ export interface ReviewState {
   round: number;
   /** Whether this review asked for its option images; off unless it said on. */
   images?: "off" | "on";
+  /** Row density this review was opened with; comfortable unless it said compact. */
+  density?: "comfortable" | "compact";
   title?: string;
   provider?: string;
   model?: string;
@@ -234,6 +236,7 @@ export function isReviewState(value: unknown): value is ReviewState {
       reviewId: value.reviewId,
       round: value.round as number,
       images: (value.images as "off" | "on" | undefined) ?? "off",
+      density: (value.density as "comfortable" | "compact" | undefined) ?? "comfortable",
       title: value.title as string | undefined,
       provider: value.provider as string | undefined,
       model: value.model as string | undefined,
@@ -262,7 +265,14 @@ export function isReviewState(value: unknown): value is ReviewState {
     return !stage || stage.required || answers.some((answer) => answer.stageId === id);
   })) return false;
   if (value.status === "completed" && unresolvedStages(
-    { reviewId: value.reviewId, round: value.round as number, images: (value.images as "off" | "on" | undefined) ?? "off", resetStageIds: value.resetStageIds as string[], stages },
+    {
+      reviewId: value.reviewId,
+      round: value.round as number,
+      images: (value.images as "off" | "on" | undefined) ?? "off",
+      density: (value.density as "comfortable" | "compact" | undefined) ?? "comfortable",
+      resetStageIds: value.resetStageIds as string[],
+      stages,
+    },
     answers,
     skippedStageIds,
   ).length > 0) return false;
@@ -324,6 +334,7 @@ export function makeReviewState(
     reviewId: review.reviewId,
     round: review.round,
     images: review.images,
+    density: review.density,
     title: review.title,
     provider: review.provider,
     model: review.model,
@@ -534,6 +545,7 @@ export function resultFromState(state: ReviewState, decision: ReviewDecision, re
     reviewId: state.reviewId,
     round: state.round,
     images: state.images === "on" ? "on" : "off",
+    density: state.density === "compact" ? "compact" : "comfortable",
     title: state.title,
     provider: state.provider,
     model: state.model,

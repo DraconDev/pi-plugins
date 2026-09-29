@@ -503,3 +503,35 @@ describe("option.changes survives normalisation", () => {
     assert.equal(review.images, "on");
   });
 });
+
+/**
+ * `density` is a real input value: it is validated, it defaults, and a resumed
+ * round keeps the presentation it was opened with.
+ */
+describe("density is validated, defaulted and remembered", () => {
+  const stage = { id: "one", header: "H", prompt: "P", options: [{ label: "A" }, { label: "B" }] };
+
+  it("defaults to comfortable and accepts only the two named values", () => {
+    assert.equal(normalizeReview({ reviewId: "a", stages: [stage] }).density, "comfortable");
+    assert.equal(normalizeReview({ reviewId: "b", density: "comfortable", stages: [stage] }).density, "comfortable");
+    assert.equal(normalizeReview({ reviewId: "c", density: "compact", stages: [stage] }).density, "compact");
+    assert.throws(
+      () => normalizeReview({ reviewId: "d", density: "roomy", stages: [stage] }),
+      /density must be "comfortable" or "compact"/,
+      "an unknown density is an error naming the two allowed values",
+    );
+  });
+
+  it("a persisted round restores the density it was opened with", async () => {
+    const { makeReviewState, findReviewState } = await import("../src/state.ts");
+    const review = normalizeReview({
+      reviewId: "e", round: 2, density: "compact",
+      stages: [{ id: "one", header: "H", prompt: "P", options: [{ label: "A" }, { label: "B" }] }],
+    });
+    const state = makeReviewState(review, [], "cancelled");
+    assert.equal(state.density, "compact", "the state carries it");
+    // A session entry is a custom-typed envelope; the state lives inside it.
+    const found = findReviewState([{ type: "custom", customType: "pi-visual-review-state", data: state }], "e");
+    assert.equal(found?.density, "compact", "and it is found again on resume");
+  });
+});

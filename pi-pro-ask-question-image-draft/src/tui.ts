@@ -358,6 +358,14 @@ export class VisualReviewWizard implements Component, Focusable {
   private readonly imageMode: boolean;
   /** Whether this review asked for its option images to be drawn at all. */
   private readonly imagesEnabled: boolean;
+  /**
+   * Row density, seeded from the review and toggleable with Ctrl+D.
+   *
+   * Comfortable is today's behaviour: a reason under every choice. Compact lists
+   * the choices alone and moves the highlighted one's reason into the content
+   * area, which roughly doubles how many options fit in the same fixed block.
+   */
+  private density: "comfortable" | "compact";
   private collapsed = false;
   private _focused = false;
   private stageIndex = 0;
@@ -435,6 +443,7 @@ export class VisualReviewWizard implements Component, Focusable {
     // draws pictures only when it asks for them. `images: "on"` is how the
     // benchmark and the live smoke still get a picture to look at.
     this.imagesEnabled = review.images === "on";
+    this.density = review.density;
     this.imageMode = this.imagesEnabled && canRenderImages() && review.stages.some((stage) => stage.options.some((option) => option.image));
     if (this.signal?.aborted) this.onAbort();
     else this.signal?.addEventListener("abort", this.onAbort, { once: true });
@@ -535,6 +544,13 @@ export class VisualReviewWizard implements Component, Focusable {
     // Ctrl+A turns auto-resolve on and off. It is a view toggle over the list,
     // so it is inert while the editor has focus - where Ctrl+A is the editor's
     // own "jump to line start" and must stay that.
+    // Ctrl+D toggles density: a view choice over the list, so it is inert while
+    // the editor has focus, where Ctrl+A is the editor's own "jump to line start".
+    if (this.inputMode === "none" && matchesKey(data, Key.ctrl("d"))) {
+      this.density = this.density === "comfortable" ? "compact" : "comfortable";
+      this.invalidate();
+      return;
+    }
     if (this.inputMode === "none" && matchesKey(data, Key.ctrl("a"))) {
       this.autoResolve = !this.autoResolve;
       this.autoStage = null;
@@ -787,7 +803,11 @@ export class VisualReviewWizard implements Component, Focusable {
       // it. The question reading the way it does - a line under the scene, over
       // the menu - is the shape a dialogue menu has.
       const highlighted = rows[this.selectedIndex];
-      if (highlighted?.kind === "option" && highlighted.option.description) {
+      // In compact the list is choices only, so the highlighted option's reason
+      // is the one piece of information the panel must still lead with. In
+      // comfortable it already sits under its own row, and saying it twice is
+      // noise - so exactly one place, whichever mode we are in.
+      if (this.density === "compact" && highlighted?.kind === "option" && highlighted.option.description) {
         for (const line of wrapTextWithAnsi(this.theme.fg("muted", highlighted.option.description), safeWidth - 2)) {
           footerLines.push(` ${line}`);
         }
@@ -798,7 +818,11 @@ export class VisualReviewWizard implements Component, Focusable {
       footerLines.push(this.theme.fg("accent", ` ${truncateToWidth(question, safeWidth - 2)}`));
       footerLines.push("");
       // The choices get their own band, and the actions below them get a third.
-      const choices = this.renderRows(stage, rows, safeWidth - 2, { describe: false }).map((line) => ` ${line}`);
+      // Comfortable spells the reason under every choice; compact lists the
+      // choices alone, and the highlighted one's reason is rendered in the
+      // content area instead, where there is room for the whole sentence.
+      const showReasons = this.density === "comfortable";
+      const choices = this.renderRows(stage, rows, safeWidth - 2, { describe: showReasons }).map((line) => ` ${line}`);
       const firstAction = choices.findIndex((line) => /^\s+(?![>\s]*\d+\.)/.test(line));
       if (firstAction > 0) {
         footerLines.push(...choices.slice(0, firstAction), seam(), ...choices.slice(firstAction));
@@ -822,7 +846,7 @@ export class VisualReviewWizard implements Component, Focusable {
     const essentialFooter = stage && safeWidth >= 60
       ? [
         this.theme.fg("accent", ` ${truncateToWidth(stage.prompt.replace(/\s+/g, " ").trim(), safeWidth - 2)}`),
-        ...this.renderRows(stage, rows, safeWidth - 2, { describe: false }).map((line) => ` ${line}`),
+        ...this.renderRows(stage, rows, safeWidth - 2, { describe: this.density === "comfortable" }).map((line) => ` ${line}`),
       ]
       : [];
     const room = (footer: string[], tail: string[]) => this.panelRows(footer.length + tail.length + CHROME_ROWS);
@@ -904,7 +928,9 @@ export class VisualReviewWizard implements Component, Focusable {
       const leftWidth = sideBySide ? Math.min(44, Math.max(30, Math.floor(safeWidth * 0.34))) : safeWidth - 2;
       // Beside an image the column is too narrow for wrapped descriptions, so
       // the selected option's own sentence is rendered with its preview instead.
-      const listLines = stage ? this.renderRows(stage, rows, leftWidth, { describe: !sideBySide }) : this.renderRowsForReview(rows, leftWidth);
+      const listLines = stage
+        ? this.renderRows(stage, rows, leftWidth, { describe: !sideBySide && this.density === "comfortable" })
+        : this.renderRowsForReview(rows, leftWidth);
       // The panel is the screen, so the thing being judged gets the screen: the
       // artwork sits above and the action sits under it in a fat footer. A
       // 32 x 16 cell box in the corner of a 110-column dialog made the artefact
@@ -961,8 +987,6 @@ export class VisualReviewWizard implements Component, Focusable {
               if (option.image.alt) {
                 for (const line of wrapTextWithAnsi(this.theme.fg("muted", `Alt: ${option.image.alt}`), Math.max(1, safeWidth - 4))) detail.push(`  ${line}`);
               }
-            } else if (option.description) {
-              for (const line of wrapTextWithAnsi(this.theme.fg("muted", option.description), Math.max(1, safeWidth - 4))) detail.push(`  ${line}`);
             }
           }
         }
@@ -991,7 +1015,7 @@ export class VisualReviewWizard implements Component, Focusable {
         }
         lines.push(...detail, ...footerLines, ...tailLines);
         emitted = true;
-      } else if (sideBySide) {      } else if (sideBySide) {
+      } else if (sideBySide) {
         const rightWidth = Math.max(1, safeWidth - leftWidth - 5);
         const left = new LinesComponent(listLines);
         const selected = rows[this.selectedIndex];
@@ -1015,6 +1039,16 @@ export class VisualReviewWizard implements Component, Focusable {
           else lines.push(` ${line}`);
         }
       } else {
+        // Compact lists the choices alone, so the highlighted option's reason
+        // leads the list. The question is chrome and stays above it; the reason
+        // belongs with the choices it explains, not with the question.
+        const plainSelected = rows[this.selectedIndex];
+        if (this.density === "compact" && plainSelected?.kind === "option" && plainSelected.option.description) {
+          for (const line of wrapTextWithAnsi(this.theme.fg("muted", plainSelected.option.description), safeWidth - 4)) {
+            lines.push(`  ${line}`);
+          }
+          lines.push("");
+        }
         for (const line of listLines) lines.push(` ${line}`);
         const selected = rows[this.selectedIndex];
         if (selected?.kind === "option" && stage) {
@@ -1045,7 +1079,7 @@ export class VisualReviewWizard implements Component, Focusable {
       const help = stage?.multiSelect
         ? `↑↓ move • Space check • Enter confirm • n note • Tab stages • Ctrl+] hide • Esc cancel`
         : stage
-          ? `↑↓ move • Enter select • n note • Tab/←→ stages • Ctrl+] hide • Esc cancel${this.promptClamped ? " • Ctrl+R prompt" : ""}`
+          ? `↑↓ move • Enter select • n note • Tab/←→ stages • Ctrl+D density • Ctrl+] hide • Esc cancel${this.promptClamped ? " • Ctrl+R prompt" : ""}`
           : "↑↓ move • Enter review action • Tab stages • Ctrl+] hide • Esc cancel";
       lines.push(this.theme.fg("dim", help));
       // Auto-resolve is a mode, so it says so whether it is on or off. A switch
@@ -1053,6 +1087,10 @@ export class VisualReviewWizard implements Component, Focusable {
       lines.push(this.theme.fg(this.autoResolve ? "success" : "dim", this.autoResolve
         ? "auto-resolve: on — Enter takes the recommended option (Ctrl+A off)"
         : "auto-resolve: off — Ctrl+A answers with the recommended option"));
+      // Density is a mode too, and an invisible one is a mode nobody trusts.
+      lines.push(this.theme.fg(this.density === "compact" ? "success" : "dim", this.density === "compact"
+        ? "density: compact — reasons in the panel above (Ctrl+D for comfortable)"
+        : "density: comfortable — a reason under every choice (Ctrl+D for compact)"));
       if (stage?.multiSelect && selection.size > 0) {
         lines.push(this.theme.fg("accent", `Selected: ${stage.options.filter((option) => selection.has(option.id)).map((option) => option.label).join(", ")}`));
       }
