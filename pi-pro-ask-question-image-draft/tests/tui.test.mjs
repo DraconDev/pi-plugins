@@ -1737,6 +1737,14 @@ describe("every review view keeps the panel's footer tail", () => {
  *
  * The rule is *no change to the controls*: the tail is the review's interface,
  * and degrading the band above it must never cost a line from it.
+ *
+ * Pinned by mutation, not just by intent. Aliasing the array into a local
+ * before emptying it - the shape that makes the rebuild push what is now an
+ * empty array - leaves the tail perfectly intact and fails only the
+ * fixed-height case: the band comes out empty, the slack that was padding the
+ * picture is given to nothing, and the frame grows from the panel's 32 rows to
+ * all 44. That is the whole argument for asserting the height and not only the
+ * controls, so it is asserted on every case here.
  */
 describe("the essential-band fallback leaves the tail alone", () => {
   const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
