@@ -81,6 +81,11 @@ const REJECT_LABEL = "Reject review";
  * see what you are typing into. `CHROME_ROWS` is the panel's own fixed header and
  * footer, and `MAX_ROWS` caps how much of a tall screen a question may take.
  */
+/** Does this stage carry anything for the content area - a picture, a change list or a mockup? */
+function hasVisualContent(stage: NormalizedStage): boolean {
+  return stage.options.some((option) => Boolean(option.image) || Boolean(option.mockup) || Boolean(option.changes?.length));
+}
+
 const PANEL_FURNITURE_ROWS = 5;
 const PANEL_MAX_ROWS = 32;
 const MIN_PANEL_ROWS = 14;
@@ -890,6 +895,18 @@ export class VisualReviewWizard implements Component, Focusable {
     if (footerLines.length > essentialFooter.length && room(footerLines, tailLines) < MIN_ART_ROWS) {
       footerLines.length = 0;
       footerLines.push(...essentialFooter);
+    }
+    // Even the reason-free band can crowd the picture out on a long list, and a
+    // picture printed two cells wide is not a picture. So the band gives up whole
+    // choices from its end, the frame scrolls the ones that no longer fit, and
+    // the picture keeps its floor. Every choice stays reachable with `↑↓` and the
+    // scroll indicator says there is more above.
+    if (room(footerLines, tailLines) < MIN_ART_ROWS && hasVisualContent(stage!)) {
+      const firstChoice = footerLines.findIndex((line) => /^\s*(?:> )?\d+\. /.test(line));
+      const last = footerLines.length - 1;
+      while (room(footerLines, tailLines) < MIN_ART_ROWS && firstChoice >= 0 && last > firstChoice) {
+        footerLines.splice(last, 1);
+      }
     }
     // Stacked or side-by-side is decided on the *degraded* band: the band gives
     // up its reasons before the layout gives up the picture or the frame.
