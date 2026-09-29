@@ -855,14 +855,29 @@ export class VisualReviewWizard implements Component, Focusable {
       : [];
     const room = (footer: string[], tail: string[]) => this.panelRows(footer.length + tail.length + CHROME_ROWS);
     if (footerLines.length > 0 && room(footerLines, tailLines) < MIN_ART_ROWS) {
-      if (room(essentialFooter, tailLines) > 0) {
+      // Drop the optional furniture - the highlighted reason above the question,
+      // which compact puts in the content area instead - before anything that
+      // tells the person what mode they are in or what the keys do. The tail is
+      // never discarded: a review that cannot be driven is not a review.
+      const controlsStart = tailLines.findIndex((line) => /↑↓ move/.test(stripPlain(line)));
+      const dropBefore = controlsStart > 0 ? controlsStart : tailLines.length;
+      const optional = footerLines.findIndex((line) => /This option|Alt:|Image:/.test(stripPlain(line)));
+      if (room(footerLines, tailLines) < MIN_ART_ROWS && optional >= 0) {
+        footerLines.splice(optional, 1);
+      }
+      if (room(footerLines, tailLines) < MIN_ART_ROWS && footerLines.length > essentialFooter.length) {
+        // The choice band is the last thing to give: the picture and the
+        // controls come first, and the artwork is the elastic part of the frame.
         footerLines.length = 0;
         footerLines.push(...essentialFooter);
-      } else if (room(essentialFooter, [tailLines[1] ?? ""]) > 0) {
-        footerLines.length = 0;
-        footerLines.push(...essentialFooter);
-        tailLines.length = 0;
-        tailLines.push(tailLines[1] ?? "");
+      }
+      if (room(footerLines, tailLines) <= 0 && dropBefore > 0) {
+        // Still short with the shortest useful footer: give the rows to the
+        // controls rather than the other way round, and let the artwork take
+        // whatever is left - down to nothing, but not past nothing.
+        while (room(footerLines, tailLines) <= 0 && tailLines.length > dropBefore) {
+          tailLines.splice(dropBefore - 1, 1);
+        }
       }
     }
     // Any room at all is enough: an option that carries a picture should never
