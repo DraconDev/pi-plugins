@@ -106,7 +106,9 @@ be toggled on and off without losing a thing.
 - `n` or the `Add note` row: attach a note to this stage. The review tab carries
   an `Add global note` row for the whole review. Neither marks anything answered.
 - `Ctrl+G`: edit a custom-answer draft in Pi's configured external editor.
-- Mouse wheel: scroll long review content; click a visible option row to focus it.
+- Mouse wheel: scroll long review content, leaving the frame where you put it;
+  the next cursor move brings the cursor back into view. Click a visible option
+  row to focus it.
 
 Answers are numbered so they can be talked about ("take 2"); the action rows -
 note, custom answer, skip, revision, approve, reject - sit behind a rule and
