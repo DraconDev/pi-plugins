@@ -1615,7 +1615,15 @@ export class VisualReviewWizard implements Component, Focusable {
       const next = index + 1 < choiceRows.length ? choiceRows[index + 1]! : last + 1;
       return next - at;
     };
-    const cursor = Math.max(0, Math.min(this.selectedIndex, choiceRows.length - 1));
+    // The cursor is located by the marker the renderer already drew, not by
+    // `selectedIndex`: that indexes rows of the *current* window, so once the
+    // window has scrolled it points at a different option entirely, and the
+    // window then fails to follow the cursor past its own start.
+    const markedAt = choiceRows.findIndex((index) => /^\s*>\s/.test(band[index]!));
+    const cursor = Math.max(0, Math.min(
+      markedAt >= 0 ? markedAt : Math.min(this.selectedIndex, choiceRows.length - 1),
+      choiceRows.length - 1,
+    ));
     const budgetRows = Math.max(spanOf(cursor), (last - first + 1) - growBy);
     let start = cursor;
     let used = spanOf(cursor);
