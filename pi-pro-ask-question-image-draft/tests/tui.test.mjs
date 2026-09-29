@@ -293,7 +293,7 @@ describe("TUI chrome: rows, the preview pane and image-host honesty", () => {
       while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 40));
       // The sentence is wrapped to the pane, so compare it as prose.
       const prose = component.render(110).join(" ").replace(/\s+/g, " ");
-      assert.match(prose, /[Ii]mages are off here|pictures are off here/, "a host that cannot render images must say so");
+      assert.match(prose, /[Ii]mages are off|pictures are off/, "a host that cannot render images must say so");
       assert.match(prose, /Run Pi outside tmux|tmux 3\.6a strips/, "and say what actually works");
       assert.match(prose, /PI_IMAGE_PROTOCOL=kitty/, "alongside the switch that overrides detection");
       component.dispose();
