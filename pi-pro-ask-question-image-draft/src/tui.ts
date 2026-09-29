@@ -424,6 +424,8 @@ export class VisualReviewWizard implements Component, Focusable {
   private cachedHeight = -1;
   private cachedLines: string[] | undefined;
   private scrollOffset = 0;
+  /** The cursor index the scroll was last anchored on; see `visibleLines`. */
+  private anchoredCursor = -1;
   private disposed = false;
   private finished = false;
 
@@ -1351,32 +1353,62 @@ export class VisualReviewWizard implements Component, Focusable {
     const footerCount = Math.min(this.tailRows(), Math.max(0, lines.length - headerCount));
     const body = lines.slice(headerCount, Math.max(headerCount, lines.length - footerCount));
     const maxOffset = Math.max(0, body.length - 1);
+
+    // The cursor's row is always in view, and the scroll follows it *because*
+    // the cursor moved. The offset is the reader's place in the content and a
+    // wheel moves it on purpose - they are looking at something else - so the
+    // frame only snaps back when the cursor is somewhere else. Anchoring on
+    // the cursor's index rather than on a flag at the key sites means a stage
+    // change, a tab or a restored round is a cursor move too, and none of them
+    // can be missed.
+    //
+    // The offset is settled here rather than in the key handler because only
+    // here is it known how tall the frame ended up: the band can be windowed by
+    // the picture's floor, which moves rows without any key.
     let offset = Math.min(Math.max(0, this.scrollOffset), maxOffset);
-    const indicatorCount = (offset > 0 ? 1 : 0) + (offset < maxOffset ? 1 : 0);
-    const bodyHeight = Math.max(1, Math.min(body.length, height - headerCount - footerCount - indicatorCount));
-    // The cursor's row is always in view, and that is the scroll's own rule
-    // rather than the key handler's. A wheel can leave the cursor off screen on
-    // purpose - the reader is looking at something else - but a keypress moves
-    // the cursor, and a frame that does not show where the cursor is is a frame
-    // where Enter answers on a choice nobody was shown. The offset is settled
-    // here because only here is it known how tall the frame ended up: the band
-    // can be windowed by the picture's floor, which moves rows without any key.
-    const bodyEnd = headerCount + body.length;
-    const markedAt = lines.findIndex((line, index) => index >= headerCount && index < bodyEnd && /^\s*>\s/.test(stripPlain(line)));
-    if (markedAt >= 0) {
-      const at = markedAt - headerCount;
-      if (at < offset) offset = at;
-      else if (at >= offset + bodyHeight) offset = at - bodyHeight + 1;
+    if (this.anchoredCursor !== this.selectedIndex) {
+      this.anchoredCursor = this.selectedIndex;
+      const bodyEnd = headerCount + body.length;
+      const markedAt = lines.findIndex((line, index) => index >= headerCount && index < bodyEnd && /^\s*>\s/.test(stripPlain(line)));
+      if (markedAt >= 0) {
+        // Room for the whole frame's furniture, so the marked row is pulled to
+        // an edge rather than merely nudged. The exact edge is settled below.
+        const at = markedAt - headerCount;
+        const reach = Math.max(1, height - headerCount - footerCount - 2);
+        if (at < offset) offset = at;
+        else if (at >= offset + reach) offset = at - reach + 1;
+      }
     }
     offset = Math.min(Math.max(0, offset), maxOffset);
     this.scrollOffset = offset;
+
+    // How many rows of body fit is a small fixed point: the two indicator lines
+    // depend on where the window sits, and the window's size depends on how many
+    // indicator lines there are. Computing the indicators from the *pre-settled*
+    // offset - or sizing the body once and inserting an indicator afterwards -
+    // leaves the assembled frame a row longer than the terminal, and the row
+    // that has to go is the last one, which is the panel's closing rule. So the
+    // two are resolved together, and the result is at most `height` rows.
+    let bodyHeight = Math.max(1, body.length);
+    for (let pass = 0; pass < 4; pass += 1) {
+      const from = Math.min(offset, Math.max(0, body.length - bodyHeight));
+      const to = Math.min(body.length, from + bodyHeight);
+      const indicators = (from > 0 ? 1 : 0) + (to < body.length ? 1 : 0);
+      const next = Math.max(1, Math.min(body.length, height - headerCount - footerCount - indicators));
+      if (next === bodyHeight) break;
+      bodyHeight = next;
+    }
     const start = Math.min(offset, Math.max(0, body.length - bodyHeight));
-    const end = Math.min(body.length, start + bodyHeight);
+    const indicators = (start > 0 ? 1 : 0) + (Math.min(body.length, start + bodyHeight) < body.length ? 1 : 0);
+    // A terminal too short for its own furniture cannot show the body at all;
+    // the body gives up its rows first, because the rule and the controls are
+    // the last things a review may lose.
+    const shown = Math.max(0, Math.min(bodyHeight, height - headerCount - footerCount - indicators));
     const result = [
       ...lines.slice(0, headerCount),
       ...(start > 0 ? [this.theme.fg("dim", "↑ content above")] : []),
-      ...body.slice(start, end),
-      ...(end < body.length ? [this.theme.fg("dim", "↓ content below")] : []),
+      ...body.slice(start, start + shown),
+      ...(start + shown < body.length ? [this.theme.fg("dim", "↓ content below")] : []),
       ...lines.slice(Math.max(headerCount, lines.length - footerCount)),
     ];
     return result.slice(0, height);
