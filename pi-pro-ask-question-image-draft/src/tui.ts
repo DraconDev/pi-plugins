@@ -850,7 +850,11 @@ export class VisualReviewWizard implements Component, Focusable {
     const essentialFooter = stage && safeWidth >= 60
       ? [
         this.theme.fg("accent", ` ${truncateToWidth(stage.prompt.replace(/\s+/g, " ").trim(), safeWidth - 2)}`),
-        ...this.renderRows(stage, rows, safeWidth - 2, { describe: this.density === "comfortable" }).map((line) => ` ${line}`),
+        // The essential band is the choices *without* a reason under each one.
+        // That is what makes it shorter than the full one, and it is the shape
+        // compact uses anyway - so a long comfortable review degrades into the
+        // compact shape rather than losing its controls or outgrowing the panel.
+        ...this.renderRows(stage, rows, safeWidth - 2, { describe: false }).map((line) => ` ${line}`),
       ]
       : [];
     // One rule, in the order a reviewer needs things:
@@ -879,20 +883,14 @@ export class VisualReviewWizard implements Component, Focusable {
       footerLines.length = 0;
       footerLines.push(...essentialFooter);
     }
-    // Still short after the band degraded: the controls keep their rows and the
-    // artwork takes what is left, down to nothing. The artwork is elastic; the
-    // controls are not, and neither is the frame's own height.
-    const usable = this.panelHeight() - footerLines.length - tailLines.length - CHROME_ROWS;
-    // Stacked or side-by-side is decided on the *degraded* band, and the
-    // side-by-side fallback is only taken when stacked genuinely cannot hold
-    // even that. Falling back early is what let a ten-option review grow to 38
-    // rows and spill into the host's own furniture: the band is now the thing
-    // that gives rows, not the frame.
-    const stacked = footerLines.length > 0 && room(footerLines, tailLines) > 0;
-    // The artwork gets the remainder, and the remainder is bounded by the panel:
-    // `room` already subtracts the band, the controls and the chrome from the
-    // fixed panel height, so a band that grew past the panel cannot buy rows the
-    // panel does not have.
+    // Stacked or side-by-side is decided on the *degraded* band: the band gives
+    // up its reasons before the layout gives up the picture or the frame.
+    // Stacked is the layout for a stage that has content. The artwork is sized
+    // by the rows that are left, and a band that has degraded to the essential
+    // one is the only thing that can push it to zero - so the only case that
+    // falls back to side-by-side is a stage with content and no room at all even
+    // for that, which the frame trim below then keeps inside the panel anyway.
+    const stacked = footerLines.length > 0;
     const imageBudget = stacked ? Math.max(0, room(footerLines, tailLines)) : 0;
 
     if (stage) {
