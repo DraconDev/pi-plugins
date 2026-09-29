@@ -916,25 +916,45 @@ export class VisualReviewWizard implements Component, Focusable {
         const detail: string[] = [];
         if (option) {
           const loaded = this.loadedImages.get(`${stage!.id}:${option.id}`);
-          // The picture only when the review asked for one; the structure
-          // otherwise. A mockup is drawn either way - it *is* the content.
+          // What fills the content area, in priority order: picture (when asked
+          // for and the host can draw), the option's own change list, the option's
+          // drawn mockup, then the description. The default is "no picture, no
+          // mockup"; what a reviewer reads there is the option's change list.
           const art = this.imagesEnabled && loaded?.image
             ? imageLines(loaded.image, this.theme, safeWidth - 2, imageBudget)
-            : (option.mockup ? this.mockupLines(option.mockup, safeWidth - 2, imageBudget) ?? [] : []);
-          if (art.length > 0) {
-            detail.push(...art.map((line) => (isImageLine(line) ? line : ` ${line}`)));
-          } else if (!this.imagesEnabled && option.image) {
-            const reference = option.image.path ?? option.image.url ?? "image";
-            const name = String(reference).split("/").pop() ?? String(reference);
-            for (const line of wrapTextWithAnsi(
-              this.theme.fg("dim", `Image: ${name} — pictures are off for this review; the structure is drawn instead. Set images: "on" to show it.`),
-              Math.max(1, safeWidth - 4),
-            )) detail.push(`  ${line}`);
-            if (option.image.alt) {
-              for (const line of wrapTextWithAnsi(this.theme.fg("muted", `Alt: ${option.image.alt}`), Math.max(1, safeWidth - 4))) detail.push(`  ${line}`);
+            : [];
+          if (art.length > 0) detail.push(...art.map((line) => (isImageLine(line) ? line : ` ${line}`)));
+          if (option.changes && option.changes.length > 0) {
+            if (art.length > 0) detail.push("");
+            detail.push(this.theme.fg("accent", ` This option changes:`));
+            for (const line of option.changes) {
+              for (const wrapped of wrapTextWithAnsi(this.theme.fg("text", `  • ${line}`), Math.max(1, safeWidth - 4))) detail.push(wrapped);
             }
-          } else {
-            for (const line of this.compactFallback(option, loaded, safeWidth)) detail.push(`  ${line}`);
+            if (option.description && detail[detail.length - 1] !== "") detail.push("");
+          } else if (option.mockup) {
+            const mockup = this.mockupLines(option.mockup, safeWidth - 2, imageBudget);
+            if (mockup && mockup.length > 0) {
+              if (art.length > 0) detail.push("");
+              detail.push(...mockup);
+            }
+          }
+          if (!art.length && !(option.changes && option.changes.length) && !option.mockup) {
+            // Nothing to show in the content area; say so honestly rather than
+            // padding with whitespace. The picture is off by default and a
+            // mockup is an explicit opt-in.
+            if (this.imagesEnabled && option.image) {
+              const reference = option.image.path ?? option.image.url ?? "image";
+              const name = String(reference).split("/").pop() ?? String(reference);
+              for (const line of wrapTextWithAnsi(
+                this.theme.fg("dim", `Image: ${name} — pictures are off for this host (tmux 3.6a strips the introducer; run Pi outside tmux).`),
+                Math.max(1, safeWidth - 4),
+              )) detail.push(`  ${line}`);
+              if (option.image.alt) {
+                for (const line of wrapTextWithAnsi(this.theme.fg("muted", `Alt: ${option.image.alt}`), Math.max(1, safeWidth - 4))) detail.push(`  ${line}`);
+              }
+            } else if (option.description) {
+              for (const line of wrapTextWithAnsi(this.theme.fg("muted", option.description), Math.max(1, safeWidth - 4))) detail.push(`  ${line}`);
+            }
           }
         }
         const panelTotal = this.panelHeight();

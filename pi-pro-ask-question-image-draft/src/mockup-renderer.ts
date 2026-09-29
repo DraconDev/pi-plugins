@@ -667,19 +667,6 @@ export function renderMockupCanvas(spec: MockupSpec, { widthCells = 31, heightCe
   return canvas;
 }
 
-/** How many cell rows the drawn content occupies, chrome included. */
-function usedContentCells(spec: MockupSpec, layout: string, top: number, columns: number): number {
-  const count = spec.rows.slice(0, 64).length;
-  if (!count) return top + 1;
-  if (layout === "tiles") return top + Math.ceil(count / Math.max(2, columns >= 24 ? 3 : 2)) * 3;
-  if (layout === "steps") return top + Math.min(Math.max(2, Math.min(count, 4)), 4) * 2;
-  const wantsDetail = spec.rows.some((row) => Boolean(row.detail?.trim()));
-  const perRow = layout === "list" || layout === "dense"
-    ? (wantsDetail && columns >= 28 ? 2 : Math.max(1, Math.min(3, Math.round(spec.rowPitch ?? 1))))
-    : layout === "airy" ? Math.max(2, Math.round(spec.rowPitch ?? 1))
-    : 1;
-  return top + count * perRow + 1;
-}
 
 /** Render a mockup on a cell grid and return the PNG bytes. */
 export function renderMockup(spec: MockupSpec, options: { widthCells?: number; heightCells?: number } = {}): { png: Buffer; width: number; height: number } {
