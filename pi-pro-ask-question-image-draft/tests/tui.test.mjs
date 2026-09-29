@@ -1723,3 +1723,78 @@ describe("every review view keeps the panel's footer tail", () => {
     }
   }
 });
+
+/**
+ * The essential-band fallback keeps the tail, and actually runs.
+ *
+ * The cases above never reach the one line that can take the footer apart: when
+ * the panel cannot give the picture its floor, the full footer band is thrown
+ * away and rebuilt from the essential one - the question and the choices with no
+ * reason under each. It fires in 450 of the image-layout configurations tried
+ * (a stage whose options carry a picture, four or more of them, comfortable),
+ * and it is the only place that empties an array and pushes into it again, so it
+ * is the only place a footer can silently become a band of blanks.
+ *
+ * The rule is *no change to the controls*: the tail is the review's interface,
+ * and degrading the band above it must never cost a line from it.
+ */
+describe("the essential-band fallback leaves the tail alone", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  const RULE = /^[─━═_-]{10,}$/;
+  const HINTS = /↑↓ move/;
+  const AUTO = /auto-resolve/;
+  const DENSITY = /density: (comfortable|compact)/;
+  const image = new URL("../.pi/benchmark/images/visual-001-option-1.png", import.meta.url).pathname;
+
+  for (const columns of [60, 80]) {
+    for (const rows of [44, 30]) {
+      it(`keeps the tail when the fallback drops the reasons at ${columns}x${rows}`, async () => {
+        const { setCapabilities } = await import("@earendil-works/pi-tui");
+        const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+        try {
+          let exercised = 0;
+          for (const options of [4, 8, 14, 20]) {
+            for (const multiSelect of [false, true]) {
+              const review = normalizeReview({
+                reviewId: "fallback", images: "on",
+                stages: [{
+                  id: "one", header: "Treatment", prompt: "Which treatment ships first?", multiSelect,
+                  options: Array.from({ length: options }, (_, index) => ({
+                    id: `o${index}`, label: `Option ${index + 1}`, image: { path: image, alt: "Fixture" },
+                    description: `Favors option ${index + 1}; trade-off: a one-to-two sentence reason line.`,
+                  })),
+                }],
+              });
+              const component = new VisualReviewWizard(
+                { requestRender: () => {}, terminal: { rows, columns } },
+                plainTheme, review, process.cwd(), () => {},
+              );
+              const deadline = Date.now() + 10_000;
+              while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 25));
+              if (component.reasonsDropped) exercised += 1;
+
+              const lines = component.render(100).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+              const frame = lines.join("\n");
+              const tag = `${options} options, multiSelect=${multiSelect}, ${columns}x${rows}, reasonsDropped=${component.reasonsDropped}`;
+              assert.ok(HINTS.test(frame), `${tag}: the key hints survived`);
+              assert.ok(AUTO.test(frame), `${tag}: the auto-resolve line survived`);
+              assert.ok(DENSITY.test(frame), `${tag}: the density line survived`);
+              assert.ok(lines.some((line) => RULE.test(line.trim())), `${tag}: the closing rule survived`);
+              // And the band above is not a row of blanks: the question is still
+              // there, and the choices with it.
+              assert.ok(/Which treatment ships first\?/.test(frame), `${tag}: the question is still on screen`);
+              assert.ok(
+                new RegExp(`(?:> )?(?:\\d+\\. |\\[[ x]\\] )Option 1\\b`).test(frame),
+                `${tag}: the first choice is still on screen`,
+              );
+              component.dispose();
+            }
+          }
+          assert.ok(exercised > 0, "the fallback actually ran in this configuration, so the case is not vacuous");
+        } finally {
+          if (previous) setCapabilities(previous);
+        }
+      }, { timeout: 30000 });
+    }
+  }
+});
