@@ -708,3 +708,69 @@ describe("a host that cannot draw says so in the content area", () => {
     }
   });
 });
+
+/**
+ * The content area carries the option's own change list.
+ *
+ * No picture, no drawing: what a reviewer reads there is what the option would
+ * change, one item per line. It is the answer to "we are not using the space
+ * fully" that does not put decoration in it.
+ */
+describe("content area: the option's changes, in plain text", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  const withChanges = () => {
+    const review = normalizeReview({
+      reviewId: "changes",
+      stages: [{
+        id: "one", header: "One", prompt: "Which treatment?",
+        options: [
+          { id: "a", label: "Three-row queue", description: "Scans fastest.", changes: [
+            "One row per state, so a delayed route is visible without scrolling",
+            "Capacity moves into the row, and the secondary badges go",
+            "Keyboard: ↑↓ walks rows instead of tabs",
+          ] },
+          { id: "b", label: "Two-column split", description: "Denser.", changes: ["Delay beside the action", "Wider rows, fewer fit on screen"] },
+          { id: "c", label: "No change", description: "Leave it." },
+        ],
+      }],
+    });
+    let result;
+    const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 40 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+    return { component, review, get result() { return result; } };
+  };
+  const frame = (component) => component.render(100);
+  const prose = (component) => frame(component).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")).join("\n");
+
+  it("renders each change as its own line, above the question", () => {
+    const { component } = withChanges();
+    const text = prose(component);
+    assert.match(text, /This option changes:/, "the list says what it is");
+    assert.match(text, /• One row per state, so a delayed route is visible without scrolling/, "the first change, in full");
+    assert.match(text, /• Keyboard: ↑↓ walks rows instead of tabs/, "the last change");
+    const changesAt = frame(component).findIndex((line) => line.includes("This option changes:"));
+    const questionAt = frame(component).findIndex((line) => line.includes("Which treatment?"));
+    const menuAt = frame(component).findIndex((line) => line.includes("1. Three-row queue"));
+    assert.ok(changesAt >= 0 && changesAt < questionAt, "the changes are above the question");
+    assert.ok(questionAt < menuAt, "and the question is above the answers");
+    component.dispose();
+  });
+
+  it("follows the cursor: another option shows its own changes", () => {
+    const { component } = withChanges();
+    component.handleInput("\u001b[B");
+    const text = prose(component);
+    assert.match(text, /• Delay beside the action/, "the second option's changes");
+    assert.equal(text.includes("One row per state"), false, "and not the first option's");
+    component.dispose();
+  });
+
+  it("an option with nothing to show says so instead of padding the block", () => {
+    const { component } = withChanges();
+    component.handleInput("\u001b[B");
+    component.handleInput("\u001b[B");
+    const text = prose(component);
+    assert.equal(text.includes("This option changes:"), false, "no change list is claimed");
+    assert.equal(text.includes("No change"), true, "the question and its options are still there");
+    component.dispose();
+  });
+});

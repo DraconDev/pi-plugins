@@ -478,3 +478,28 @@ describe("images are off by default, and opt-in", () => {
     }
   });
 });
+
+/**
+ * `option.changes` is the model's way to fill the content area with the thing a
+ * reviewer actually reads: what the option would change.
+ */
+describe("option.changes survives normalisation", () => {
+  it("keeps the lines in order, drops the blank ones, and is optional", () => {
+    const review = normalizeReview({
+      reviewId: "changes",
+      stages: [{ id: "one", header: "H", prompt: "P", options: [
+        { id: "a", label: "A", changes: ["  first  ", "", "second"] },
+        { id: "b", label: "B" },
+      ] }],
+    });
+    assert.deepEqual(review.stages[0].options[0].changes, ["  first  ", "second"]);
+    assert.equal(review.stages[0].options[1].changes, undefined, "an option without changes has none");
+  });
+  it("carries the image mode through a resumed round", () => {
+    const review = normalizeReview({
+      reviewId: "round", round: 2, images: "on",
+      stages: [{ id: "one", header: "H", prompt: "P", options: [{ label: "A" }, { label: "B" }] }],
+    });
+    assert.equal(review.images, "on");
+  });
+});
