@@ -385,6 +385,8 @@ export class VisualReviewWizard implements Component, Focusable {
   private reasonsDropped = false;
   /** Whether the frame being built prints a reason under every choice. */
   private reasonsShown = false;
+  /** How many options the band scrolled out of view, above and below. */
+  private bandWindow: { above: number; below: number } | null = null;
   private collapsed = false;
   private _focused = false;
   private stageIndex = 0;
@@ -902,22 +904,19 @@ export class VisualReviewWizard implements Component, Focusable {
       footerLines.push(...essentialFooter);
       this.reasonsDropped = true;
     }
-    // Even the reason-free band can crowd the picture out on a long list, and a
-    // picture printed two cells wide is not a picture. So the band gives up whole
-    // choices from its end, the frame scrolls the ones that no longer fit, and
-    // the picture keeps its floor. Every choice stays reachable with `↑↓` and the
-    // scroll indicator says there is more above.
-    if (stage && room(footerLines, tailLines) < MIN_ART_ROWS && hasVisualContent(stage)) {
-      const isChoice = (line: string) => /^\s*(?:> )?\d+\. /.test(line);
-      const firstChoice = footerLines.findIndex(isChoice);
-      for (let index = footerLines.length - 1; index > firstChoice; index -= 1) {
-        if (room(footerLines, tailLines) >= MIN_ART_ROWS) break;
-        // Only whole choices go, and only from the end: the cursor starts on the
-        // first one, so the list stays readable and the rest is a scroll away.
-        if (isChoice(footerLines[index]!)) {
-          footerLines.splice(index, 1);
-        }
-      }
+    // A long list does not lose choices, it scrolls. The band is a *window* onto
+    // every option the model sent: the rows that do not fit are moved out of the
+    // window rather than out of existence, the selected option is always inside
+    // it, and the edges say how many are above and below.
+    //
+    // The earlier version spliced whole choices out of the band instead, and the
+    // consequence was worse than a long list: pressing ↓ past the tenth row moved
+    // the cursor onto an option that was never drawn and never marked, and Enter
+    // recorded it. A review that can be answered with a choice the person never
+    // saw is not a dense review, it is a wrong one.
+    let bandWindow: { above: number; below: number } | null = null;
+    if (stage && hasVisualContent(stage) && footerLines.length > 0) {
+      bandWindow = this.windowBandToFit(footerLines, Math.max(0, MIN_ART_ROWS - room(footerLines, tailLines)));
     }
     // Stacked or side-by-side is decided on the *degraded* band: the band gives
     // up its reasons before the layout gives up the picture or the frame.
@@ -934,6 +933,7 @@ export class VisualReviewWizard implements Component, Focusable {
     // Whether the frame actually prints a reason under each choice, which is
     // what the density line reports.
     this.reasonsShown = this.density === "comfortable" && !this.reasonsDropped && stacked;
+    this.bandWindow = bandWindow;
 
     if (stage) {
       // In the stacked layout the question is already in the footer, so the
@@ -1565,6 +1565,42 @@ export class VisualReviewWizard implements Component, Focusable {
     return this.reasonsShown
       ? "density: comfortable — a reason under every choice (Ctrl+D for compact)"
       : "density: comfortable — reasons dropped to fit the list (Ctrl+D for compact)";
+  }
+
+  /**
+   * Fit the band by scrolling it, never by deleting from it.
+   *
+   * The band is a window onto every option. When it is too tall for the picture
+   * it shrinks, the selected row is scrolled into view, and the rows that fell
+   * outside become a `↑ n more` / `↓ n more` marker so the person can see that
+   * the list continues. `selectedIndex` indexes the *rows*, so the window is
+   * computed from the marked row's position in the full band.
+   */
+  private windowBandToFit(band: string[], shrinkBy: number): { above: number; below: number } {
+    if (shrinkBy <= 0) return { above: 0, below: 0 };
+    const isChoice = (line: string) => /^\s*(?:> )?\d+\. /.test(line);
+    const choiceRows = band.map((line, index) => (isChoice(line) ? index : -1)).filter((index) => index >= 0);
+    if (choiceRows.length === 0) return { above: 0, below: 0 };
+    // How many choice rows fit after shrinking. The band is choices plus the
+    // action rows and seams, so shrinking is measured in whole choice rows.
+    const perChoice = band.length / choiceRows.length;
+    const keep = Math.max(1, Math.floor(choiceRows.length - shrinkBy / perChoice));
+    // Where the cursor is among the choice rows, so the window can follow it.
+    const selectedRow = choiceRows.findIndex((index) => band[index]!.includes("> "));
+    const cursorChoice = selectedRow < 0 ? Math.min(this.selectedIndex, choiceRows.length - 1) : selectedRow;
+    const start = Math.max(0, Math.min(cursorChoice - keep + 1, choiceRows.length - keep));
+    const end = Math.min(choiceRows.length, start + keep);
+    const above = start;
+    const below = choiceRows.length - end;
+    const head = band.slice(0, choiceRows[0]!);
+    const tail = band.slice(choiceRows[choiceRows.length - 1]! + 1);
+    const windowRows: string[] = [];
+    if (above > 0) windowRows.push(this.theme.fg("dim", `   ↑ ${above} more`));
+    windowRows.push(...band.slice(choiceRows[start]!, choiceRows[end - 1]! + 1));
+    if (below > 0) windowRows.push(this.theme.fg("dim", `   ↓ ${below} more`));
+    band.length = 0;
+    band.push(...head, ...windowRows, ...tail);
+    return { above, below };
   }
 
   private tailLines(stage: NormalizedStage | undefined, safeWidth: number): string[] {
