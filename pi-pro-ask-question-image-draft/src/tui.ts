@@ -880,11 +880,13 @@ export class VisualReviewWizard implements Component, Focusable {
         }
       }
     }
-    // Any room at all is enough: an option that carries a picture should never
-    // silently lose it because the screen is short. MIN_ART_ROWS is a *preference*
-    // used when choosing between the full and the essential footer, not a gate.
-    const stacked = footerLines.length > 0 && room(footerLines, tailLines) > 0;
-    const imageBudget = stacked ? room(footerLines, tailLines) : 0;
+    // The panel is a fixed block. The choice band and the controls are the
+    // review; the artwork is the elastic part, so it is the artwork that gives
+    // rows back when the band grows. MIN_ART_ROWS is the floor the picture is
+    // worth keeping for, not a gate on the layout: below it the picture goes and
+    // the options and their controls stay, which is the order a reviewer needs.
+    const stacked = footerLines.length > 0 && room(footerLines, tailLines) > -tailLines.length;
+    const imageBudget = Math.max(0, room(footerLines, tailLines));
 
     if (stage) {
       // In the stacked layout the question is already in the footer, so the
