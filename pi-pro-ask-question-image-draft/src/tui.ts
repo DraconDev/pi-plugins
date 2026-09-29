@@ -880,12 +880,18 @@ export class VisualReviewWizard implements Component, Focusable {
         }
       }
     }
-    // The panel is a fixed block. The choice band and the controls are the
-    // review; the artwork is the elastic part, so it is the artwork that gives
-    // rows back when the band grows. MIN_ART_ROWS is the floor the picture is
-    // worth keeping for, not a gate on the layout: below it the picture goes and
-    // the options and their controls stay, which is the order a reviewer needs.
-    const stacked = footerLines.length > 0 && room(footerLines, tailLines) > -tailLines.length;
+    // The panel is a fixed block, and it is a hard bound: a review may not grow
+    // into the host's own rows. When the choice band is too tall even with no
+    // artwork, the reasons come off the choices - that is precisely what
+    // `essentialFooter` is - and the artwork takes whatever is left. Comfortable
+    // then degrades to compact's shape for a long list rather than losing its
+    // controls, and compact itself is unchanged.
+    const roomWithoutArt = (footer: string[]) => this.panelRows(footer.length + tailLines.length + CHROME_ROWS);
+    if (footerLines.length > 0 && roomWithoutArt(footerLines) <= 0) {
+      footerLines.length = 0;
+      footerLines.push(...essentialFooter);
+    }
+    const stacked = footerLines.length > 0 && room(footerLines, tailLines) > 0;
     const imageBudget = Math.max(0, room(footerLines, tailLines));
 
     if (stage) {
