@@ -907,7 +907,7 @@ export class VisualReviewWizard implements Component, Focusable {
     // choices from its end, the frame scrolls the ones that no longer fit, and
     // the picture keeps its floor. Every choice stays reachable with `↑↓` and the
     // scroll indicator says there is more above.
-    if (room(footerLines, tailLines) < MIN_ART_ROWS && hasVisualContent(stage!)) {
+    if (stage && room(footerLines, tailLines) < MIN_ART_ROWS && hasVisualContent(stage)) {
       const isChoice = (line: string) => /^\s*(?:> )?\d+\. /.test(line);
       const firstChoice = footerLines.findIndex(isChoice);
       for (let index = footerLines.length - 1; index > firstChoice; index -= 1) {
