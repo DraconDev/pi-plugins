@@ -1339,7 +1339,8 @@ describe("a review only ever answers on an option it just showed", () => {
               const line = plain().find((entry) => /^\s*>\s*(?:\d+\.\s+|\[[ x]\]\s+)Option (\d+)\s*$/.exec(entry));
               return line ? Number(/Option (\d+)/.exec(line)[1]) : 0;
             };
-            const onDoneRow = () => plain().some((entry) => /^\s*>\s*Done selecting\s*$/.test(entry));
+            // The commit row is a numbered choice too, so it carries a number.
+            const onDoneRow = () => plain().some((entry) => /^\s*>\s*(?:\d+\.\s+)?Done selecting\s*$/.test(entry));
 
             // Walk to the middle of the list, one option at a time.
             let shown = marked();
@@ -1370,6 +1371,9 @@ describe("a review only ever answers on an option it just showed", () => {
             } else {
               component.handleInput("\r");
             }
+            // Answering the question is not finishing the review: it moves to the
+            // approval row, and the review completes when that is confirmed.
+            component.handleInput("\r");
 
             const recorded = result?.answers?.find((answer) => answer.stageId === "one");
             assert.ok(recorded, "the review completed and recorded an answer for the stage");

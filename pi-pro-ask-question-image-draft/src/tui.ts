@@ -1351,10 +1351,26 @@ export class VisualReviewWizard implements Component, Focusable {
     const footerCount = Math.min(this.tailRows(), Math.max(0, lines.length - headerCount));
     const body = lines.slice(headerCount, Math.max(headerCount, lines.length - footerCount));
     const maxOffset = Math.max(0, body.length - 1);
-    this.scrollOffset = Math.min(Math.max(0, this.scrollOffset), maxOffset);
-    const indicatorCount = (this.scrollOffset > 0 ? 1 : 0) + (this.scrollOffset < maxOffset ? 1 : 0);
+    let offset = Math.min(Math.max(0, this.scrollOffset), maxOffset);
+    const indicatorCount = (offset > 0 ? 1 : 0) + (offset < maxOffset ? 1 : 0);
     const bodyHeight = Math.max(1, Math.min(body.length, height - headerCount - footerCount - indicatorCount));
-    const start = Math.min(this.scrollOffset, Math.max(0, body.length - bodyHeight));
+    // The cursor's row is always in view, and that is the scroll's own rule
+    // rather than the key handler's. A wheel can leave the cursor off screen on
+    // purpose - the reader is looking at something else - but a keypress moves
+    // the cursor, and a frame that does not show where the cursor is is a frame
+    // where Enter answers on a choice nobody was shown. The offset is settled
+    // here because only here is it known how tall the frame ended up: the band
+    // can be windowed by the picture's floor, which moves rows without any key.
+    const bodyEnd = headerCount + body.length;
+    const markedAt = lines.findIndex((line, index) => index >= headerCount && index < bodyEnd && /^\s*>\s/.test(stripPlain(line)));
+    if (markedAt >= 0) {
+      const at = markedAt - headerCount;
+      if (at < offset) offset = at;
+      else if (at >= offset + bodyHeight) offset = at - bodyHeight + 1;
+    }
+    offset = Math.min(Math.max(0, offset), maxOffset);
+    this.scrollOffset = offset;
+    const start = Math.min(offset, Math.max(0, body.length - bodyHeight));
     const end = Math.min(body.length, start + bodyHeight);
     const result = [
       ...lines.slice(0, headerCount),
