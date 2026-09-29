@@ -99,8 +99,25 @@ function run(bin, args, timeoutMs = deadlineMs) {
   });
 }
 
-const npm = (...args) => run("npm", args);
-const node = (script, ...rest) => run(process.execPath, [script, ...rest]);
+const npm = (...args) => guard(run("npm", args));
+const node = (script, ...rest) => guard(run(process.execPath, [script, ...rest]));
+
+/**
+ * Turn a child result into the same `{ ok, output }` shape the in-process items
+ * return.
+ *
+ * This is the bug the shield shipped with the first time it ran: `spawnSync`
+ * has no `ok` property - it returns `status`, `signal` and `error` - so a
+ * success test written against `.ok` was never true, and five of the seven
+ * items were reported as failures while their own output said `status: passed`.
+ * A verdict has to be derived from the child's exit code, and nothing else.
+ */
+function guard(result) {
+  if (result?.error) return { ok: false, output: String(result.error.message ?? result.error) };
+  if (result?.signal) return { ok: false, output: `killed by ${result.signal}` };
+  const output = String(result?.stdout ?? "") + String(result?.stderr ?? "");
+  return { ok: result?.status === 0, status: result?.status, output };
+}
 
 /**
  * The whitespace and graphics-hygiene item, in process: it is a handful of
@@ -110,10 +127,12 @@ function hygiene() {
   const problems = [];
   const diffCheck = run("git", ["diff", "--check"]);
   if (diffCheck.status !== 0) problems.push(`git diff --check reported whitespace damage:\n${tail(diffCheck)}`);
+  if (diffCheck.error) problems.push(`git diff --check could not run: ${diffCheck.error.message ?? diffCheck.error}`);
 
   // The three tokens that would mean the fix was to change how the terminal
   // draws rather than to change what the panel renders.
   const diff = run("git", ["diff", "HEAD"]);
+  if (diff.error) problems.push(`git diff HEAD could not run: ${diff.error.message ?? diff.error}`);
   const added = String(diff.stdout ?? "").split("\n").filter((line) => line.startsWith("+") && !line.startsWith("+++"));
   const banned = added.filter((line) => /PI_IMAGE_PROTOCOL|allow-passthrough|terminal-features/.test(line));
   if (banned.length > 0) problems.push(`added lines introduce terminal graphics settings:\n${banned.join("\n")}`);
@@ -171,7 +190,10 @@ for (const item of items) {
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   if (outcome?.ok === true) {
     results.push({ ...item, ok: true, detail: outcome.output ?? "" });
-    process.stdout.write(`  ${item.name.padEnd(8)} pass  ${seconds}s  ${String(outcome.output ?? "").split("\n").pop() ?? ""}\n`);
+    // The last non-empty line, which is where each gate states its own verdict.
+    const evidence = String(outcome.output ?? "").trim().split("\n").filter((line) => line.trim().length > 0).pop() ?? "";
+    results[results.length - 1].evidence = evidence.slice(0, 110);
+    process.stdout.write(`  ${item.name.padEnd(8)} pass  ${seconds}s  ${evidence.slice(0, 110)}\n`);
   } else {
     const status = outcome?.status === null || outcome?.status === undefined
       ? `timed out after ${item.timeoutMs}ms`
