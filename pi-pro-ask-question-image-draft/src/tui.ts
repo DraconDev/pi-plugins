@@ -1087,6 +1087,11 @@ export class VisualReviewWizard implements Component, Focusable {
         // case nothing can give rows: the choices are the review. So the frame is
         // clipped from the top - never the footer, which is the controls - and
         // the scroll indicator tells the reader there is more above.
+        // `CHROME_ROWS` is the header, the blank above the tabs and the closing
+        // rule - and `lines` already holds the header rows, so the two must not
+        // be subtracted twice. The artwork is padded to fill whatever the band
+        // and the controls leave, so this bound only bites when the band alone is
+        // longer than the panel, which is the one case nothing can give rows.
         const headroom = Math.max(0, panelTotal - tailLines.length);
         if (stackedFrame.length > headroom) {
           // A band longer than the panel is the one case where nothing can give
