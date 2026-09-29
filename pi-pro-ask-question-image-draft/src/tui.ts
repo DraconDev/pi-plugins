@@ -1089,7 +1089,15 @@ export class VisualReviewWizard implements Component, Focusable {
         // the scroll indicator tells the reader there is more above.
         const headroom = Math.max(0, panelTotal - tailLines.length);
         if (stackedFrame.length > headroom) {
-          lines.push(...stackedFrame.slice(stackedFrame.length - headroom));
+          // A band longer than the panel is the one case where nothing can give
+          // rows, because the choices are the review. So the frame is cut from
+          // the top - and never into the artwork: the Kitty escape is its first
+          // line and the iTerm2 escape its last, so the picture is kept whole
+          // and the rows above it go first.
+          const excess = stackedFrame.length - headroom;
+          const artIndex = stackedFrame.findIndex(isImageLine);
+          const cut = artIndex < 0 ? excess : Math.min(excess, artIndex);
+          lines.push(...stackedFrame.slice(cut));
         } else {
           lines.push(...stackedFrame);
         }
