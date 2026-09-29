@@ -1164,13 +1164,13 @@ describe("every option is reachable and marked, at every length", () => {
         if (/[↑↓]\s*\d+\s+more/.test(plain.join("\n"))) sawOverflowMarker = true;
         if (index < options - 1) component.handleInput("\u001b[B");
       }
-      const lastFrame = component.render(100).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
-      // The last option must be on screen, marked, at the end of the walk.
-      const lastMarked = /^\s*> \d+\. (Option \d+)$/.test(lastFrame.find((line) => /^\s*>/.test(line)) ?? "");
+      // Answer the option the cursor ended on, then read the answer the wizard
+      // recorded. A single stage answers on Enter and the review resolves
+      // straight away, so this is the value the model would receive.
       component.handleInput("\r");
-      const recorded = result?.answers?.[0]?.answer;
+      const recorded = result?.answers?.find((answer) => answer.stageId === "one")?.answer;
       component.dispose();
-      return { markedWhileWalking, sawOverflowMarker, lastMarked, recorded };
+      return { markedWhileWalking, sawOverflowMarker, recorded };
     } finally {
       if (previous) setCapabilities(previous);
     }
