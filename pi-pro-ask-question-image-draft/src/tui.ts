@@ -914,10 +914,20 @@ export class VisualReviewWizard implements Component, Focusable {
     // the cursor onto an option that was never drawn and never marked, and Enter
     // recorded it. A review that can be answered with a choice the person never
     // saw is not a dense review, it is a wrong one.
-    let bandWindow: { above: number; below: number } | null = null;
-    if (stage && hasVisualContent(stage) && footerLines.length > 0) {
-      bandWindow = this.windowBandToFit(footerLines, Math.max(0, MIN_ART_ROWS - room(footerLines, tailLines)));
-    }
+    // The band is sized to what is left for the picture, in whole choice rows:
+    // the band is a window onto every option, the window is as tall as the
+    // picture can afford, and the options outside it are a scroll away rather
+    // than gone.
+    // The picture's floor outranks the list's length. A band too tall for the
+    // panel does not get to shrink the picture to a sliver - it becomes a window
+    // that scrolls, so every option stays reachable *and* the treatment stays
+    // something a person can judge.
+    // The window only engages when the band is actually crowding the picture:
+    // `room` is what the artwork would get if the band stayed as long as it is.
+    const crowded = room(footerLines, tailLines) < MIN_ART_ROWS;
+    const bandWindow = stage && hasVisualContent(stage) && footerLines.length > 0 && crowded
+      ? this.windowBand(footerLines, MIN_ART_ROWS - room(footerLines, tailLines))
+      : null;
     // Stacked or side-by-side is decided on the *degraded* band: the band gives
     // up its reasons before the layout gives up the picture or the frame.
     // Stacked is the layout for a stage that has content. The artwork is sized
@@ -1576,15 +1586,16 @@ export class VisualReviewWizard implements Component, Focusable {
    * the list continues. `selectedIndex` indexes the *rows*, so the window is
    * computed from the marked row's position in the full band.
    */
-  private windowBandToFit(band: string[], shrinkBy: number): { above: number; below: number } {
-    if (shrinkBy <= 0) return { above: 0, below: 0 };
+  private windowBand(band: string[], growBy: number): { above: number; below: number } {
+    if (growBy <= 0) return { above: 0, below: 0 };
     const isChoice = (line: string) => /^\s*(?:> )?\d+\. /.test(line);
     const choiceRows = band.map((line, index) => (isChoice(line) ? index : -1)).filter((index) => index >= 0);
     if (choiceRows.length === 0) return { above: 0, below: 0 };
-    // How many choice rows fit after shrinking. The band is choices plus the
-    // action rows and seams, so shrinking is measured in whole choice rows.
-    const perChoice = band.length / choiceRows.length;
-    const keep = Math.max(1, Math.floor(choiceRows.length - shrinkBy / perChoice));
+    // The band holds choices plus action rows and seams, so one choice occupies
+    // a fixed number of rows; the window is how many of those fit once the
+    // picture has had its floor.
+    const rowsPerChoice = (choiceRows[choiceRows.length - 1]! - choiceRows[0]! + 1) / choiceRows.length;
+    const keep = Math.max(1, Math.floor((choiceRows.length * rowsPerChoice - growBy) / rowsPerChoice));
     // Where the cursor is among the choice rows, so the window can follow it.
     const selectedRow = choiceRows.findIndex((index) => band[index]!.includes("> "));
     const cursorChoice = selectedRow < 0 ? Math.min(this.selectedIndex, choiceRows.length - 1) : selectedRow;
