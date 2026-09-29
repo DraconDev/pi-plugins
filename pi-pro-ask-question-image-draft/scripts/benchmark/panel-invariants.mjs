@@ -38,6 +38,7 @@
  * Exit code 0 when every configuration holds, 1 otherwise.
  */
 import { setCapabilities } from "@earendil-works/pi-tui";
+import { Buffer } from "node:buffer";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
@@ -147,11 +148,15 @@ const measure = (component, width, { rows, hasArtwork }) => {
  * The map's *size* is not the test. `loadOptionImages` records one entry per
  * option either way - `{ image }` when the bytes were read, `{ error }` when
  * they were not - so a size check passes on a file that could not be opened and
- * on a file that is not an image at all. Nor is a loaded image enough: `loadImage`
- * catches a failed dimension probe and returns `dimensions: undefined`, so a
- * truncated PNG is in the map and has nothing to draw. A picture is an entry
- * whose `image` is there *and* whose dimensions decoded, and that is what this
- * looks for.
+ * on a file that is not an image at all.
+ *
+ * Nor is a loaded image enough, and neither is a decoded header. `loadImage`
+ * catches a failed dimension probe and returns `dimensions: undefined`, but
+ * `getImageDimensions` reads the PNG header, which survives almost any
+ * truncation: cut to 100 bytes it still reports 1024x1024. So a picture here
+ * means the entry carries an image, the dimensions decoded, *and* the payload
+ * reassembles into a whole file - the last of which is what `verify:image`
+ * already asserts for the same reason.
  */
 const settleImages = async (component, expected) => {
   const deadline = Date.now() + 5_000;
@@ -160,8 +165,29 @@ const settleImages = async (component, expected) => {
   }
   const undecoded = [];
   for (const [key, entry] of component.loadedImages) {
-    if (!entry?.image) undecoded.push(`${key}: ${entry?.error ?? "no entry"}`);
-    else if (!entry.image.dimensions) undecoded.push(`${key}: loaded, but no dimensions decoded`);
+    if (!entry?.image) {
+      undecoded.push(`${key}: ${entry?.error ?? "no entry"}`);
+      continue;
+    }
+    if (!entry.image.dimensions) {
+      undecoded.push(`${key}: loaded, but no dimensions decoded`);
+      continue;
+    }
+    // Dimensions are read from the header, and a header survives almost any
+    // truncation: a PNG cut to 100 bytes still reports its 1024x1024. So
+    // "has dimensions" says the header parsed, not that the picture is there.
+    // Completeness is the question that matters, and it is the same question
+    // `verify:image` answers - the payload has to reassemble into a whole file.
+    const bytes = Buffer.from(entry.image.base64, "base64");
+    if (entry.image.mimeType === "image/png") {
+      if (!bytes.subarray(Math.max(0, bytes.length - 16)).includes(Buffer.from("IEND"))) {
+        undecoded.push(`${key}: the payload is truncated (${bytes.length} bytes, no PNG end chunk)`);
+      }
+    } else {
+      // An artwork this harness cannot check is an artwork it must not call
+      // verified, so it is reported rather than passed.
+      undecoded.push(`${key}: completeness of ${entry.image.mimeType} is not checked by this harness`);
+    }
   }
   for (let missing = component.loadedImages.size; missing < expected; missing += 1) {
     undecoded.push(`option ${missing}: no entry after settling`);
