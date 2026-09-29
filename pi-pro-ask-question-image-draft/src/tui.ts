@@ -853,43 +853,38 @@ export class VisualReviewWizard implements Component, Focusable {
         ...this.renderRows(stage, rows, safeWidth - 2, { describe: this.density === "comfortable" }).map((line) => ` ${line}`),
       ]
       : [];
+    // One rule, in the order a reviewer needs things:
+    //   1. the controls - key hints, auto-resolve and density - are never traded;
+    //   2. the optional furniture goes first (the highlighted reason above the
+    //      question, an alt line);
+    //   3. the artwork is elastic: it shrinks, down to nothing;
+    //   4. and only if the panel still cannot hold them does the choice band
+    //      degrade to the essential one, which drops the reasons under the
+    //      choices - the same shape compact uses - rather than the frame growing
+    //      into the host's own rows.
+    // The panel is a fixed block and a hard bound: a review never grows past it.
     const room = (footer: string[], tail: string[]) => this.panelRows(footer.length + tail.length + CHROME_ROWS);
+    const controlsStart = tailLines.findIndex((line) => /↑↓ move/.test(stripPlain(line)));
     if (footerLines.length > 0 && room(footerLines, tailLines) < MIN_ART_ROWS) {
-      // Drop the optional furniture - the highlighted reason above the question,
-      // which compact puts in the content area instead - before anything that
-      // tells the person what mode they are in or what the keys do. The tail is
-      // never discarded: a review that cannot be driven is not a review.
-      const controlsStart = tailLines.findIndex((line) => /↑↓ move/.test(stripPlain(line)));
-      const dropBefore = controlsStart > 0 ? controlsStart : tailLines.length;
       const optional = footerLines.findIndex((line) => /This option|Alt:|Image:/.test(stripPlain(line)));
-      if (room(footerLines, tailLines) < MIN_ART_ROWS && optional >= 0) {
+      while (optional >= 0 && room(footerLines, tailLines) < MIN_ART_ROWS) {
         footerLines.splice(optional, 1);
-      }
-      if (room(footerLines, tailLines) < MIN_ART_ROWS && footerLines.length > essentialFooter.length) {
-        // The choice band is the last thing to give: the picture and the
-        // controls come first, and the artwork is the elastic part of the frame.
-        footerLines.length = 0;
-        footerLines.push(...essentialFooter);
-      }
-      if (room(footerLines, tailLines) <= 0 && dropBefore > 0) {
-        // Still short with the shortest useful footer: give the rows to the
-        // controls rather than the other way round, and let the artwork take
-        // whatever is left - down to nothing, but not past nothing.
-        while (room(footerLines, tailLines) <= 0 && tailLines.length > dropBefore) {
-          tailLines.splice(dropBefore - 1, 1);
-        }
+        if (footerLines.length === 0) break;
       }
     }
-    // The panel is a fixed block, and it is a hard bound: a review may not grow
-    // into the host's own rows. When the choice band is too tall even with no
-    // artwork, the reasons come off the choices - that is precisely what
-    // `essentialFooter` is - and the artwork takes whatever is left. Comfortable
-    // then degrades to compact's shape for a long list rather than losing its
-    // controls, and compact itself is unchanged.
-    const roomWithoutArt = (footer: string[]) => this.panelRows(footer.length + tailLines.length + CHROME_ROWS);
-    if (footerLines.length > 0 && roomWithoutArt(footerLines) <= 0) {
+    // The band is the last thing to give, and it degrades to the essential one -
+    // choices without a reason under them - rather than the frame outgrowing the
+    // panel. The controls stay either way.
+    if (footerLines.length > essentialFooter.length && room(footerLines, tailLines) < 0) {
       footerLines.length = 0;
       footerLines.push(...essentialFooter);
+    }
+    // Nothing above could make room, so the controls themselves give up their
+    // optional rows - the current answer and the note - before anything else.
+    let guard = 0;
+    while (room(footerLines, tailLines) < 0 && controlsStart > 0 && guard < 12) {
+      tailLines.splice(controlsStart - 1, 1);
+      guard += 1;
     }
     const stacked = footerLines.length > 0 && room(footerLines, tailLines) > 0;
     const imageBudget = Math.max(0, room(footerLines, tailLines));
