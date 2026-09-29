@@ -1012,15 +1012,24 @@ export class VisualReviewWizard implements Component, Focusable {
         // under the tab strip reads as room to breathe, and the picture, the
         // information and the answers stay one solid run down to the bottom.
         if (panelTotal > used) detail.unshift(...Array.from({ length: panelTotal - used }, () => ""));
-        // A short screen gives up the hints before it gives up the picture or the
-        // choices: those two are the review, the hints are a convenience. The
-        // density and auto-resolve lines are *not* hints - they say which mode is
-        // in force - so the trim stops before them and takes the selected-items
-        // line first, then the key hints.
-        const trimFloor = tailLines.findIndex((line) => /auto-resolve:|density:/.test(stripPlain(line)));
-        const floor = trimFloor < 0 ? tailLines.length - 3 : trimFloor;
-        while (lines.length + detail.length + footerLines.length + tailLines.length > panelTotal && tailLines.length > floor) {
-          tailLines.splice(floor - 1, 1);
+        // A short screen gives up the least essential line first. What is *not*
+        // droppable is the tail from the key hints onward: the hints, the
+        // auto-resolve mode and the density mode are how the person knows which
+        // mode they are in and what it does, and a review that hides its own
+        // controls is a review nobody can drive. The current answer and the
+        // selected-items line go before any of that.
+        const floor = Math.max(1, tailLines.findIndex((line) => /↑↓ move/.test(stripPlain(line))));
+        const order = [
+          (line) => /Selected:/.test(line),
+          (line) => /Current answer:|Note:/.test(line),
+          (line) => line === "",
+        ];
+        for (const isDroppable of order) {
+          let index = tailLines.findIndex(isDroppable);
+          while (index >= 0 && lines.length + detail.length + footerLines.length + tailLines.length > panelTotal) {
+            tailLines.splice(index, 1);
+            index = tailLines.findIndex(isDroppable, index);
+          }
         }
         // Only the detail's own padding is ever trimmed: the Kitty escape is the
         // artwork's first line and the iTerm2 escape its last, so cutting by
