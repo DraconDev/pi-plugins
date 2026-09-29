@@ -226,6 +226,8 @@ export interface NormalizedOption {
   description?: string;
   recommended?: boolean;
   value?: string;
+  /** Plain-text changes this option proposes, in order. */
+  changes?: string[];
   preview?: string;
   image?: ImageReference;
   generate?: NormalizedImageGeneration;
