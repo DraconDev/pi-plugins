@@ -1620,22 +1620,20 @@ export class VisualReviewWizard implements Component, Focusable {
     // window has scrolled it points at a different option entirely, and the
     // window then fails to follow the cursor past its own start.
     const markedAt = choiceRows.findIndex((index) => /^\s*>\s/.test(band[index]!));
-    const cursor = Math.max(0, Math.min(
-      markedAt >= 0 ? markedAt : Math.min(this.selectedIndex, choiceRows.length - 1),
-      choiceRows.length - 1,
-    ));
-    const budgetRows = Math.max(spanOf(cursor), (last - first + 1) - growBy);
+    // The window always contains the cursor, and always fits the budget. Growing
+    // greedily in one direction only is what left the cursor on a row that had
+    // scrolled out of the window, with no marker anywhere on an option.
+    const budgetRows = Math.max(1, (last - first + 1) - growBy);
+    const fits = (from: number, to: number): boolean => {
+      const top = choiceRows[from]!;
+      const bottom = to < choiceRows.length ? choiceRows[to]! + (choiceRows[to + 1]! - choiceRows[to]!) - 1 : last;
+      return bottom - top + 1 <= budgetRows;
+    };
     let start = cursor;
-    let used = spanOf(cursor);
-    while (start > 0 && used + spanOf(start - 1) <= budgetRows) {
-      start -= 1;
-      used += spanOf(start);
-    }
+    while (start > 0 && fits(start - 1, cursor)) start -= 1;
     let end = cursor + 1;
-    while (end < choiceRows.length && used + spanOf(end) <= budgetRows) {
-      used += spanOf(end);
-      end += 1;
-    }
+    while (end < choiceRows.length && fits(start, end)) end += 1;
+    if (!fits(start, end - 1)) end = start + 1;
     const above = start;
     const below = choiceRows.length - end;
     const head = band.slice(0, first);
