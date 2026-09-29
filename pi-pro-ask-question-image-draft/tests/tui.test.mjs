@@ -1391,3 +1391,63 @@ describe("a review only ever answers on an option it just showed", () => {
     }
   }
 });
+
+/**
+ * The scroll follows the cursor, in both directions.
+ *
+ * The scroll offset is the reader's place in the content, and the wheel moves it
+ * on purpose. A keypress moves the *cursor*, and the frame has to follow it: a
+ * long list is scrolled down, the person presses Up to go back, and if the frame
+ * does not move the marker is no longer drawn - so Enter records an option that
+ * was not on screen. That is the defect the whole change exists to prevent, and
+ * it lived here: the offset was clamped but never pulled back to the cursor, and
+ * the clip guard above could not help because by then the marker was not in the
+ * frame to protect.
+ */
+describe("the cursor is never scrolled out of its own frame", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+
+  const build = (options, multiSelect) => normalizeReview({
+    reviewId: "scroll", images: "off",
+    stages: [{
+      id: "one", header: "Treatment", prompt: "Which treatment ships first?", multiSelect,
+      options: Array.from({ length: options }, (_, index) => ({
+        id: `o${index}`, label: `Option ${index + 1}`,
+        description: `Favors option ${index + 1}; trade-off: a one-to-two sentence reason line.`,
+      })),
+    }],
+  });
+
+  const marker = (component) => {
+    const plain = component.render(100).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+    const line = plain.find((entry) => /^\s*>\s/.test(entry));
+    return line ? line.trim() : "";
+  };
+
+  for (const multiSelect of [false, true]) {
+    for (const rows of [44, 24]) {
+      it(`keeps the cursor drawn after scrolling away and back, multiSelect=${multiSelect}, ${rows} rows`, async () => {
+        const options = 20;
+        const review = build(options, multiSelect);
+        const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows } }, plainTheme, review, process.cwd(), () => {});
+        const rowCount = component.currentRows().length;
+
+        // Down to the very last row, so the frame is scrolled to the bottom.
+        for (let step = 0; step < rowCount + 1; step += 1) component.handleInput("\u001b[B");
+        assert.notEqual(marker(component), "", "a row is marked at the end of the list");
+
+        // And back up to the first, which is the case that used to leave the
+        // frame showing the bottom of the list with no marker anywhere on it.
+        for (let step = 0; step < rowCount + 1; step += 1) component.handleInput("\u001b[A");
+        const first = marker(component);
+        assert.notEqual(first, "", "the first row is still marked after wrapping back to the top");
+        assert.match(
+          first,
+          multiSelect ? /^\>\s\[[ x]\]\s+Option 1$/ : /^\>\s*\d+\.\s+Option 1$/,
+          `the marker is on the first option, not left behind on the last one: ${JSON.stringify(first)}`,
+        );
+        component.dispose();
+      }, { timeout: 30000 });
+    }
+  }
+});
