@@ -81,6 +81,22 @@ const REJECT_LABEL = "Reject review";
  * see what you are typing into. `CHROME_ROWS` is the panel's own fixed header and
  * footer, and `MAX_ROWS` caps how much of a tall screen a question may take.
  */
+/**
+ * Is this rendered row one of the stage's answerable options?
+ *
+ * The answer shape depends on the stage: a single-select row is numbered
+ * ("1. Transit airy"), a multi-select row carries a checkbox and no number
+ * ("[ ] Transit airy"), and either may carry the cursor prefix. The band window
+ * has to recognise all of them, and it has to agree with `renderRows` - an
+ * earlier version recognised only the numbered shape, so on a multi-select stage
+ * the window measured a list of zero options and quietly pushed the first ones
+ * out of the frame, where the cursor could still land on them and answer with
+ * a choice nobody had seen.
+ */
+function isChoiceRow(line: string): boolean {
+  return /^\s*(?:>\s*)?(?:\d+\.\s+|\[[ x]\]\s+)\S/.test(line);
+}
+
 /** Does this stage carry anything for the content area - a picture, a change list or a mockup? */
 function hasVisualContent(stage: NormalizedStage): boolean {
   return stage.options.some((option) => Boolean(option.image) || Boolean(option.mockup) || Boolean(option.changes?.length));
@@ -1585,7 +1601,7 @@ export class VisualReviewWizard implements Component, Focusable {
    */
   private windowBand(band: string[], growBy: number): { above: number; below: number } {
     if (growBy <= 0) return { above: 0, below: 0 };
-    const isChoice = (line: string) => /^\s*(?:> )?\d+\. /.test(line);
+    const isChoice = isChoiceRow;
     const choiceRows = band.map((line, index) => (isChoice(line) ? index : -1)).filter((index) => index >= 0);
     if (choiceRows.length === 0) return { above: 0, below: 0 };
     // The band holds choices plus action rows and seams, so one choice occupies
@@ -1594,7 +1610,7 @@ export class VisualReviewWizard implements Component, Focusable {
     const rowsPerChoice = (choiceRows[choiceRows.length - 1]! - choiceRows[0]! + 1) / choiceRows.length;
     const keep = Math.max(1, Math.floor((choiceRows.length * rowsPerChoice - growBy) / rowsPerChoice));
     // Where the cursor is among the choice rows, so the window can follow it.
-    const selectedRow = choiceRows.findIndex((index) => band[index]!.includes("> "));
+    const selectedRow = choiceRows.findIndex((index) => /^\s*>\s/.test(band[index]!));
     const cursorChoice = selectedRow < 0 ? Math.min(this.selectedIndex, choiceRows.length - 1) : selectedRow;
     const start = Math.max(0, Math.min(cursorChoice - keep + 1, choiceRows.length - keep));
     const end = Math.min(choiceRows.length, start + keep);
