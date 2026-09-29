@@ -936,10 +936,11 @@ export class VisualReviewWizard implements Component, Focusable {
     // falls back to side-by-side is a stage with content and no room at all even
     // for that, which the frame trim below then keeps inside the panel anyway.
     const stacked = footerLines.length > 0;
-    // The picture takes the rows that are left. It is sized after the band has
-    // been given up, so the rows the band frees reach the artwork instead of
-    // becoming blank rows above a two-cell icon.
-    const imageBudget = stacked ? Math.max(0, room(footerLines, tailLines)) : 0;
+    // The picture takes the rows the *windowed* band leaves, so a long list
+    // spends its slack on the artwork rather than on blank rows above a sliver.
+    const imageBudget = stacked
+      ? Math.max(bandWindow ? MIN_ART_ROWS : 0, room(footerLines, tailLines))
+      : 0;
     // Whether the frame actually prints a reason under each choice, which is
     // what the density line reports.
     this.reasonsShown = this.density === "comfortable" && !this.reasonsDropped && stacked;
