@@ -1451,3 +1451,147 @@ describe("the cursor is never scrolled out of its own frame", () => {
     }
   }
 });
+
+/**
+ * The closing rule is not the row the frame gives up.
+ *
+ * The panel's bottom border is the last line of the frame, so anything that
+ * assembles the frame a row too long takes the border with it. The window's
+ * visible height and its two indicator lines are a fixed point - the indicators
+ * depend on where the window sits, and the window's size depends on how many
+ * indicators there are - and computing the indicators from the *pre-settled*
+ * scroll offset broke it: when re-anchoring on the cursor pushed the window off
+ * the top, an extra "↑ content above" line was inserted after the body had
+ * already been sized, the frame came out one row too long, and the border was
+ * the row that went. Measured 60 frames over 120 configurations, the worst at
+ * eight options on a 22-row terminal, where auto-resolve lands the cursor near
+ * the bottom of an unscrolled list - the cheapest way to make the window leave
+ * the top while the offset is still zero.
+ */
+describe("the panel keeps its closing rule, whatever the scroll does", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, underline: (t) => t, inverse: (t) => t };
+  const RULE = /^[─━═_-]{10,}$/;
+
+  const review = ({ options, rows: _rows, multiSelect, recommended, autoResolve }) => normalizeReview({
+    reviewId: "rule", images: "off", ...(autoResolve ? { autoResolve } : {}),
+    stages: [{
+      id: "one", header: "Treatment", prompt: "Which treatment ships first?", multiSelect,
+      options: Array.from({ length: options }, (_, index) => ({
+        id: `o${index}`, label: `Option ${index + 1}`,
+        ...(index + 1 === recommended ? { recommended: true } : {}),
+        description: `Favors option ${index + 1}; trade-off: a one-to-two sentence reason line.`,
+      })),
+    }],
+  });
+
+  const frame = (component, width) => component.render(width)
+    .map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+
+  it("walks the whole list down and back up at 44 rows without losing the rule", async () => {
+    for (const options of [8, 14, 20]) {
+      for (const multiSelect of [false, true]) {
+        const component = new VisualReviewWizard(
+          { requestRender: () => {}, terminal: { rows: 44 } },
+          plainTheme, review({ options, rows: 44, multiSelect }), process.cwd(), () => {},
+        );
+        const rowCount = component.currentRows().length;
+        for (const key of ["\u001b[B", "\u001b[A"]) {
+          for (let step = 0; step < rowCount + 2; step += 1) {
+            component.handleInput(key);
+            const lines = frame(component, 100);
+            assert.ok(
+              lines.some((line) => RULE.test(line.trim())),
+              `${options} options, multiSelect=${multiSelect}, ${key === "\u001b[B" ? "down" : "up"} ${step + 1}: the panel's closing rule is still on screen`,
+            );
+            assert.ok(lines.length <= 44, `the frame fits the terminal: ${lines.length} lines`);
+          }
+        }
+        component.dispose();
+      }
+    }
+  }, { timeout: 30000 });
+
+  it("keeps the rule when the cursor arrives on an unscrolled list", async () => {
+    // Auto-resolve moves the cursor to the recommended option on the first
+    // frame, while the scroll is still at the top - so the window has to leave
+    // the top, and an indicator line has to appear above the body.
+    for (const options of [8, 12, 20]) {
+      for (const recommended of [options, options - 1, Math.max(2, Math.floor(options / 2))]) {
+        for (const rows of [22, 24, 30]) {
+          const component = new VisualReviewWizard(
+            { requestRender: () => {}, terminal: { rows } },
+            plainTheme, review({ options, rows, multiSelect: false, recommended, autoResolve: true }), process.cwd(), () => {},
+          );
+          const lines = frame(component, 100);
+          assert.ok(
+            lines.some((line) => RULE.test(line.trim())),
+            `${options} options, recommended ${recommended}, ${rows} rows: the rule survived the jump`,
+          );
+          assert.ok(lines.length <= rows, `the frame fits: ${lines.length} of ${rows}`);
+          component.dispose();
+        }
+      }
+    }
+  }, { timeout: 30000 });
+});
+
+/**
+ * The wheel and the cursor each own their own thing.
+ *
+ * The scroll offset is the reader's place in the content, and the wheel moves
+ * it on purpose - somebody reading a long list is looking at something other
+ * than the row the cursor is on. So the wheel scrolls, and the frame stays
+ * where they put it. A keypress moves the cursor, and then the frame follows,
+ * because a frame that does not show where the cursor is is a frame where Enter
+ * answers on a choice nobody was shown. Re-anchoring on every render instead
+ * made the wheel inert, which is a documented feature gone.
+ */
+describe("the wheel scrolls the content and the cursor still comes back to it", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+
+  const wheel = (component, delta) => component.handleMouse({ type: "wheel", wheelDelta: delta, y: 0, x: 0, width: 100 });
+
+  const optionsOnScreen = (component) => component.render(100)
+    .map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""))
+    .flatMap((line) => [...line.matchAll(/Option (\d+)/g)].map((match) => Number(match[1])));
+
+  for (const rows of [44, 24]) {
+    it(`the wheel moves the frame at ${rows} rows, and a keypress brings the cursor back`, async () => {
+      const options = 20;
+      const component = new VisualReviewWizard(
+        { requestRender: () => {}, terminal: { rows } },
+        plainTheme,
+        normalizeReview({
+          reviewId: "wheel", images: "off",
+          stages: [{
+            id: "one", header: "Treatment", prompt: "Which treatment ships first?", multiSelect: false,
+            options: Array.from({ length: options }, (_, index) => ({
+              id: `o${index}`, label: `Option ${index + 1}`,
+              description: `Favors option ${index + 1}; trade-off: a one-to-two sentence reason line.`,
+            })),
+          }],
+        }),
+        process.cwd(), () => {},
+      );
+      component.focused = true;
+      component.render(100);
+
+      const before = optionsOnScreen(component);
+      wheel(component, 4);
+      const scrolled = optionsOnScreen(component);
+      assert.notDeepEqual(
+        [scrolled[0], scrolled.at(-1)],
+        [before[0], before.at(-1)],
+        `the wheel scrolls the content at ${rows} rows: ${before[0]}..${before.at(-1)} then ${scrolled[0]}..${scrolled.at(-1)}`,
+      );
+
+      // The next cursor move takes the frame back to where the cursor is.
+      component.handleInput("\u001b[A");
+      const marked = component.render(100)
+        .map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""))
+        .some((line) => /^\s*>\s*\d+\.\s+Option \d+\s*$/.test(line));
+      assert.ok(marked, "after a cursor move the marked row is on screen again");
+      component.dispose();
+    }, { timeout: 30000 });
+  }
+});
