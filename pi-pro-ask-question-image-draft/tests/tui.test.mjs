@@ -1025,3 +1025,93 @@ describe("the footer survives a long option list, with the picture", () => {
     }
   });
 });
+
+/**
+ * The picture has to be a picture.
+ *
+ * A render with no graphics escape in it is a fallback, and a Kitty escape
+ * with a two-cell box is a picture you cannot judge a dashboard treatment from
+ * - which is exactly what the default mode produced at eight options while every
+ * test stayed green, because they asserted `r > 0 && c > 0` and a 2x1 sliver
+ * passes that. These read the cell box out of the escape itself.
+ */
+describe("the artwork keeps a reviewable size at every option count", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  // The real 1024x1024 benchmark image, not the 16x16 fixture: a sliver only
+  // shows up on a picture with real proportions.
+  const image = new URL("../.pi/benchmark/images/visual-001-option-1.png", import.meta.url).pathname;
+  const MIN_REVIEWABLE = 6; // MIN_ART_ROWS
+
+  const boxFor = async (options, density, rows) => {
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const { parseKitty } = await import("../scripts/benchmark/image-protocol.mjs");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    try {
+      const review = normalizeReview({
+        reviewId: "art", images: "on", ...(density === "compact" ? { density } : {}),
+        stages: [{
+          id: "one", header: "Treatment", prompt: "Which treatment ships first?",
+          options: Array.from({ length: options }, (_, index) => ({
+            id: `o${index}`, label: `Option ${index + 1}`,
+            description: `Favors option ${index + 1}; trade-off: a one-to-two sentence reason line.`,
+            image: { path: image, alt: "Fixture" },
+          })),
+        }],
+      });
+      let result;
+      const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 50));
+      assert.ok(component.loadedImages.size > 0, "the image must load or this proves nothing");
+      const frame = component.render(110).join("\n");
+      component.dispose();
+      const { images } = parseKitty(frame);
+      assert.equal(images.length, 1, "exactly one inline image");
+      return { columns: Number(images[0].keys.c), rows: Number(images[0].keys.r), frame: frame.split("\n").length };
+    } finally {
+      if (previous) setCapabilities(previous);
+    }
+  };
+
+  for (const options of [2, 8, 10, 14, 20]) {
+    for (const density of ["comfortable", "compact"]) {
+      it(`draws a reviewable picture at ${options} options, ${density}`, async () => {
+        const { columns, rows } = await boxFor(options, density, 44);
+        assert.ok(
+          rows >= MIN_REVIEWABLE || columns >= 12,
+          `${options} options ${density}: the picture is ${columns}x${rows} cells, which is a sliver rather than a preview`,
+        );
+      }, { timeout: 30000 });
+    }
+  }
+
+  it("says so when the reasons were dropped, rather than claiming they are there", async () => {
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    try {
+      const options = Array.from({ length: 20 }, (_, index) => ({
+        id: `o${index}`, label: `Option ${index + 1}`,
+        description: `Favors option ${index + 1}; trade-off: a one-to-two sentence reason line.`,
+        image: { path: image, alt: "Fixture" },
+      }));
+      const review = normalizeReview({
+        reviewId: "copy", images: "on",
+        stages: [{ id: "one", header: "T", prompt: "Which ships?", options }],
+      });
+      let result;
+      const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 44 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 50));
+      const prose = component.render(110).join(" ").replace(/\s+/g, " ");
+      component.dispose();
+      assert.match(prose, /density: comfortable/, "the mode is still stated");
+      assert.doesNotMatch(
+        prose,
+        /a reason under every choice/,
+        "and it does not claim reasons the frame had to drop to keep the picture",
+      );
+    } finally {
+      if (previous) setCapabilities(previous);
+    }
+  }, { timeout: 30000 });
+});
