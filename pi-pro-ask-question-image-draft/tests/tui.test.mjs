@@ -1784,6 +1784,17 @@ describe("the essential-band fallback leaves the tail alone", () => {
               // And the band above is not a row of blanks: the question is still
               // there, and the choices with it.
               assert.ok(/Which treatment ships first\?/.test(frame), `${tag}: the question is still on screen`);
+              // The panel is a fixed block and not the terminal. This is the
+              // assertion that catches the fallback rebuilding the band from
+              // the array it had just emptied: the band comes out empty, the
+              // slack that was padding the picture is handed to nothing, and the
+              // frame quietly grows until it fills every row - the panel stops
+              // being a panel. At twenty options or fewer it is 32-33 rows on a
+              // 44-row terminal; 44 is the bug.
+              assert.ok(
+                lines.length <= 36,
+                `${tag}: the panel keeps its fixed height - the frame is ${lines.length} of ${rows} rows`,
+              );
               assert.ok(
                 new RegExp(`(?:> )?(?:\\d+\\. |\\[[ x]\\] )Option 1\\b`).test(frame),
                 `${tag}: the first choice is still on screen`,
