@@ -39,6 +39,7 @@
     "benchmark:publish": "node scripts/benchmark/publish.mjs",
     "benchmark:verify-evidence": "node scripts/benchmark/publish.mjs --verify",
     "verify:image": "node scripts/benchmark/verify-image-protocol.mjs",
+    "verify:panel": "node scripts/benchmark/panel-invariants.mjs",
     "proof:image": "node scripts/benchmark/kitty-proof.mjs",
     "benchmark:report": "node scripts/benchmark/report.mjs",
     "benchmark:run": "bash scripts/benchmark/run-all.sh",
