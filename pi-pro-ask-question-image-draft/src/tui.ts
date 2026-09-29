@@ -94,7 +94,7 @@ const REJECT_LABEL = "Reject review";
  * a choice nobody had seen.
  */
 function isChoiceRow(line: string): boolean {
-  return /^\s*(?:> )?\d+\. /.test(line);
+  return /^\s*(?:>\s*)?(?:\d+\.\s+|\[[ x]\]\s+)\S/.test(line);
 }
 
 /** Does this stage carry anything for the content area - a picture, a change list or a mockup? */
