@@ -1577,11 +1577,14 @@ describe("the wheel scrolls the content and the cursor still comes back to it", 
       component.render(100);
 
       const before = optionsOnScreen(component);
-      wheel(component, 4);
+      assert.equal(before[0], 1, `the frame starts at the first option: ${before[0]}..${before.at(-1)}`);
+      // A large delta, and asserted on where it lands rather than on "it
+      // changed": re-anchoring on every render pinned the wheel to a single row
+      // of travel, which is a dead control that still looks alive.
+      wheel(component, 20);
       const scrolled = optionsOnScreen(component);
-      assert.notDeepEqual(
-        [scrolled[0], scrolled.at(-1)],
-        [before[0], before.at(-1)],
+      assert.ok(
+        scrolled.at(-1) > before.at(-1) + 8,
         `the wheel scrolls the content at ${rows} rows: ${before[0]}..${before.at(-1)} then ${scrolled[0]}..${scrolled.at(-1)}`,
       );
 
