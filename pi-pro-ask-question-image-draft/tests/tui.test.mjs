@@ -1286,3 +1286,104 @@ describe("the band window, for every kind of content a review carries", () => {
   }, { timeout: 30000 });
 });
 
+/**
+ * The invariant behind all of it: a review never answers on a row the person
+ * could not see.
+ *
+ * The reachability cases above check the *screens* - every option is marked as
+ * the cursor walks past it. This checks the *answer*: whatever the review records
+ * is the option that carried the marker in the frame immediately before Enter,
+ * in every layout and every content type. Stated once, it holds for layouts
+ * nobody thought to enumerate, and a future one cannot answer on an unseen row
+ * without failing here.
+ *
+ * Each case answers the way the hints on screen say to. A single-select stage
+ * commits the marked option on Enter. A multi-select stage checks it with Space
+ * and commits on the explicit "Done selecting" row, because Enter on an option
+ * is a toggle there and does not answer; the earlier version of this suite
+ * pressed Enter twice, which left `result` undefined and compared
+ * "(nothing recorded)" with "(nothing recorded)" - it could not fail.
+ */
+describe("a review only ever answers on an option it just showed", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  const image = new URL("../.pi/benchmark/images/visual-001-option-1.png", import.meta.url).pathname;
+
+  for (const content of ["image", "preview", "changes"]) {
+    for (const multiSelect of [false, true]) {
+      for (const density of ["comfortable", "compact"]) {
+        it(`${content} / multiSelect=${multiSelect} / ${density}: the answer is the option that was marked`, async () => {
+          const { setCapabilities } = await import("@earendil-works/pi-tui");
+          const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+          try {
+            const count = 20;
+            const build = (base) => content === "image" ? { ...base, image: { path: image, alt: "Fixture" } }
+              : content === "preview" ? { ...base, preview: "a short preview block" }
+              : { ...base, changes: [`change one for ${base.label}`, "change two"] };
+            const review = normalizeReview({
+              reviewId: "answer", images: "on", ...(density === "compact" ? { density } : {}),
+              stages: [{
+                id: "one", header: "Treatment", prompt: "Which treatment ships first?", multiSelect,
+                options: Array.from({ length: count }, (_, index) => build({
+                  id: `o${index}`, label: `Option ${index + 1}`,
+                  description: `Favors option ${index + 1}; trade-off: a one-to-two sentence reason line.`,
+                })),
+              }],
+            });
+            let result;
+            const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 44 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+            const deadline = Date.now() + 10_000;
+            while (Date.now() < deadline && component.loadedImages.size === 0 && content === "image") await new Promise((r) => setTimeout(r, 50));
+
+            const plain = () => component.render(100).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+            const marked = () => {
+              const line = plain().find((entry) => /^\s*>\s*(?:\d+\.\s+|\[[ x]\]\s+)Option (\d+)\s*$/.exec(entry));
+              return line ? Number(/Option (\d+)/.exec(line)[1]) : 0;
+            };
+            const onDoneRow = () => plain().some((entry) => /^\s*>\s*Done selecting\s*$/.test(entry));
+
+            // Walk to the middle of the list, one option at a time.
+            let shown = marked();
+            for (let step = 1; step < 12; step += 1) {
+              for (let guard = 0; guard < 8; guard += 1) {
+                component.handleInput("\u001b[B");
+                const now = marked();
+                if (now !== shown) { shown = now; break; }
+              }
+            }
+            assert.ok(shown > 0, "an option is marked before Enter");
+
+            // The frame the person is looking at, immediately before the keystroke.
+            const frameBefore = plain();
+            assert.ok(
+              frameBefore.some((line) => new RegExp(`^\\s*>\\s*(?:\\d+\\.\\s+|\\[[ x]\\]\\s+)Option ${shown}\\s*$`).test(line)),
+              `option ${shown} is marked in the frame the person is looking at`,
+            );
+
+            if (multiSelect) {
+              // Check it, then commit on the row the hints name.
+              component.handleInput(" ");
+              const checked = plain().find((entry) => new RegExp(`^\\s*>\\s*\\[x\\]\\s+Option ${shown}\\s*$`).test(entry));
+              assert.ok(checked, `option ${shown} is checked, and the check is on screen`);
+              for (let step = 0; step < count + 2 && !onDoneRow(); step += 1) component.handleInput("\u001b[B");
+              assert.ok(onDoneRow(), "the Done selecting row can be reached");
+              component.handleInput("\r");
+            } else {
+              component.handleInput("\r");
+            }
+
+            const recorded = result?.answers?.find((answer) => answer.stageId === "one");
+            assert.ok(recorded, "the review completed and recorded an answer for the stage");
+            assert.deepEqual(
+              recorded.optionLabels,
+              [`Option ${shown}`],
+              `the review recorded exactly the option that was marked on screen (${shown})`,
+            );
+            component.dispose();
+          } finally {
+            if (previous) setCapabilities(previous);
+          }
+        }, { timeout: 30000 });
+      }
+    }
+  }
+});
