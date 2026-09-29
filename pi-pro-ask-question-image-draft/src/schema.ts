@@ -575,6 +575,10 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
         label: normalizeText(option.label).trim(),
         description: optionalText(option.description),
         recommended: option.recommended === true ? true : undefined,
+        // The option's own change list: plain text, in order, blanks dropped.
+        changes: Array.isArray(option.changes)
+          ? option.changes.map((line) => String(line)).filter((line) => line.trim().length > 0)
+          : undefined,
         value: optionalText(option.value),
         preview: option.preview === undefined ? undefined : normalizeText(option.preview),
         // A stage-level image fills in only where the option carries none of its own.
