@@ -437,6 +437,15 @@ These are recorded in the report itself (`measurementLimits`), not only in prose
 
 ## Development and verification
 
+`@earendil-works/pi-tui` is pinned to `^0.99.1`, the range
+`@earendil-works/pi-coding-agent` declares for it, and that pin is load-bearing.
+The host hands the extension a `TUI` built from *its* copy, and the panel
+constructs components from *this* package's copy; when the two resolve to
+different versions the only symptom is a type error in `tsc` at the point where
+the host's object is passed to the panel's constructor, with no runtime error at
+all. A wildcard range, or a `node_modules` entry hand-linked to an older global
+install, reproduces it exactly. Install it; do not link it.
+
 From this directory:
 
 ```sh
