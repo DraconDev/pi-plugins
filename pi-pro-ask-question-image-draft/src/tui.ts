@@ -941,6 +941,11 @@ export class VisualReviewWizard implements Component, Focusable {
     // by the scroll window, and the cursor landed on a row that was no longer on
     // screen. `room` is what is left for the artwork if the band stays as long as
     // it is; the second test is the band against the panel as a whole.
+    //
+    // The visible-row count is `windowBand`'s, and it is per *content type*: a
+    // stage carrying a picture, a preview or a change list renders different rows,
+    // and a multi-select row is a checkbox rather than a number, so
+    // `isChoiceRow` has to recognise every shape that is really drawn.
     const crowded = room(footerLines, tailLines) < MIN_ART_ROWS
       || footerLines.length + tailLines.length + CHROME_ROWS > this.panelHeight();
     // The cursor's option is known before the band is windowed, and that is what
