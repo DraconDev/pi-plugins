@@ -50,7 +50,11 @@ const RULE = /^[─━═_-]{10,}$/;
 const HINTS = /↑↓ move/;
 const AUTO = /auto-resolve/;
 const DENSITY = /density: (comfortable|compact)/;
-const MARKER = /^\s*>\s/;
+// The marker's job is to name the row the cursor is on, and the cursor is only
+// ever on a choice. A marker on an action row is not a cursor, so the check is
+// for a marker on a *choice* row - and a checkbox counts, because a multi-select
+// row is a checkbox with no number on it.
+const MARKER_ON_CHOICE = /^\s*>\s*(?:\d+\.\s+|\[[ x]\]\s+)\S/;
 
 // The panel's bound when the review carries artwork: measured, not guessed.
 // Fourteen options at both densities and one to twenty options with a picture
@@ -116,8 +120,15 @@ const measure = (component, width, { rows, hasArtwork }) => {
     // content needs is just a review that hides options.
     failures.push(`height: with artwork the panel is ${lines.length} rows, past its ${PANEL_CEILING}`);
   }
-  const marked = lines.filter((line) => MARKER.test(line));
-  if (marked.length === 0) failures.push("marker: no marked row on screen");
+  const marked = lines.filter((line) => MARKER_ON_CHOICE.test(line));
+  if (marked.length === 0) {
+    failures.push("marker: no choice row carries the cursor marker");
+  } else if (marked.length > 1) {
+    // More than one marked choice means the marker is painted by position
+    // rather than by the row the cursor is actually on, so the reader cannot
+    // trust it to say which one Enter will take.
+    failures.push(`marker: ${marked.length} choice rows carry the cursor marker`);
+  }
   return { failures, lines: lines.length, marked: marked.length };
 };
 
