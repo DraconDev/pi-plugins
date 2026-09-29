@@ -23,6 +23,10 @@
  *               the frame. A frame with no visible cursor is a frame where
  *               Enter answers on a choice nobody was shown.
  *
+ * A fourth line is not an invariant but a guard: an image configuration whose
+ * artwork never decoded is reported as a failure, because a matrix that reports
+ * clean while measuring frames with no picture in them is worse than no matrix.
+ *
  * It exists so a round can be compared against a baseline *with the same
  * harness*: run it on one checkout and another and diff the summary line. The
  * point is that the harness can tell the difference - reintroduce any of the
@@ -34,6 +38,7 @@
  * Exit code 0 when every configuration holds, 1 otherwise.
  */
 import { setCapabilities } from "@earendil-works/pi-tui";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
@@ -43,6 +48,13 @@ import { normalizeReview } from "../../src/schema.ts";
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = resolve(HERE, "../..");
 const IMAGE = resolve(ROOT, ".pi/benchmark/images/visual-001-option-1.png");
+
+if (!existsSync(IMAGE)) {
+  console.error(`panel-invariants: the image fixture is missing (${IMAGE}).`);
+  console.error("It is untracked, so a clean checkout does not have it, and without it");
+  console.error("half this matrix would measure frames with no artwork in them.");
+  process.exit(2);
+}
 
 const verbose = process.argv.includes("--verbose");
 
@@ -151,7 +163,7 @@ for (const rows of [44, 36, 30, 24]) {
 }
 
 const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
-const summary = { tail: 0, height: 0, marker: 0 };
+const summary = { tail: 0, height: 0, marker: 0, artwork: 0 };
 const broken = [];
 let frames = 0;
 
@@ -164,13 +176,29 @@ try {
       process.cwd(),
       () => {},
     );
-    if (config.withImage) await settleImages(component);
+    if (config.withImage) {
+      await settleImages(component);
+      // The fixture is untracked, so a clean checkout has none. Without this the
+      // image half of the matrix measures a frame with no artwork in it and
+      // still reports a clean run - the one case where the harness would be
+      // reporting on something that is not there.
+      if (component.loadedImages.size === 0) {
+        broken.push(`${config.rows}x${config.columns} image ${config.density} multi=${config.multiSelect} n=${config.options} first frame: no artwork decoded`);
+        summary.artwork += 1;
+      }
+    }
     const tag = `${config.rows}x${config.columns} ${config.withImage ? "image" : "text "} ${config.density} multi=${config.multiSelect} n=${config.options}`;
     // The first frame, then the list walked down and back up, checking every
     // keystroke: an invariant that holds only at rest is not an invariant.
     const states = [];
     const record = (label) => {
-      const result = measure(component, 100, { rows: config.rows, hasArtwork: config.withImage });
+      // The width that matters is the one the frame is *rendered* at.
+      // `terminal.columns` is never read by the panel - it is the render width
+      // that decides how much fits on a line, and a narrow one wraps the
+      // question, the reason lines and the hints. Varying `terminal.columns`
+      // while rendering everything at 100 measures the same frame three times,
+      // which is worse than not measuring it: the counts look like coverage.
+      const result = measure(component, config.columns, { rows: config.rows, hasArtwork: config.withImage });
       frames += 1;
       for (const failure of result.failures) summary[failure.split(":")[0]] += 1;
       if (result.failures.length) broken.push(`${tag} ${label}: ${result.failures.join("; ")}`);
@@ -195,7 +223,7 @@ try {
 
 const failures = broken.length;
 console.log(`configurations=${configurations.length} frames=${frames} configurationsWithFailures=${failures}`);
-console.log(`failures: tail=${summary.tail} height=${summary.height} marker=${summary.marker}`);
+console.log(`failures: tail=${summary.tail} height=${summary.height} marker=${summary.marker} artwork=${summary.artwork}`);
 for (const entry of broken.slice(0, 12)) console.log(`  ${entry}`);
 if (failures > 12) console.log(`  ... and ${failures - 12} more`);
 console.log(failures === 0 ? "panel-invariants: PASS" : "panel-invariants: FAIL");
