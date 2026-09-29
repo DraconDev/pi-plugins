@@ -1601,6 +1601,66 @@ export class VisualReviewWizard implements Component, Focusable {
    */
   private windowBand(band: string[], growBy: number): { above: number; below: number } {
     if (growBy <= 0) return { above: 0, below: 0 };
+    const choiceRows = band.map((line, index) => (isChoiceRow(line) ? index : -1)).filter((index) => index >= 0);
+    if (choiceRows.length === 0) return { above: 0, below: 0 };
+    // Options are not one row each: a single-select option carries its reason
+    // beneath it and a multi-select one carries a checkbox, so the window is
+    // measured in *rows* and the option boundaries are what the arithmetic is
+    // allowed to cut on. Working in option-counts and converting afterwards is
+    // what let the tail grow past the budget and scroll the last option out.
+    const first = choiceRows[0]!;
+    const last = choiceRows[choiceRows.length - 1]!;
+    const optionSpan = (index: number): number => {
+      const at = choiceRows[index]!;
+      const next = index + 1 < choiceRows.length ? choiceRows[index + 1]! : last + 1;
+      return next - at;
+    };
+    const cursor = Math.max(0, Math.min(this.selectedIndex, choiceRows.length - 1));
+    // Grow the window from the cursor until the budget is spent, then count what
+    // is left above and below.
+    const budgetRows = Math.max(optionSpan(cursor), (last - first + 1) - growBy);
+    let start = cursor;
+    let used = optionSpan(cursor);
+    while (start > 0 && used + optionSpan(start - 1) <= budgetRows) {
+      start -= 1;
+      used += optionSpan(start);
+    }
+    let end = cursor + 1;
+    while (end < choiceRows.length && used + optionSpan(end) <= budgetRows) {
+      used += optionSpan(end);
+      end += 1;
+    }
+    const above = start;
+    const below = choiceRows.length - end;
+    const head = band.slice(0, first);
+    const tail = band.slice(last + 1);
+    const windowRows: string[] = [];
+    if (above > 0) windowRows.push(this.theme.fg("dim", `   ↑ ${above} more`));
+    windowRows.push(...band.slice(choiceRows[start]!, choiceRows[end - 1]! + 1));
+    if (below > 0) windowRows.push(this.theme.fg("dim", `   ↓ ${below} more`));
+    band.length = 0;
+    band.push(...head, ...windowRows, ...tail);
+    return { above, below };
+  }
+
+  private densityLine(): string {
+    if (this.density === "compact") return "density: compact — one reason, in the panel above (Ctrl+D for comfortable)";
+    return this.reasonsShown
+      ? "density: comfortable — a reason under every choice (Ctrl+D for compact)"
+      : "density: comfortable — reasons dropped to fit the list (Ctrl+D for compact)";
+  }
+
+  /**
+   * Fit the band by scrolling it, never by deleting from it.
+   *
+   * The band is a window onto every option. When it is too tall for the picture
+   * it shrinks, the selected row is scrolled into view, and the rows that fell
+   * outside become a `↑ n more` / `↓ n more` marker so the person can see that
+   * the list continues. `selectedIndex` indexes the *rows*, so the window is
+   * computed from the marked row's position in the full band.
+   */
+  private windowBand(band: string[], growBy: number): { above: number; below: number } {
+    if (growBy <= 0) return { above: 0, below: 0 };
     const isChoice = isChoiceRow;
     const choiceRows = band.map((line, index) => (isChoice(line) ? index : -1)).filter((index) => index >= 0);
     if (choiceRows.length === 0) return { above: 0, below: 0 };
