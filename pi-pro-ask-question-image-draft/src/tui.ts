@@ -937,8 +937,13 @@ export class VisualReviewWizard implements Component, Focusable {
     // The window only engages when the band is actually crowding the picture:
     // `room` is what the artwork would get if the band stayed as long as it is.
     const crowded = room(footerLines, tailLines) < MIN_ART_ROWS;
+    // The cursor's option is known before the band is windowed, and that is what
+    // the window is anchored on. Reading it back out of the rendered band is one
+    // render too late: by then the band is already windowed, and the marker the
+    // window follows belongs to the previous window.
+    const cursorOption = stage ? rows.findIndex((row) => row === this.currentRows()[this.selectedIndex]) : -1;
     const bandWindow = stage && hasVisualContent(stage) && footerLines.length > 0 && crowded
-      ? this.windowBand(footerLines, MIN_ART_ROWS - room(footerLines, tailLines))
+      ? this.windowBand(footerLines, MIN_ART_ROWS - room(footerLines, tailLines), cursorOption)
       : null;
     // Stacked or side-by-side is decided on the *degraded* band: the band gives
     // up its reasons before the layout gives up the picture or the frame.
@@ -1599,7 +1604,7 @@ export class VisualReviewWizard implements Component, Focusable {
    * the list continues. `selectedIndex` indexes the *rows*, so the window is
    * computed from the marked row's position in the full band.
    */
-  private windowBand(band: string[], growBy: number): { above: number; below: number } {
+  private windowBand(band: string[], growBy: number, cursorOption = -1): { above: number; below: number } {
     if (growBy <= 0) return { above: 0, below: 0 };
     const choiceRows = band.map((line, index) => (isChoiceRow(line) ? index : -1)).filter((index) => index >= 0);
     if (choiceRows.length === 0) return { above: 0, below: 0 };
@@ -1621,7 +1626,7 @@ export class VisualReviewWizard implements Component, Focusable {
     // window then fails to follow the cursor past its own start.
     const markedAt = choiceRows.findIndex((index) => /^\s*>\s/.test(band[index]!));
     const cursor = Math.max(0, Math.min(
-      markedAt >= 0 ? markedAt : Math.min(this.selectedIndex, choiceRows.length - 1),
+      cursorOption >= 0 ? cursorOption : (markedAt >= 0 ? markedAt : Math.min(this.selectedIndex, choiceRows.length - 1)),
       choiceRows.length - 1,
     ));
     // The window always contains the cursor, and always fits the budget. Growing
