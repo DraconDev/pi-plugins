@@ -1771,9 +1771,10 @@ describe("the essential-band fallback leaves the tail alone", () => {
               );
               const deadline = Date.now() + 10_000;
               while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 25));
-              if (component.reasonsDropped) exercised += 1;
-
+              // `reasonsDropped` is decided during the render, so the frame has
+              // to be built before it can be read back.
               const lines = component.render(100).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+              if (component.reasonsDropped) exercised += 1;
               const frame = lines.join("\n");
               const tag = `${options} options, multiSelect=${multiSelect}, ${columns}x${rows}, reasonsDropped=${component.reasonsDropped}`;
               assert.ok(HINTS.test(frame), `${tag}: the key hints survived`);
