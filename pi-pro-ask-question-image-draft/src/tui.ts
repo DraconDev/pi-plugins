@@ -336,6 +336,16 @@ class LinesComponent implements Component {
   invalidate(): void {}
 }
 
+/**
+ * The visible text of a rendered line, escape sequences removed.
+ *
+ * The short-screen trim decides which footer lines it can afford to drop by
+ * reading them, and a line wrapped in colour still has to be recognisable.
+ */
+function stripPlain(line: string): string {
+  return line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
+}
+
 export class VisualReviewWizard implements Component, Focusable {
   private readonly review: NormalizedReview;
   private readonly theme: Theme;
@@ -802,17 +812,11 @@ export class VisualReviewWizard implements Component, Focusable {
       // the screen is the decision, and what you are deciding about sits above
       // it. The question reading the way it does - a line under the scene, over
       // the menu - is the shape a dialogue menu has.
-      const highlighted = rows[this.selectedIndex];
-      // In compact the list is choices only, so the highlighted option's reason
-      // is the one piece of information the panel must still lead with. In
-      // comfortable it already sits under its own row, and saying it twice is
-      // noise - so exactly one place, whichever mode we are in.
-      if (this.density === "compact" && highlighted?.kind === "option" && highlighted.option.description) {
-        for (const line of wrapTextWithAnsi(this.theme.fg("muted", highlighted.option.description), safeWidth - 2)) {
-          footerLines.push(` ${line}`);
-        }
-        footerLines.push("");
-      }
+      // Compact lists the choices alone, so the highlighted option's reason goes
+      // into the content area (see the detail block below) where there is room
+      // for the whole sentence; in comfortable it already sits under its own
+      // row. Exactly one place, whichever mode we are in.
+
       footerLines.push(seam());
       const question = stage.prompt.replace(/\s+/g, " ").trim();
       footerLines.push(this.theme.fg("accent", ` ${truncateToWidth(question, safeWidth - 2)}`));
@@ -946,10 +950,10 @@ export class VisualReviewWizard implements Component, Focusable {
         const detail: string[] = [];
         if (option) {
           const loaded = this.loadedImages.get(`${stage!.id}:${option.id}`);
-          // What fills the content area, in priority order: picture (when asked
-          // for and the host can draw), the option's own change list, the option's
-          // drawn mockup, then the description. The default is "no picture, no
-          // mockup"; what a reviewer reads there is the option's change list.
+          // What fills the content area, in priority order: the picture (when the
+          // review asked for one and the host can draw it), the option's own
+          // change list, the option's drawn mockup, and the option's description
+          // - which in compact is the reason the list itself does not carry.
           const art = this.imagesEnabled && loaded?.image
             ? imageLines(loaded.image, this.theme, safeWidth - 2, imageBudget)
             : [];
@@ -968,7 +972,17 @@ export class VisualReviewWizard implements Component, Focusable {
               detail.push(...mockup);
             }
           }
-          if (!art.length && !(option.changes && option.changes.length) && !option.mockup) {
+          // Priority, restored: picture, the change list, the mockup, and the
+          // description. In compact the description is the reason the list does
+          // not carry, so it is what a reviewer most needs to read there.
+          if (option.description && (this.density === "compact" || (!art.length && !(option.changes && option.changes.length) && !option.mockup))) {
+            if (detail.length > 0) detail.push("");
+            for (const line of wrapTextWithAnsi(this.theme.fg("muted", option.description), Math.max(1, safeWidth - 4))) {
+              detail.push(`  ${line}`);
+            }
+          }
+          if (!art.length && !(option.changes && option.changes.length) && !option.mockup
+            && !(this.density === "compact" && option.description)) {
             // Nothing to show in the content area; say so honestly rather than
             // padding with whitespace. The picture is off by default and a
             // mockup is an explicit opt-in.
@@ -999,9 +1013,14 @@ export class VisualReviewWizard implements Component, Focusable {
         // information and the answers stay one solid run down to the bottom.
         if (panelTotal > used) detail.unshift(...Array.from({ length: panelTotal - used }, () => ""));
         // A short screen gives up the hints before it gives up the picture or the
-        // choices: those two are the review, the hints are a convenience.
-        while (lines.length + detail.length + footerLines.length + tailLines.length > panelTotal && tailLines.length > 1) {
-          tailLines.splice(tailLines.length - 2, 1);
+        // choices: those two are the review, the hints are a convenience. The
+        // density and auto-resolve lines are *not* hints - they say which mode is
+        // in force - so the trim stops before them and takes the selected-items
+        // line first, then the key hints.
+        const trimFloor = tailLines.findIndex((line) => /auto-resolve:|density:/.test(stripPlain(line)));
+        const floor = trimFloor < 0 ? tailLines.length - 3 : trimFloor;
+        while (lines.length + detail.length + footerLines.length + tailLines.length > panelTotal && tailLines.length > floor) {
+          tailLines.splice(floor - 1, 1);
         }
         // Only the detail's own padding is ever trimmed: the Kitty escape is the
         // artwork's first line and the iTerm2 escape its last, so cutting by
@@ -1070,36 +1089,14 @@ export class VisualReviewWizard implements Component, Focusable {
         // The stacked layout already laid out the footer, the current answer,
         // the key hints and the closing border.
       } else {
-      lines.push("");
-      const current = stage ? this.answers.get(stage.id) : undefined;
-      if (current) lines.push(this.theme.fg("success", `Current answer: ${current.answer ?? current.optionLabels?.join(", ") ?? "(empty)"}${current.notes ? ` — ${current.notes}` : ""}`));
-      const currentNote = stage ? this.currentNote() : undefined;
-      if (currentNote && !current?.notes) lines.push(this.theme.fg("muted", `Note: ${currentNote}`));
-      const selection = stage ? this.selection(stage.id) : new Set<string>();
-      const help = stage?.multiSelect
-        ? `↑↓ move • Space check • Enter confirm • n note • Tab stages • Ctrl+] hide • Esc cancel`
-        : stage
-          ? `↑↓ move • Enter select • n note • Tab/←→ stages • Ctrl+D density • Ctrl+] hide • Esc cancel${this.promptClamped ? " • Ctrl+R prompt" : ""}`
-          : "↑↓ move • Enter review action • Tab stages • Ctrl+] hide • Esc cancel";
-      lines.push(this.theme.fg("dim", help));
-      // Auto-resolve is a mode, so it says so whether it is on or off. A switch
-      // nobody can see is a switch nobody trusts.
-      lines.push(this.theme.fg(this.autoResolve ? "success" : "dim", this.autoResolve
-        ? "auto-resolve: on — Enter takes the recommended option (Ctrl+A off)"
-        : "auto-resolve: off — Ctrl+A answers with the recommended option"));
-      // Density is a mode too, and an invisible one is a mode nobody trusts.
-      lines.push(this.theme.fg(this.density === "compact" ? "success" : "dim", this.density === "compact"
-        ? "density: compact — reasons in the panel above (Ctrl+D for comfortable)"
-        : "density: comfortable — a reason under every choice (Ctrl+D for compact)"));
-      if (stage?.multiSelect && selection.size > 0) {
-        lines.push(this.theme.fg("accent", `Selected: ${stage.options.filter((option) => selection.has(option.id)).map((option) => option.label).join(", ")}`));
-      }
+        // tailLines owns the current answer, the note, the key hints, the
+        // auto-resolve line and the density line, so no layout can lose one.
+        lines.push(...this.tailLines(stage, safeWidth));
       }
     }
 
     if (!emitted) {
-      lines.push("");
-      lines.push(border("─".repeat(safeWidth)));
+      // tailLines already closed the block with its rule.
     }
     const bounded = lines.map((line) => isImageLine(line) ? line : fitLine(line, safeWidth));
     const visible = this.visibleLines(bounded.map((line) => terminateITerm2Images(line)));
@@ -1404,6 +1401,19 @@ export class VisualReviewWizard implements Component, Focusable {
     return lines;
   }
 
+  /**
+   * The key hints, from one place.
+   *
+   * They used to be written out twice - once in the plain layout and once in the
+   * stacked one - and the copies drifted, so a layout silently lost the density
+   * shortcut. One method, every layout.
+   */
+  private keyHints(stage: NormalizedStage | undefined): string {
+    if (!stage) return "↑↓ move • Enter review action • Tab stages • Ctrl+D density • Ctrl+] hide • Esc cancel";
+    if (stage.multiSelect) return "↑↓ move • Space check • Enter confirm • n note • Tab stages • Ctrl+D density • Ctrl+] hide • Esc cancel";
+    return `↑↓ move • Enter select • n note • Tab/←→ stages • Ctrl+D density • Ctrl+] hide • Esc cancel${this.promptClamped ? " • Ctrl+R prompt" : ""}`;
+  }
+
   private tailLines(stage: NormalizedStage | undefined, safeWidth: number): string[] {
     const out: string[] = [""];
     const current = stage ? this.answers.get(stage.id) : undefined;
@@ -1411,15 +1421,15 @@ export class VisualReviewWizard implements Component, Focusable {
     const currentNote = stage ? this.currentNote() : undefined;
     if (currentNote && !current?.notes) out.push(this.theme.fg("muted", `Note: ${currentNote}`));
     const selection = stage ? this.selection(stage.id) : new Set<string>();
-    const help = stage?.multiSelect
-      ? `↑↓ move • Space check • Enter confirm • n note • Tab stages • Ctrl+] hide • Esc cancel`
-      : stage
-        ? `↑↓ move • Enter select • n note • Tab/←→ stages • Ctrl+] hide • Esc cancel${this.promptClamped ? " • Ctrl+R prompt" : ""}`
-        : "↑↓ move • Enter review action • Tab stages • Ctrl+] hide • Esc cancel";
-    out.push(this.theme.fg("dim", help));
+    out.push(this.theme.fg("dim", this.keyHints(stage)));
     out.push(this.theme.fg(this.autoResolve ? "success" : "dim", this.autoResolve
       ? "auto-resolve: on — Enter takes the recommended option (Ctrl+A off)"
       : "auto-resolve: off — Ctrl+A answers with the recommended option"));
+    // Density is a mode, and it is stated in *every* layout: a switch that is
+    // invisible in the layout that carries the picture is a switch nobody can find.
+    out.push(this.theme.fg(this.density === "compact" ? "success" : "dim", this.density === "compact"
+      ? "density: compact — one reason, in the panel above (Ctrl+D for comfortable)"
+      : "density: comfortable — a reason under every choice (Ctrl+D for compact)"));
     if (stage?.multiSelect && selection.size > 0) {
       out.push(this.theme.fg("accent", `Selected: ${stage.options.filter((option) => selection.has(option.id)).map((option) => option.label).join(", ")}`));
     }

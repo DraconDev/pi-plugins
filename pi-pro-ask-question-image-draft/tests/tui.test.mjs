@@ -862,3 +862,87 @@ describe("density: comfortable by default, compact on request, Ctrl+D either way
     component.dispose();
   });
 });
+
+/**
+ * The image layout is the one people actually see, and it used to be the one
+ * layout that forgot the setting existed.
+ *
+ * The density line and the Ctrl+D hint were written out twice — once in the
+ * plain layout, once in the stacked one — and the copies drifted, so a review
+ * carrying a picture showed neither. These render an option with an image in
+ * both modes, because "works in the layout the tests happen to use" is exactly
+ * how that gap survived a green suite.
+ */
+describe("density in the image layout, where the picture is", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  const imageReview = (extra = {}) => {
+    const { fileURLToPath } = { fileURLToPath: (u) => new URL(u).pathname };
+    return normalizeReview({
+      reviewId: "image-density",
+      images: "on",
+      ...extra,
+      stages: [{
+        id: "one", header: "Treatment", prompt: "Which treatment ships first?",
+        options: [
+          { id: "a", label: "Transit airy", description: "One row per state; the secondary badges go.", image: { path: fileURLToPath(new URL("./fixtures/tiny.png", import.meta.url)), alt: "Fixture" } },
+          { id: "b", label: "Transit split", description: "Delay beside the action; denser to scan.", image: { path: fileURLToPath(new URL("./fixtures/tiny.png", import.meta.url)), alt: "Fixture" } },
+        ],
+      }],
+    });
+  };
+  const build = async (review) => {
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    let result;
+    const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 40 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 40));
+    assert.ok(component.loadedImages.size > 0, "the image must load or this layout is not the one under test");
+    if (previous) setCapabilities(previous);
+    return { component, get result() { return result; } };
+  };
+  const lines = (component) => component.render(100).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+  const prose = (component) => lines(component).join(" ").replace(/\s+/g, " ");
+  const isChoice = (line) => /^\s*>?\s*\d+\.\s+Transit/.test(line);
+  const artAt = (component) => component.render(100).findIndex((line) => line.includes("\u001b_G"));
+
+  it("names the density and the shortcut, beside the auto-resolve line, in both modes", async () => {
+    for (const [mode, expected] of [["comfortable", /density: comfortable/], ["compact", /density: compact/]]) {
+      const { component } = await build(imageReview(mode === "compact" ? { density: "compact" } : {}));
+      const text = prose(component);
+      assert.match(text, expected, `${mode}: the mode is stated in the image layout`);
+      assert.match(text, /auto-resolve:/, `${mode}: beside the auto-resolve line`);
+      assert.match(text, /Ctrl\+D density/, `${mode}: the key hints name the shortcut`);
+      assert.ok(artAt(component) >= 0, `${mode}: and this really is the image layout`);
+      component.dispose();
+    }
+  });
+
+  it("compact renders the choice alone and puts the reason in the content area", async () => {
+    const { component } = await build(imageReview({ density: "compact" }));
+    const text = lines(component);
+    const airy = text.findIndex((line) => isChoice(line) && line.includes("Transit airy"));
+    assert.ok(airy >= 0, "the choice is listed");
+    assert.equal(text.filter(isChoice).length, 2, "both choices, one row each");
+    const reasons = text.filter((line) => /One row per state|secondary badges go|Delay beside the action/.test(line));
+    assert.equal(reasons.length, 1, "exactly one reason on screen");
+    assert.match(reasons[0], /One row per state/, "and it is the highlighted option's");
+    // The content area is the band between the artwork and the question.
+    const art = artAt(component);
+    const question = text.findIndex((line) => line.includes("Which treatment ships first?"));
+    const reasonAt = text.indexOf(reasons[0]);
+    assert.ok(art >= 0 && art < reasonAt, "the reason sits below the picture");
+    assert.ok(reasonAt < question, "and above the question, inside the content area");
+    component.dispose();
+  });
+
+  it("comfortable still prints a reason under every choice, with the picture", async () => {
+    const { component } = await build(imageReview());
+    const text = lines(component);
+    const airy = text.findIndex((line) => isChoice(line) && line.includes("Transit airy"));
+    assert.match(text[airy + 1], /secondary badges go/, "the reason is under its own choice");
+    const split = text.findIndex((line) => isChoice(line) && line.includes("Transit split"));
+    assert.match(text[split + 1], /Delay beside the action/, "for every choice, not only the highlighted one");
+    component.dispose();
+  });
+});

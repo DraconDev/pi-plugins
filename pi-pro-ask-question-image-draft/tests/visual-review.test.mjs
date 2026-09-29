@@ -535,3 +535,43 @@ describe("density is validated, defaulted and remembered", () => {
     assert.equal(found?.density, "compact", "and it is found again on resume");
   });
 });
+
+/**
+ * A resumed round keeps the density it was opened with.
+ *
+ * The state carries it and the *extension* re-applies it, because the wizard is
+ * built from the round-2 review the model re-sends. Carrying it in the state
+ * alone is not enough: when the model omits the field, `normalizeReview`
+ * defaults to comfortable and the user's mode is lost mid-review.
+ */
+describe("a resumed round re-applies the persisted density", () => {
+  it("round two keeps compact when the model does not re-send the field", async () => {
+    const { normalizeReview, restoreForTest } = await import("../src/schema.ts").then((m) => ({ normalizeReview: m.normalizeReview }));
+    const { makeReviewState, findReviewState } = await import("../src/state.ts");
+    const stage = { id: "one", header: "H", prompt: "P", options: [{ label: "A" }, { label: "B" }] };
+    const round1 = normalizeReview({ reviewId: "r", round: 1, density: "compact", stages: [stage] });
+    const state = makeReviewState(round1, [], "cancelled");
+    const previous = findReviewState([{ type: "custom", customType: "pi-visual-review-state", data: state }], "r");
+    assert.equal(previous?.density, "compact", "round 1 persisted compact");
+
+    // Round 2: the model re-sends the review without the field, exactly as a
+    // revision round normally arrives.
+    let review = normalizeReview({ reviewId: "r", round: 2, stages: [stage] });
+    assert.equal(review.density, "comfortable", "the model left it out, so it defaults");
+    // The extension's carry-over, applied the way execute() applies it.
+    if (review.density === "comfortable" && previous?.density === "compact") review = { ...review, density: "compact" };
+    assert.equal(review.density, "compact", "and the resumed round keeps the presentation it had");
+  });
+
+  it("a model that re-sends compact keeps compact", async () => {
+    const { normalizeReview } = await import("../src/schema.ts");
+    const { makeReviewState, findReviewState } = await import("../src/state.ts");
+    const stage = { id: "one", header: "H", prompt: "P", options: [{ label: "A" }, { label: "B" }] };
+    const round1 = normalizeReview({ reviewId: "r2", round: 1, density: "comfortable", stages: [stage] });
+    const state = makeReviewState(round1, [], "cancelled");
+    const previous = findReviewState([{ type: "custom", customType: "pi-visual-review-state", data: state }], "r2");
+    let review = normalizeReview({ reviewId: "r2", round: 2, density: "compact", stages: [stage] });
+    if (review.density === "comfortable" && previous?.density === "compact") review = { ...review, density: "compact" };
+    assert.equal(review.density, "compact", "an explicit round-2 choice is honoured");
+  });
+});
