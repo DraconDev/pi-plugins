@@ -879,21 +879,16 @@ export class VisualReviewWizard implements Component, Focusable {
       footerLines.length = 0;
       footerLines.push(...essentialFooter);
     }
-    // Nothing above could make room, so the controls themselves give up their
-    // optional rows - the current answer and the note - before anything else.
-    let guard = 0;
-    while (room(footerLines, tailLines) < 0 && controlsStart > 0 && guard < 12) {
-      tailLines.splice(controlsStart - 1, 1);
-      guard += 1;
-    }
+    // Still short after the band degraded: the controls keep their rows and the
+    // artwork takes what is left, down to nothing. The artwork is elastic; the
+    // controls are not, and neither is the frame's own height.
+    const usable = this.panelHeight() - footerLines.length - tailLines.length - CHROME_ROWS;
     // Stacked or side-by-side is decided on the *degraded* band, and the
     // side-by-side fallback is only taken when stacked genuinely cannot hold
     // even that. Falling back early is what let a ten-option review grow to 38
     // rows and spill into the host's own furniture: the band is now the thing
     // that gives rows, not the frame.
     const stacked = footerLines.length > 0 && room(footerLines, tailLines) > 0;
-    const sideBySideIsTheFallback = !stacked && footerLines.length > 0 && essentialFooter.length > 0
-      && room(essentialFooter, tailLines) > 0 && this.panelRows(essentialFooter.length + tailLines.length + CHROME_ROWS) < 0;
     // The artwork gets the remainder, and the remainder is bounded by the panel:
     // `room` already subtracts the band, the controls and the chrome from the
     // fixed panel height, so a band that grew past the panel cannot buy rows the
@@ -1070,9 +1065,17 @@ export class VisualReviewWizard implements Component, Focusable {
             excess -= 1;
           }
         }
+        // The panel is a hard bound. The artwork's padding is what gives rows
+        // back, and it is given before anything else: the controls, the choices
+        // and the frame's own height outrank a picture that is one row shorter.
+        const panelTotal = this.panelHeight();
+        const overhead = lines.length + footerLines.length + tailLines.length;
+        if (panelTotal > 0 && detail.length > Math.max(0, panelTotal - overhead)) {
+          detail.length = Math.max(0, panelTotal - overhead);
+        }
         lines.push(...detail, ...footerLines, ...tailLines);
         emitted = true;
-      } else if (sideBySide && sideBySideIsTheFallback) {
+      } else if (sideBySide) {
         const rightWidth = Math.max(1, safeWidth - leftWidth - 5);
         const left = new LinesComponent(listLines);
         const selected = rows[this.selectedIndex];
