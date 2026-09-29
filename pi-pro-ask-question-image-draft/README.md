@@ -248,6 +248,34 @@ reservation for the tail reports 4,422 configurations broken, rebuilding the
 footer band from the array it had just emptied reports 3,178, and making the
 scroll stop following the cursor reports 1,154.
 
+## The regression shield: seven items, one command
+
+`npm run verify:shield` runs the seven gates that have guarded this project and
+reports a single verdict, naming the one that failed. It exists because every
+round of work used to end by pasting the same seven commands into a completion
+claim — a habit, not a gate. Nothing ran them, nothing failed when one was
+skipped, and a claim could quietly drop one and still read as a clean sweep.
+
+| # | Item | Command | What it rules out |
+|---|---|---|---|
+| 1 | `check` | `npm run check` | A type error or a broken hermetic smoke |
+| 2 | `panel` | `npm run verify:panel` | Losing the footer tail, the panel's fixed height, the cursor marker, or the artwork |
+| 3 | `unit` | `npm test` | Any behaviour the suite pins |
+| 4 | `image` | `node scripts/benchmark/verify-image-protocol.mjs` | An image that gets to the terminal as bytes but not as a picture |
+| 5 | `live` | `npm run smoke:live -- --image .pi/benchmark/images/visual-001-option-1.png` | A review that only works outside a real terminal |
+| 6 | `hygiene` | `git diff --check` + the banned-token grep | Whitespace damage, and "fixes" that change how the terminal draws rather than what the panel renders |
+| 7 | `state` | `generations.json` and the host's package list | Work that moved the generation account or the activation without saying so |
+
+Each item runs as its own process with its own deadline, cheapest-and-most-likely-
+to-fail first. `--only=<item>` runs one and prints that the verdict is **partial**,
+because a shield that can be narrowed to the part that happens to be green is not
+one.
+
+What it does not cover: anything about a *review's content* — whether the
+questions are any good, whether the treatments look alike — because that is the
+judge's job (`npm run benchmark:judge`), and it is not automatable. A green
+shield means the panel behaves, not that the panel is worth reading.
+
 ## Images: what is actually verified
 
 `npm run verify:image` renders the real wizard frame and parses the image escapes
