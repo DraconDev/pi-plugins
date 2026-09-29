@@ -1192,11 +1192,34 @@ export class VisualReviewWizard implements Component, Focusable {
     return 0;
   }
 
+  /**
+   * How many trailing rows are the panel's own, and must never be scrolled away.
+   *
+   * It used to be a fixed four, which was true when the tail was four rows: a
+   * blank, the key hints, the auto-resolve line and the closing rule. The tail
+   * grew - a current answer, a note, a selected-items line, the density mode -
+   * and a fixed window started clipping the modes off the bottom of a long
+   * review, which is how a default review with ten options lost its own
+   * controls. The window is now the tail itself, so everything the panel pins
+   * stays pinned and the body is what scrolls.
+   */
+  private tailRows(): number {
+    const stage = this.currentStage();
+    const rows = ["", 1]; // the leading blank and the closing rule
+    if (stage && this.answers.has(stage.id)) rows.push(1);
+    if (stage && this.currentNote() && !(stage && this.answers.get(stage.id)?.notes)) rows.push(1);
+    rows.push(1); // key hints
+    rows.push(1); // auto-resolve
+    rows.push(1); // density
+    if (stage?.multiSelect && this.selection(stage.id).size > 0) rows.push(1);
+    return rows.length;
+  }
+
   private visibleLines(lines: string[]): string[] {
     const height = this.tui.terminal?.rows;
     if (!height || height <= 0 || lines.length <= height) return lines;
     const headerCount = Math.min(5, lines.length);
-    const footerCount = Math.min(4, Math.max(0, lines.length - headerCount));
+    const footerCount = Math.min(this.tailRows(), Math.max(0, lines.length - headerCount));
     const body = lines.slice(headerCount, Math.max(headerCount, lines.length - footerCount));
     const maxOffset = Math.max(0, body.length - 1);
     this.scrollOffset = Math.min(Math.max(0, this.scrollOffset), maxOffset);
