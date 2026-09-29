@@ -1620,6 +1620,10 @@ export class VisualReviewWizard implements Component, Focusable {
     // window has scrolled it points at a different option entirely, and the
     // window then fails to follow the cursor past its own start.
     const markedAt = choiceRows.findIndex((index) => /^\s*>\s/.test(band[index]!));
+    const cursor = Math.max(0, Math.min(
+      markedAt >= 0 ? markedAt : Math.min(this.selectedIndex, choiceRows.length - 1),
+      choiceRows.length - 1,
+    ));
     // The window always contains the cursor, and always fits the budget. Growing
     // greedily in one direction only is what left the cursor on a row that had
     // scrolled out of the window, with no marker anywhere on an option.
