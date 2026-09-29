@@ -868,25 +868,21 @@ export class VisualReviewWizard implements Component, Focusable {
         ...this.renderRows(stage, rows, safeWidth - 2, { describe: false }).map((line) => ` ${line}`),
       ]
       : [];
-    // One rule, in the order a reviewer needs things:
-    //   1. the controls - key hints, auto-resolve and density - are never traded;
-    //   2. the optional furniture goes first (the highlighted reason above the
-    //      question, an alt line);
-    //   3. the artwork is elastic: it shrinks, down to nothing;
-    //   4. and only if the panel still cannot hold them does the choice band
-    //      degrade to the essential one, which drops the reasons under the
-    //      choices - the same shape compact uses - rather than the frame growing
-    //      into the host's own rows.
     // The panel is a fixed block and a hard bound: a review never grows past it.
+    // What it contains is decided by the single rule below.
     const room = (footer: string[], tail: string[]) => this.panelRows(footer.length + tail.length + CHROME_ROWS);
-    // One rule, applied in the order a reviewer needs things:
+    // One rule, in the order a reviewer needs things:
     //
     //   1. the picture keeps at least MIN_ART_ROWS rows, because a treatment
     //      drawn as a two-cell sliver is not a treatment;
     //   2. the optional furniture goes - the highlighted reason above the
     //      question, an alt line - so the picture can have those rows;
-    //   3. the choice band degrades to the essential one, the reason-free shape
-    //      compact already uses, and the rows it gives go to the picture.
+    //   3. the choice band drops the reasons under each choice, becoming the
+    //      reason-free shape compact already uses;
+    //   4. and if the choices still crowd the picture, the band becomes a
+    //      *window*: the options that do not fit scroll, marked `↑ n more` and
+    //      `↓ n more`. No option is ever dropped - a review that can be answered
+    //      with a choice nobody saw is not a dense review, it is a wrong one.
     //
     // The band and the artwork budget are decided *together* and in this order,
     // because sizing the picture from a band that is about to shrink is what
