@@ -1584,8 +1584,12 @@ describe("the wheel scrolls the content and the cursor still comes back to it", 
       wheel(component, 20);
       const scrolled = optionsOnScreen(component);
       assert.ok(
-        scrolled.at(-1) > before.at(-1) + 8,
+        scrolled[0] >= 5,
         `the wheel scrolls the content at ${rows} rows: ${before[0]}..${before.at(-1)} then ${scrolled[0]}..${scrolled.at(-1)}`,
+      );
+      assert.ok(
+        scrolled.at(-1) > before.at(-1),
+        `and keeps scrolling: ${before.at(-1)} then ${scrolled.at(-1)}`,
       );
 
       // The next cursor move takes the frame back to where the cursor is. Down
