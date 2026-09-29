@@ -381,6 +381,8 @@ export class VisualReviewWizard implements Component, Focusable {
    * area, which roughly doubles how many options fit in the same fixed block.
    */
   private density: "comfortable" | "compact";
+  /** True when this frame dropped the reasons under the choices to make room. */
+  private reasonsDropped = false;
   private collapsed = false;
   private _focused = false;
   private stageIndex = 0;
@@ -925,6 +927,9 @@ export class VisualReviewWizard implements Component, Focusable {
     // been given up, so the rows the band frees reach the artwork instead of
     // becoming blank rows above a two-cell icon.
     const imageBudget = stacked ? Math.max(0, room(footerLines, tailLines)) : 0;
+    // Whether the frame actually prints a reason under each choice, which is
+    // what the density line reports.
+    this.reasonsShown = this.density === "comfortable" && !this.reasonsDropped && stacked;
 
     if (stage) {
       // In the stacked layout the question is already in the footer, so the
@@ -1543,6 +1548,21 @@ export class VisualReviewWizard implements Component, Focusable {
     return `↑↓ move • Enter select • n note • Tab/←→ stages • Ctrl+D density • Ctrl+] hide • Esc cancel${this.promptClamped ? " • Ctrl+R prompt" : ""}`;
   }
 
+  /**
+   * What the density line says about *this* frame.
+   *
+   * Comfortable prints a reason under every choice until the list is long enough
+   * that the reasons have to go so the picture and the controls can stay. A line
+   * that keeps claiming otherwise is worse than no line: it is how a footer ends
+   * up telling the reader to look for something that is not on screen.
+   */
+  private densityLine(): string {
+    if (this.density === "compact") return "density: compact — one reason, in the panel above (Ctrl+D for comfortable)";
+    return this.reasonsShown
+      ? "density: comfortable — a reason under every choice (Ctrl+D for compact)"
+      : "density: comfortable — reasons dropped to fit the list (Ctrl+D for compact)";
+  }
+
   private tailLines(stage: NormalizedStage | undefined, safeWidth: number): string[] {
     const out: string[] = [""];
     const current = stage ? this.answers.get(stage.id) : undefined;
@@ -1556,9 +1576,10 @@ export class VisualReviewWizard implements Component, Focusable {
       : "auto-resolve: off — Ctrl+A answers with the recommended option"));
     // Density is a mode, and it is stated in *every* layout: a switch that is
     // invisible in the layout that carries the picture is a switch nobody can find.
-    out.push(this.theme.fg(this.density === "compact" ? "success" : "dim", this.density === "compact"
-      ? "density: compact — one reason, in the panel above (Ctrl+D for comfortable)"
-      : "density: comfortable — a reason under every choice (Ctrl+D for compact)"));
+    // It reports what this frame is doing, not what the mode always does - a long
+    // list drops the reasons to keep the picture, and the line says so rather
+    // than claiming a reason under every choice that is not there.
+    out.push(this.theme.fg(this.density === "compact" ? "success" : "dim", this.densityLine()));
     if (stage?.multiSelect && selection.size > 0) {
       out.push(this.theme.fg("accent", `Selected: ${stage.options.filter((option) => selection.has(option.id)).map((option) => option.label).join(", ")}`));
     }
