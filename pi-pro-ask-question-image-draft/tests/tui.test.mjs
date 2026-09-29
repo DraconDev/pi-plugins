@@ -293,9 +293,9 @@ describe("TUI chrome: rows, the preview pane and image-host honesty", () => {
       while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 40));
       // The sentence is wrapped to the pane, so compare it as prose.
       const prose = component.render(110).join(" ").replace(/\s+/g, " ");
-      assert.match(prose, /images are off/i, "a host that cannot render images must say so");
+      assert.match(prose, /pictures are off/i, "a host that cannot render pictures must say so");
       assert.match(prose, /run pi outside tmux|tmux 3\.6a strips/i, "and say what actually works");
-      assert.match(prose, /pictures are off/i, "and the panel says pictures are off for this review");
+      assert.match(prose, /run Pi outside tmux|tmux 3\.6a strips/i, "and names what actually works");
       component.dispose();
     } finally {
       if (previousTmux === undefined) delete process.env.TMUX;
@@ -691,7 +691,7 @@ describe("a host that cannot draw says so in the content area", () => {
       const prose = frame.map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")).join(" ").replace(/\s+/g, " ");
       assert.doesNotMatch(prose, /\[Image:/, "the renderer placeholder is not the explanation");
       assert.doesNotMatch(prose, /file:\/\//, "and the path is not printed twice");
-      assert.match(prose, /images are off/i, "the reason is on screen, where the picture would be");
+      assert.match(prose, /pictures are off/i, "the reason is on screen, where the picture would be");
       assert.match(prose, /run pi outside tmux/i, "along with what actually works");
       // The picture's alt text still carries the content for a host that cannot show it.
       assert.match(prose, /Alt: treatment/, "and the image's own description is not lost");
