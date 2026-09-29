@@ -868,7 +868,18 @@ export class VisualReviewWizard implements Component, Focusable {
     //      into the host's own rows.
     // The panel is a fixed block and a hard bound: a review never grows past it.
     const room = (footer: string[], tail: string[]) => this.panelRows(footer.length + tail.length + CHROME_ROWS);
-    const controlsStart = tailLines.findIndex((line) => /↑↓ move/.test(stripPlain(line)));
+    // One rule, applied in the order a reviewer needs things:
+    //
+    //   1. the picture keeps at least MIN_ART_ROWS rows, because a treatment
+    //      drawn as a two-cell sliver is not a treatment;
+    //   2. the optional furniture goes - the highlighted reason above the
+    //      question, an alt line - so the picture can have those rows;
+    //   3. the choice band degrades to the essential one, the reason-free shape
+    //      compact already uses, and the rows it gives go to the picture.
+    //
+    // The band and the artwork budget are decided *together* and in this order,
+    // because sizing the picture from a band that is about to shrink is what
+    // collapsed it to a sliver while the rows it freed became blank padding.
     if (footerLines.length > 0 && room(footerLines, tailLines) < MIN_ART_ROWS) {
       const optional = footerLines.findIndex((line) => /This option|Alt:|Image:/.test(stripPlain(line)));
       while (optional >= 0 && room(footerLines, tailLines) < MIN_ART_ROWS) {
@@ -876,10 +887,7 @@ export class VisualReviewWizard implements Component, Focusable {
         if (footerLines.length === 0) break;
       }
     }
-    // The band is the last thing to give, and it degrades to the essential one -
-    // choices without a reason under them - rather than the frame outgrowing the
-    // panel. The controls stay either way.
-    if (footerLines.length > essentialFooter.length && room(footerLines, tailLines) < 0) {
+    if (footerLines.length > essentialFooter.length && room(footerLines, tailLines) < MIN_ART_ROWS) {
       footerLines.length = 0;
       footerLines.push(...essentialFooter);
     }
@@ -891,6 +899,9 @@ export class VisualReviewWizard implements Component, Focusable {
     // falls back to side-by-side is a stage with content and no room at all even
     // for that, which the frame trim below then keeps inside the panel anyway.
     const stacked = footerLines.length > 0;
+    // The picture takes the rows that are left. It is sized after the band has
+    // been given up, so the rows the band frees reach the artwork instead of
+    // becoming blank rows above a two-cell icon.
     const imageBudget = stacked ? Math.max(0, room(footerLines, tailLines)) : 0;
 
     if (stage) {
