@@ -934,9 +934,15 @@ export class VisualReviewWizard implements Component, Focusable {
     // panel does not get to shrink the picture to a sliver - it becomes a window
     // that scrolls, so every option stays reachable *and* the treatment stays
     // something a person can judge.
-    // The window only engages when the band is actually crowding the picture:
-    // `room` is what the artwork would get if the band stayed as long as it is.
-    const crowded = room(footerLines, tailLines) < MIN_ART_ROWS;
+    // The window engages whenever the band is taller than the panel, for any
+    // reason: the picture taking its floor, a short terminal, or simply more
+    // options than rows. It previously engaged only when the picture was short,
+    // so on a cramped panel the band rendered in full, the top was clipped away
+    // by the scroll window, and the cursor landed on a row that was no longer on
+    // screen. `room` is what is left for the artwork if the band stays as long as
+    // it is; the second test is the band against the panel as a whole.
+    const crowded = room(footerLines, tailLines) < MIN_ART_ROWS
+      || footerLines.length + tailLines.length + CHROME_ROWS > this.panelHeight();
     // The cursor's option is known before the band is windowed, and that is what
     // the window is anchored on. Reading it back out of the rendered band is one
     // render too late: by then the band is already windowed, and the marker the
