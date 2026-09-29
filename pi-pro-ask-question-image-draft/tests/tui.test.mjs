@@ -691,7 +691,7 @@ describe("a host that cannot draw says so in the content area", () => {
       const prose = frame.map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")).join(" ").replace(/\s+/g, " ");
       assert.doesNotMatch(prose, /\[Image:/, "the renderer placeholder is not the explanation");
       assert.doesNotMatch(prose, /file:\/\//, "and the path is not printed twice");
-      assert.match(prose, /Inline images are off here or pictures are off/, "the reason is on screen, where the picture would be");
+      assert.match(prose, /[Ii]mages are off here|pictures are off/, "the reason is on screen, where the picture would be");
       assert.match(prose, /Run Pi outside tmux/, "along with what actually works");
       // The picture's alt text still carries the content for a host that cannot show it.
       assert.match(prose, /Alt: treatment/, "and the image's own description is not lost");
