@@ -902,10 +902,15 @@ export class VisualReviewWizard implements Component, Focusable {
     // the picture keeps its floor. Every choice stays reachable with `↑↓` and the
     // scroll indicator says there is more above.
     if (room(footerLines, tailLines) < MIN_ART_ROWS && hasVisualContent(stage!)) {
-      const firstChoice = footerLines.findIndex((line) => /^\s*(?:> )?\d+\. /.test(line));
-      const last = footerLines.length - 1;
-      while (room(footerLines, tailLines) < MIN_ART_ROWS && firstChoice >= 0 && last > firstChoice) {
-        footerLines.splice(last, 1);
+      const isChoice = (line: string) => /^\s*(?:> )?\d+\. /.test(line);
+      const firstChoice = footerLines.findIndex(isChoice);
+      for (let index = footerLines.length - 1; index > firstChoice; index -= 1) {
+        if (room(footerLines, tailLines) >= MIN_ART_ROWS) break;
+        // Only whole choices go, and only from the end: the cursor starts on the
+        // first one, so the list stays readable and the rest is a scroll away.
+        if (isChoice(footerLines[index]!)) {
+          footerLines.splice(index, 1);
+        }
       }
     }
     // Stacked or side-by-side is decided on the *degraded* band: the band gives
