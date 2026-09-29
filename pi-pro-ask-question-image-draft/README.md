@@ -225,22 +225,28 @@ belongs to it. Both kinds reach the model in the returned envelope
 ## The panel's invariants: what is actually measured
 
 `npm run verify:panel` renders the real wizard across 384 configurations - four
-terminal heights, three widths, text and image layouts, both densities, single-
-and multi-select, four to twenty options - and checks every frame, walking each
-list down and back up rather than measuring it at rest, for three promises:
+terminal heights, three render widths, text and image layouts, both densities,
+single- and multi-select, four to twenty options - and checks every frame,
+walking each list down and back up rather than measuring it at rest:
 
-| Invariant | What it rules out |
+| Check | What it rules out |
 |---|---|
 | `tail` | The key hints, the auto-resolve line, the density line and the closing rule, as one block in that order |
 | `height` | The frame never outgrows the terminal, and with artwork the panel stays a fixed block rather than becoming the screen |
 | `marker` | Exactly one row carries the cursor marker - none means the cursor is off screen, more than one means it is painted by position rather than by the cursor |
+| `artwork` | An image configuration whose picture never decoded - the fixture is untracked, and a matrix that reports clean while measuring frames with no artwork in them is worse than no matrix |
+
+The width is the width the frame is *rendered* at, not `terminal.columns`: the
+panel never reads that, so varying it alone measures one frame three times and
+the counts look like coverage. At 60 columns an eight-option text review is 40
+rows and at 80 it is 32, so the dimension is real.
 
 It is written to be run on two checkouts and diffed, which is how a round gets
 compared against a baseline with the same harness. A clean line only means
-something because each invariant has been shown to fail: removing the frame's
-reservation for the tail reports 11,520 failures, rebuilding the footer band
-from the array it had just emptied reports 6,660, and making the scroll stop
-following the cursor reports 879.
+something because each check has been shown to fail: removing the frame's
+reservation for the tail reports 4,422 configurations broken, rebuilding the
+footer band from the array it had just emptied reports 3,178, and making the
+scroll stop following the cursor reports 1,154.
 
 ## Images: what is actually verified
 
