@@ -942,7 +942,12 @@ export class VisualReviewWizard implements Component, Focusable {
             // Nothing to show in the content area; say so honestly rather than
             // padding with whitespace. The picture is off by default and a
             // mockup is an explicit opt-in.
-            if (this.imagesEnabled && option.image) {
+            if (loaded?.error) {
+              // A file that is not there is not a host that cannot draw. Saying
+              // "tmux strips the introducer" for a bad path sends the reader to
+              // fix the wrong thing.
+              for (const line of wrapTextWithAnsi(this.theme.fg("error", `Image unavailable: ${loaded.error}`), Math.max(1, safeWidth - 4))) detail.push(`  ${line}`);
+            } else if (this.imagesEnabled && option.image) {
               const reference = option.image.path ?? option.image.url ?? "image";
               const name = String(reference).split("/").pop() ?? String(reference);
               for (const line of wrapTextWithAnsi(
