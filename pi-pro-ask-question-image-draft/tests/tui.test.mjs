@@ -1115,3 +1115,88 @@ describe("the artwork keeps a reviewable size at every option count", () => {
     }
   }, { timeout: 30000 });
 });
+
+/**
+ * Every option is reachable, and visibly so.
+ *
+ * The band-truncation loop that preceded this dropped whole choices out of the
+ * rendered rows to keep the picture big. The consequence was worse than a long
+ * list: pressing `↓` past the tenth row moved the cursor onto an option that
+ * was never drawn and never carried the `>` marker, and `Enter` recorded it. A
+ * review that can be answered with a choice the person never saw is not a dense
+ * review, it is a wrong one - so the band is now a window that scrolls, and
+ * these walk the entire list and check that every option is marked on screen at
+ * the moment the cursor is on it.
+ */
+describe("every option is reachable and marked, at every length", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  const image = new URL("../.pi/benchmark/images/visual-001-option-1.png", import.meta.url).pathname;
+
+  const walk = async (options, density) => {
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    try {
+      const review = normalizeReview({
+        reviewId: "reach", images: "on", ...(density === "compact" ? { density } : {}),
+        stages: [{
+          id: "one", header: "Treatment", prompt: "Which treatment ships first?",
+          options: Array.from({ length: options }, (_, index) => ({
+            id: `o${index}`, label: `Option ${index + 1}`,
+            description: `Favors option ${index + 1}; trade-off: a one-to-two sentence reason line.`,
+            image: { path: image, alt: "Fixture" },
+          })),
+        }],
+      });
+      let result;
+      const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 44 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 50));
+      assert.ok(component.loadedImages.size > 0, "the image must load");
+      const markedWhileWalking = new Set();
+      let sawOverflowMarker = false;
+      for (let index = 0; index < options; index += 1) {
+        const frame = component.render(100);
+        const plain = frame.map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+        for (const line of plain) {
+          const match = /^\s*> \d+\. (Option \d+)$/.exec(line);
+          if (match) markedWhileWalking.add(match[1]);
+        }
+        if (/[↑↓]\s*\d+\s+more/.test(plain.join("\n"))) sawOverflowMarker = true;
+        if (index < options - 1) component.handleInput("\u001b[B");
+      }
+      const lastFrame = component.render(100).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+      // The last option must be on screen, marked, at the end of the walk.
+      const lastMarked = /^\s*> \d+\. (Option \d+)$/.test(lastFrame.find((line) => /^\s*>/.test(line)) ?? "");
+      component.handleInput("\r");
+      const recorded = result?.answers?.[0]?.answer;
+      component.dispose();
+      return { markedWhileWalking, sawOverflowMarker, lastMarked, recorded };
+    } finally {
+      if (previous) setCapabilities(previous);
+    }
+  };
+
+  for (const options of [8, 14, 20]) {
+    for (const density of ["comfortable", "compact"]) {
+      it(`shows and marks every one of ${options} options, ${density}`, async () => {
+        const { markedWhileWalking, recorded } = await walk(options, density);
+        assert.equal(
+          markedWhileWalking.size,
+          options,
+          `${options} options ${density}: only ${markedWhileWalking.size} were ever marked on screen`,
+        );
+        assert.equal(recorded, `Option ${options}`, "and the answer is the option the cursor was on");
+      }, { timeout: 30000 });
+    }
+  }
+
+  it("signposts that the list scrolls rather than pretending it ended", async () => {
+    const { sawOverflowMarker } = await walk(20, "comfortable");
+    assert.equal(sawOverflowMarker, true, "a band that scrolls says so with ↑ n more / ↓ n more");
+  }, { timeout: 30000 });
+
+  it("does not claim to scroll when everything fits", async () => {
+    const { sawOverflowMarker } = await walk(8, "comfortable");
+    assert.equal(sawOverflowMarker, false, "eight options fit, so there is nothing to scroll to");
+  }, { timeout: 30000 });
+});
