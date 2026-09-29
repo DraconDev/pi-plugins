@@ -933,28 +933,23 @@ export class VisualReviewWizard implements Component, Focusable {
     // The picture's floor outranks the list's length. A band too tall for the
     // panel does not get to shrink the picture to a sliver - it becomes a window
     // that scrolls, so every option stays reachable *and* the treatment stays
-    // something a person can judge.
-    // The window engages whenever the band is taller than the panel, for any
-    // reason: the picture taking its floor, a short terminal, or simply more
-    // options than rows. It previously engaged only when the picture was short,
-    // so on a cramped panel the band rendered in full, the top was clipped away
-    // by the scroll window, and the cursor landed on a row that was no longer on
-    // screen. `room` is what is left for the artwork if the band stays as long as
-    // it is; the second test is the band against the panel as a whole.
+    // something a person can judge. `room` is what is left for the artwork if the
+    // band stays as long as it is, and the window engages when that falls under
+    // the picture's floor.
     //
     // The visible-row count is `windowBand`'s, and it is per *content type*: a
     // stage carrying a picture, a preview or a change list renders different rows,
     // and a multi-select row is a checkbox rather than a number, so
     // `isChoiceRow` has to recognise every shape that is really drawn.
-    const crowded = room(footerLines, tailLines) < MIN_ART_ROWS
-      || footerLines.length + tailLines.length + CHROME_ROWS > this.panelHeight();
-    // The cursor's option is known before the band is windowed, and that is what
-    // the window is anchored on. Reading it back out of the rendered band is one
-    // render too late: by then the band is already windowed, and the marker the
-    // window follows belongs to the previous window.
-    const cursorOption = stage ? rows.findIndex((row) => row === this.currentRows()[this.selectedIndex]) : -1;
+    const crowded = room(footerLines, tailLines) < MIN_ART_ROWS;
+    // The band handed to `windowBand` is rebuilt from the rows on every render,
+    // so it already carries the marker the renderer just drew on the row the
+    // cursor is on. That marker is the cursor's position in the window, and it is
+    // what the window is anchored on. `selectedIndex` cannot be used for this:
+    // it indexes the rows, and the identity of those rows says nothing about
+    // which one the person is looking at.
     const bandWindow = stage && hasVisualContent(stage) && footerLines.length > 0 && crowded
-      ? this.windowBand(footerLines, MIN_ART_ROWS - room(footerLines, tailLines), cursorOption)
+      ? this.windowBand(footerLines, MIN_ART_ROWS - room(footerLines, tailLines))
       : null;
     // Stacked or side-by-side is decided on the *degraded* band: the band gives
     // up its reasons before the layout gives up the picture or the frame.
@@ -1621,7 +1616,7 @@ export class VisualReviewWizard implements Component, Focusable {
    * the list continues. `selectedIndex` indexes the *rows*, so the window is
    * computed from the marked row's position in the full band.
    */
-  private windowBand(band: string[], growBy: number, cursorOption = -1): { above: number; below: number } {
+  private windowBand(band: string[], growBy: number): { above: number; below: number } {
     if (growBy <= 0) return { above: 0, below: 0 };
     const choiceRows = band.map((line, index) => (isChoiceRow(line) ? index : -1)).filter((index) => index >= 0);
     if (choiceRows.length === 0) return { above: 0, below: 0 };
@@ -1637,13 +1632,16 @@ export class VisualReviewWizard implements Component, Focusable {
       const next = index + 1 < choiceRows.length ? choiceRows[index + 1]! : last + 1;
       return next - at;
     };
-    // The cursor is located by the marker the renderer already drew, not by
-    // `selectedIndex`: that indexes rows of the *current* window, so once the
-    // window has scrolled it points at a different option entirely, and the
-    // window then fails to follow the cursor past its own start.
+    // The cursor is located by the marker the renderer already drew on this very
+    // band, which was rebuilt for this render, so it names the row the person is
+    // actually looking at. `selectedIndex` cannot stand in: it indexes rows, and
+    // once the window has scrolled it points at a different option entirely, so
+    // the window would fail to follow the cursor past its own start. When no row
+    // carries the marker at all - an empty band, or a stage whose first row is
+    // an action - the cursor stays where it was rather than jumping.
     const markedAt = choiceRows.findIndex((index) => /^\s*>\s/.test(band[index]!));
     const cursor = Math.max(0, Math.min(
-      cursorOption >= 0 ? cursorOption : (markedAt >= 0 ? markedAt : Math.min(this.selectedIndex, choiceRows.length - 1)),
+      markedAt >= 0 ? markedAt : Math.min(this.selectedIndex, choiceRows.length - 1),
       choiceRows.length - 1,
     ));
     // The window always contains the cursor, and always fits the budget. Growing
