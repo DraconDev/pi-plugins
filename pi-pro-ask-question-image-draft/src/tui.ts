@@ -1599,6 +1599,48 @@ export class VisualReviewWizard implements Component, Focusable {
    * the list continues. `selectedIndex` indexes the *rows*, so the window is
    * computed from the marked row's position in the full band.
    */
+  private windowBand(band: string[], growBy: number): { above: number; below: number } {
+    if (growBy <= 0) return { above: 0, below: 0 };
+    const choiceRows = band.map((line, index) => (isChoiceRow(line) ? index : -1)).filter((index) => index >= 0);
+    if (choiceRows.length === 0) return { above: 0, below: 0 };
+    // Options are not one row each: a single-select option carries its reason
+    // beneath it and a multi-select one carries a checkbox, so the window is
+    // measured in *rows* and cut only on option boundaries. Working in
+    // option-counts and converting afterwards is what let the tail grow past the
+    // budget and scroll the last option out of the frame.
+    const first = choiceRows[0]!;
+    const last = choiceRows[choiceRows.length - 1]!;
+    const spanOf = (index: number): number => {
+      const at = choiceRows[index]!;
+      const next = index + 1 < choiceRows.length ? choiceRows[index + 1]! : last + 1;
+      return next - at;
+    };
+    const cursor = Math.max(0, Math.min(this.selectedIndex, choiceRows.length - 1));
+    const budgetRows = Math.max(spanOf(cursor), (last - first + 1) - growBy);
+    let start = cursor;
+    let used = spanOf(cursor);
+    while (start > 0 && used + spanOf(start - 1) <= budgetRows) {
+      start -= 1;
+      used += spanOf(start);
+    }
+    let end = cursor + 1;
+    while (end < choiceRows.length && used + spanOf(end) <= budgetRows) {
+      used += spanOf(end);
+      end += 1;
+    }
+    const above = start;
+    const below = choiceRows.length - end;
+    const head = band.slice(0, first);
+    const tail = band.slice(last + 1);
+    const windowRows: string[] = [];
+    if (above > 0) windowRows.push(this.theme.fg("dim", `   ↑ ${above} more`));
+    windowRows.push(...band.slice(choiceRows[start]!, choiceRows[end - 1]! + 1));
+    if (below > 0) windowRows.push(this.theme.fg("dim", `   ↓ ${below} more`));
+    band.length = 0;
+    band.push(...head, ...windowRows, ...tail);
+    return { above, below };
+  }
+
   private tailLines(stage: NormalizedStage | undefined, safeWidth: number): string[] {
     const out: string[] = [""];
     const current = stage ? this.answers.get(stage.id) : undefined;
