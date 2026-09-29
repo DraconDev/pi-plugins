@@ -1164,13 +1164,15 @@ describe("every option is reachable and marked, at every length", () => {
         if (/[↑↓]\s*\d+\s+more/.test(plain.join("\n"))) sawOverflowMarker = true;
         if (index < options - 1) component.handleInput("\u001b[B");
       }
-      // Answer the option the cursor ended on, then read the answer the wizard
-      // recorded. A single stage answers on Enter and the review resolves
-      // straight away, so this is the value the model would receive.
+      // Answer the option the cursor ended on, then read what the review
+      // recorded. Answering moves the cursor to the review tab, whose summary is
+      // where the recorded answer is visible before the review is submitted.
       component.handleInput("\r");
+      const reviewTab = component.render(100).join(" ");
+      component.handleInput("\r"); // approve from the review tab
       const recorded = result?.answers?.find((answer) => answer.stageId === "one")?.answer;
       component.dispose();
-      return { markedWhileWalking, sawOverflowMarker, recorded };
+      return { markedWhileWalking, sawOverflowMarker, recorded, reviewTab };
     } finally {
       if (previous) setCapabilities(previous);
     }
