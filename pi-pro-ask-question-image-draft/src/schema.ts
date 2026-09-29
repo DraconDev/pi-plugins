@@ -113,6 +113,17 @@ export const ReviewOptionSchema = Type.Object({
   label: Type.String({ maxLength: MAX_LABEL_LENGTH, description: "Concise option label (1-5 words is recommended)." }),
   description: Type.Optional(Type.String({ maxLength: 4_000, description: "What this option means and its trade-offs." })),
   recommended: Type.Optional(Type.Boolean({ description: "Mark this as the option the model recommends. Marked rows say so, and auto-resolve lands on them." })),
+  /**
+   * Plain-text lines saying what this option changes, in order.
+   *
+   * The content area of a review is one big block, and the way to fill it
+   * without a picture or a drawing is to let each option carry its own
+   * description of the change it proposes. A reviewer reads these and decides
+   * on the difference, not on the surface.
+   */
+  changes: Type.Optional(
+    Type.Array(Type.String({ maxLength: 280 }), { maxItems: 16, description: "What this option changes, one item per line." }),
+  ),
   value: Type.Optional(Type.String({ maxLength: 2_000, description: "Optional machine-readable value to return when this option is selected." })),
   preview: Type.Optional(PreviewSchema),
   image: Type.Optional(ImageInputSchema),
