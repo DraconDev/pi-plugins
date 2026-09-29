@@ -886,7 +886,14 @@ export class VisualReviewWizard implements Component, Focusable {
       tailLines.splice(controlsStart - 1, 1);
       guard += 1;
     }
+    // Stacked or side-by-side is decided on the *degraded* band, and the
+    // side-by-side fallback is only taken when stacked genuinely cannot hold
+    // even that. Falling back early is what let a ten-option review grow to 38
+    // rows and spill into the host's own furniture: the band is now the thing
+    // that gives rows, not the frame.
     const stacked = footerLines.length > 0 && room(footerLines, tailLines) > 0;
+    const sideBySideIsTheFallback = !stacked && footerLines.length > 0 && essentialFooter.length > 0
+      && room(essentialFooter, tailLines) > 0 && this.panelRows(essentialFooter.length + tailLines.length + CHROME_ROWS) < 0;
     // The artwork gets the remainder, and the remainder is bounded by the panel:
     // `room` already subtracts the band, the controls and the chrome from the
     // fixed panel height, so a band that grew past the panel cannot buy rows the
@@ -1065,7 +1072,7 @@ export class VisualReviewWizard implements Component, Focusable {
         }
         lines.push(...detail, ...footerLines, ...tailLines);
         emitted = true;
-      } else if (sideBySide) {
+      } else if (sideBySide && sideBySideIsTheFallback) {
         const rightWidth = Math.max(1, safeWidth - leftWidth - 5);
         const left = new LinesComponent(listLines);
         const selected = rows[this.selectedIndex];
