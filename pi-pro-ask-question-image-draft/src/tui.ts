@@ -1019,7 +1019,7 @@ export class VisualReviewWizard implements Component, Focusable {
         // controls is a review nobody can drive. The current answer and the
         // selected-items line go before any of that.
         const floor = Math.max(1, tailLines.findIndex((line) => /↑↓ move/.test(stripPlain(line))));
-        const order = [
+        const order: ((line: string) => boolean)[] = [
           (line) => /Selected:/.test(line),
           (line) => /Current answer:|Note:/.test(line),
           (line) => line === "",
