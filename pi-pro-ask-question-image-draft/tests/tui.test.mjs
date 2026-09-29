@@ -939,10 +939,15 @@ describe("density in the image layout, where the picture is", () => {
   it("comfortable still prints a reason under every choice, with the picture", async () => {
     const { component } = await build(imageReview());
     const text = lines(component);
-    const airy = text.findIndex((line) => isChoice(line) && line.includes("Transit airy"));
-    assert.match(text[airy + 1], /secondary badges go/, "the reason is under its own choice");
-    const split = text.findIndex((line) => isChoice(line) && line.includes("Transit split"));
-    assert.match(text[split + 1], /Delay beside the action/, "for every choice, not only the highlighted one");
+    // A seam can sit between a choice and its reason, so the reason is looked
+    // for from the choice rather than assumed to be the very next line.
+    const reasonAfter = (label) => {
+      const at = text.findIndex((line) => isChoice(line) && line.includes(label));
+      assert.ok(at >= 0, `${label} is listed`);
+      return text.slice(at + 1, at + 4).join(" ");
+    };
+    assert.match(reasonAfter("Transit airy"), /secondary badges go/, "the reason is under its own choice");
+    assert.match(reasonAfter("Transit split"), /Delay beside the action/, "for every choice, not only the highlighted one");
     component.dispose();
   });
 });
