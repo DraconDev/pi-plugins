@@ -1058,10 +1058,23 @@ export class VisualReviewWizard implements Component, Focusable {
             }
           }
           if (!removed) {
-            const next = droppable.find((isDroppable) => tailLines.some(isDroppable));
-            if (!next) break;
-            const at = tailLines.findIndex(next);
-            tailLines.splice(at, 1);
+            // The detail is down to its last non-blank, which for a picture means
+            // the escape itself. What is left to give is the footer's echo, and
+            // only up to the key hints: the controls and the frame's height
+            // outrank the rows that repeat what the review already shows.
+            const hintAt = tailLines.findIndex((line) => /↑↓ move/.test(stripPlain(line)));
+            const droppableNow = droppable.find((isDroppable) => tailLines.some(isDroppable));
+            const lastEcho = droppableNow ? tailLines.findIndex(droppableNow) : -1;
+            if (hintAt > 0 && lastEcho >= 0 && lastEcho < hintAt) {
+              tailLines.splice(lastEcho, 1);
+              continue;
+            }
+            if (footerLines.length > essentialFooter.length) {
+              footerLines.length = 0;
+              footerLines.push(...essentialFooter);
+              continue;
+            }
+            break;
           }
         }
         // Whatever slack is left goes above the content, so the picture, the
@@ -1069,7 +1082,17 @@ export class VisualReviewWizard implements Component, Focusable {
         if (panelTotal > overhead()) {
           detail.unshift(...Array.from({ length: panelTotal - overhead() }, () => ""));
         }
-        lines.push(...detail, ...footerLines, ...tailLines);
+        const stackedFrame = [...detail, ...footerLines, ...tailLines];
+        // The panel is a hard bound, and a band longer than the panel is the one
+        // case nothing can give rows: the choices are the review. So the frame is
+        // clipped from the top - never the footer, which is the controls - and
+        // the scroll indicator tells the reader there is more above.
+        const headroom = Math.max(0, panelTotal - tailLines.length);
+        if (stackedFrame.length > headroom) {
+          lines.push(...stackedFrame.slice(stackedFrame.length - headroom));
+        } else {
+          lines.push(...stackedFrame);
+        }
         emitted = true;
       } else if (sideBySide) {
         const rightWidth = Math.max(1, safeWidth - leftWidth - 5);
