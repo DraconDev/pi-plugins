@@ -107,6 +107,15 @@ const PANEL_MAX_ROWS = 32;
 const MIN_PANEL_ROWS = 14;
 /** An option that carries a picture gets this many rows, even on a short screen. */
 const MIN_ART_ROWS = 6;
+/**
+ * What the artwork is held to once the list genuinely needs the rows.
+ *
+ * Not zero: a treatment too small to judge is not a treatment, and the point of
+ * the picture is that somebody can look at it. Three rows is small enough to give
+ * a long list its reasons back and large enough that the picture still reads as
+ * a picture.
+ */
+const ART_FLOOR_WHEN_LIST_IS_LONG = 3;
 const CHROME_ROWS = 6;
 
 const NOTE_LABEL = "Add note";
@@ -912,18 +921,12 @@ export class VisualReviewWizard implements Component, Focusable {
         if (footerLines.length === 0) break;
       }
     }
-    // Reasons are *not* dropped here. The window below can already satisfy the
-    // picture's floor by scrolling, so throwing the reasons away first made the
-    // two density modes converge in the image layout: comfortable printed no
-    // reasons at all and compact printed one, which is to say the default mode
-    // showed strictly less than the mode you press Ctrl+D to get.
-    //
-    // Dropping them is still the last resort, and it happens further down, once
-    // the window has had its turn - the question is whether a *single* choice
-    // with its reason still fits under the picture's floor. If it does, the list
-    // scrolls and keeps its reasons; if it does not, there is nothing a window
-    // can do and the reasons have to go.
     this.reasonsDropped = false;
+    if (footerLines.length > essentialFooter.length && room(footerLines, tailLines) < floor) {
+      footerLines.length = 0;
+      footerLines.push(...essentialFooter);
+      this.reasonsDropped = true;
+    }
     // A long list does not lose choices, it scrolls. The band is a *window* onto
     // every option the model sent: the rows that do not fit are moved out of the
     // window rather than out of existence, the selected option is always inside
@@ -949,43 +952,32 @@ export class VisualReviewWizard implements Component, Focusable {
     // stage carrying a picture, a preview or a change list renders different rows,
     // and a multi-select row is a checkbox rather than a number, so
     // `isChoiceRow` has to recognise every shape that is really drawn.
-    const crowded = room(footerLines, tailLines) < MIN_ART_ROWS;
+    // The picture is the thing that yields, and only as far as it must. A review
+    // is a list of choices; artwork too small to judge is a smaller loss than a
+    // choice that is not on screen, and a smaller one than a mode called
+    // "comfortable" that shows no reasons at all. So the floor the artwork is
+    // held to is the full one while the list fits, and a lower one once it does
+    // not - never zero, so the treatment is always something to look at.
+    const floor = footerLines.length > essentialFooter.length && room(footerLines, tailLines) < MIN_ART_ROWS
+      ? ART_FLOOR_WHEN_LIST_IS_LONG
+      : MIN_ART_ROWS;
+    const crowded = room(footerLines, tailLines) < floor;
     // The band handed to `windowBand` is rebuilt from the rows on every render,
     // so it already carries the marker the renderer just drew on the row the
     // cursor is on. That marker is the cursor's position in the window, and it is
     // what the window is anchored on. `selectedIndex` cannot be used for this:
     // it indexes the rows, and the identity of those rows says nothing about
     // which one the person is looking at.
-    let bandWindow = stage && hasVisualContent(stage) && footerLines.length > 0 && crowded
-      ? this.windowBand(footerLines, MIN_ART_ROWS - room(footerLines, tailLines))
+    const bandWindow = stage && hasVisualContent(stage) && footerLines.length > 0 && crowded
+      ? this.windowBand(footerLines, floor - room(footerLines, tailLines))
       : null;
-    // The last resort, and it comes after the window rather than before it. A
-    // band is still too tall when the *smallest* it can be - one choice with its
-    // reason - does not fit under the picture's floor, because then there is
-    // nothing left to scroll: the rows would go regardless of which option the
-    // person is looking at. Only then do the reasons go, and the choice rows
-    // stay either way, because the choices are the review.
-    if (stage && hasVisualContent(stage) && footerLines.length > 0 && this.density === "comfortable") {
-      const smallest = this.renderRows(stage, rows, safeWidth - 2, { describe: true });
-      const firstChoice = smallest.findIndex((line) => isChoiceRow(line));
-      const oneOption = firstChoice >= 0
-        ? smallest.slice(firstChoice, firstChoice + 2).length
-        : smallest.length;
-      const essentialHeight = this.renderRows(stage, rows, safeWidth - 2, { describe: false }).length;
-      const proposed = [...footerLines.slice(0, 2), ...smallest.slice(0, oneOption), ...footerLines.slice(-(footerLines.length - essentialHeight))];
-      if (crowded && proposed.length > essentialHeight) {
-        footerLines.length = 0;
-        footerLines.push(...essentialFooter);
-        this.reasonsDropped = true;
-        bandWindow = this.windowBand(footerLines, MIN_ART_ROWS - room(footerLines, tailLines));
-      }
-    }
-    // Stacked is the layout for a stage that has content, and it is decided on
-    // whatever band survives: the full one, or the essential one if even a single
-    // choice could not fit under the picture's floor. The artwork is sized by the
-    // rows that are left, so the case that falls back to side-by-side is a stage
-    // with content and no room at all even for that - which the frame trim below
-    // then keeps inside the panel anyway.
+    // Stacked or side-by-side is decided on the *degraded* band: the band gives
+    // up its reasons before the layout gives up the picture or the frame.
+    // Stacked is the layout for a stage that has content. The artwork is sized
+    // by the rows that are left, and a band that has degraded to the essential
+    // one is the only thing that can push it to zero - so the only case that
+    // falls back to side-by-side is a stage with content and no room at all even
+    // for that, which the frame trim below then keeps inside the panel anyway.
     const stacked = footerLines.length > 0;
     // The picture takes the rows the *windowed* band leaves, so a long list
     // spends its slack on the artwork rather than on blank rows above a sliver.
