@@ -1073,7 +1073,7 @@ describe("the artwork keeps a reviewable size at every option count", () => {
       component.dispose();
       const { images } = parseKitty(frame);
       assert.equal(images.length, 1, "exactly one inline image");
-      return { columns: Number(images[0].keys.c), rows: Number(images[0].keys.r), frame: frame.split("\n").length };
+      return { columns: Number(images[0].keys.c), rows: Number(images[0].keys.r), frame: frame.split("\n").length, lines: frame.split("\n") };
     } finally {
       if (previous) setCapabilities(previous);
     }
@@ -1110,8 +1110,8 @@ describe("the artwork keeps a reviewable size at every option count", () => {
     // fourteen; the rest were behind a scroll the person had no reason to
     // suspect was hiding them.
     for (const [options, atLeast] of [[14, 12], [20, 16]]) {
-      const { columns, rows, frame } = await boxFor(options, "comfortable", 44);
-      const choices = frame.split("\n").filter((line) => /^\s*(?:>\s*)?\d+\.\s+Option\b/.test(line)).length;
+      const { columns, rows, lines } = await boxFor(options, "comfortable", 44);
+      const choices = lines.filter((line) => /^\s*(?:>\s*)?\d+\.\s+Option\b/.test(line)).length;
       assert.ok(
         choices >= atLeast,
         `${options} options: ${choices} of them are on screen, expected at least ${atLeast} (picture ${columns}x${rows})`,
