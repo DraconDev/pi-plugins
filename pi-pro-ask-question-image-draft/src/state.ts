@@ -293,6 +293,31 @@ export function isReviewState(value: unknown): value is ReviewState {
 }
 
 /** Find the latest state entry for a review on the active session branch. */
+/**
+ * The presentation a resumed round keeps.
+ *
+ * A revision round arrives as a fresh review from the model, and it may leave
+ * out the fields that describe how the review is *presented* rather than what it
+ * asks. When it does, the mode the user was looking at is the mode they get -
+ * and Ctrl+D still overrides either way, because this is where a round starts,
+ * not a lock.
+ *
+ * This is the one place that rule lives. It used to be an `if` written twice
+ * inside the extension's `execute()`, and the test for it *re-implemented* the
+ * rule rather than calling it, so the carry-over could be deleted outright and
+ * the suite would still pass. A test that copies the rule it is testing tests
+ * itself; this one is called.
+ */
+export function carryOverPresentation<T extends { images?: "off" | "on"; density?: "comfortable" | "compact" }>(
+  review: T,
+  previous: { images?: "off" | "on"; density?: "comfortable" | "compact" } | undefined,
+): T {
+  let next = review;
+  if (next.images === "off" && previous?.images === "on") next = { ...next, images: "on" };
+  if (next.density === "comfortable" && previous?.density === "compact") next = { ...next, density: "compact" };
+  return next;
+}
+
 export function findReviewState(entries: readonly unknown[], reviewId: string): ReviewState | undefined {
   let found: ReviewState | undefined;
   for (const entry of entries) {

@@ -230,8 +230,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
       // A resumed review keeps the presentation it was opened with. The model
       // may re-send the field, but when it does not, the mode the user was
       // looking at is the mode they get - and Ctrl+D still overrides either.
-      if (review.images === "off" && previous?.images === "on") review = { ...review, images: "on" };
-      if (review.density === "comfortable" && previous?.density === "compact") review = { ...review, density: "compact" };
+      review = carryOverPresentation(review, previous);
       const initialAnswers = initialAnswersFor(review, previous);
       const initialSkippedStageIds = initialSkippedStageIdsFor(review, previous);
       const initialGlobalNote = previous?.globalNote ?? "";
