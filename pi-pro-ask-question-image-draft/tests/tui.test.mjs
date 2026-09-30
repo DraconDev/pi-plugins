@@ -1393,6 +1393,155 @@ describe("a review only ever answers on an option it just showed", () => {
 });
 
 /**
+ * The answer is an option that was on screen, wherever the answer is taken.
+ *
+ * The suite above checks the invariant at one cursor position per layout, which
+ * is a spot check: a layout that answers correctly on option 12 and wrongly on
+ * option 3 - or on the last one, or after the list has wrapped - passes it. This
+ * answers from four positions in every layout, because the interesting failures
+ * are at the edges. Walking to the end and then past it wraps the cursor round,
+ * and the band has to come back with it.
+ *
+ * "Appeared, with its marker" is also checked as a history and not only as a
+ * snapshot, because the two forms of the rule are not the same. Single-select
+ * commits on the option's own row, so the frame immediately before Enter must
+ * carry the marker on the option that gets recorded - the literal form. A
+ * multi-select stage commits on a separate "Done selecting" row, so the frame
+ * before the commit keystroke is that row and cannot carry the option's marker
+ * at all; there the honest requirement is that every option the review records
+ * appeared carrying its marker in some frame *before* the commit, and that is
+ * what is asserted.
+ */
+describe("the answer is an option that was on screen, at every position in the list", () => {
+  const plainTheme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  const image = new URL("../.pi/benchmark/images/visual-001-option-1.png", import.meta.url).pathname;
+
+  const POSITIONS = [
+    { name: "the first option", downs: 0 },
+    { name: "an option in the middle", downs: 5 },
+    { name: "the last option", downs: Number.POSITIVE_INFINITY },
+    { name: "the first option again, after wrapping", downs: Number.POSITIVE_INFINITY, wrap: true },
+  ];
+
+  for (const content of ["image", "preview", "changes"]) {
+    for (const multiSelect of [false, true]) {
+      for (const density of ["comfortable", "compact"]) {
+        for (const position of POSITIONS) {
+          it(`${content} / multiSelect=${multiSelect} / ${density} / answering from ${position.name}`, async () => {
+            const { setCapabilities } = await import("@earendil-works/pi-tui");
+            const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+            try {
+              const count = 20;
+              const build = (base) => content === "image" ? { ...base, image: { path: image, alt: "Fixture" } }
+                : content === "preview" ? { ...base, preview: "a short preview block" }
+                : { ...base, changes: [`change one for ${base.label}`, "change two"] };
+              const review = normalizeReview({
+                reviewId: "answer", images: "on", ...(density === "compact" ? { density } : {}),
+                stages: [{
+                  id: "one", header: "Treatment", prompt: "Which treatment ships first?", multiSelect,
+                  options: Array.from({ length: count }, (_, index) => build({
+                    id: `o${index}`, label: `Option ${index + 1}`,
+                    description: `Favors option ${index + 1}; trade-off: a one-to-two sentence reason line.`,
+                  })),
+                }],
+              });
+              let result;
+              const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 44 } }, plainTheme, review, process.cwd(), (value) => { result = value; });
+              const deadline = Date.now() + 10_000;
+              while (Date.now() < deadline && component.loadedImages.size === 0 && content === "image") await new Promise((r) => setTimeout(r, 50));
+
+              const plain = () => component.render(100).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+              const markedOption = () => {
+                const line = plain().find((entry) => /^\s*>\s*(?:\d+\.\s+|\[[ x]\]\s+)Option (\d+)\s*$/.exec(entry));
+                return line ? Number(/Option (\d+)/.exec(line)[1]) : 0;
+              };
+              const onDoneRow = () => plain().some((entry) => /^\s*>\s*(?:\d+\.\s+)?Done selecting\s*$/.test(entry));
+
+              // Every option that has ever carried the marker, in this walk.
+              // This is the history the multi-select rule is stated against.
+              const appearedMarked = new Set();
+
+              // Walk to the position, recording each marked option on the way.
+              let current = markedOption();
+              if (current > 0) appearedMarked.add(current);
+              const step = () => {
+                component.handleInput("\u001b[B");
+                const now = markedOption();
+                if (now > 0) appearedMarked.add(now);
+                return now;
+              };
+              if (position.downs === 0) {
+                assert.ok(current > 0, "the first option carries the marker");
+              } else if (position.downs === Number.POSITIVE_INFINITY) {
+                // To the end of the options, then round once more for the wrap.
+                const rounds = position.wrap ? 2 : 1;
+                for (let round = 0; round < rounds; round += 1) {
+                  let guard = 0;
+                  while (guard < count + 4) {
+                    guard += 1;
+                    const before = markedOption();
+                    if (step() === before && guard > 2) break;
+                  }
+                }
+              } else {
+                for (let down = 0; down < position.downs; down += 1) step();
+              }
+              assert.ok(markedOption() > 0, `an option carries the marker at ${position.name}`);
+
+              if (multiSelect) {
+                // Check the option under the cursor, then commit on the row the
+                // hints name. The commit frame is that row, so the requirement
+                // here is the history: it must have been on screen, marked.
+                const checked = markedOption();
+                component.handleInput(" ");
+                assert.ok(
+                  plain().some((entry) => new RegExp(`^\\s*>\\s*\\[x\\]\\s+Option ${checked}\\s*$`).test(entry)),
+                  `option ${checked} is checked, and the check is on screen`,
+                );
+                for (let down = 0; down < count + 2 && !onDoneRow(); down += 1) component.handleInput("\u001b[B");
+                assert.ok(onDoneRow(), "the Done selecting row can be reached");
+                component.handleInput("\r");
+                const recorded = result === undefined ? undefined : undefined;
+                assert.ok(recorded === undefined, "the stage is not finished by committing its selection");
+                component.handleInput("\r");
+                const answer = result?.answers?.find((entry) => entry.stageId === "one");
+                assert.ok(answer, "the review completed and recorded an answer for the stage");
+                for (const label of answer.optionLabels) {
+                  const number = Number(/(\d+)$/.exec(label)?.[1]);
+                  assert.ok(
+                    appearedMarked.has(number),
+                    `the recorded ${label} carried the marker in a frame before the commit (saw ${[...appearedMarked].join(",")})`,
+                  );
+                }
+              } else {
+                const shown = markedOption();
+                const frameBefore = plain();
+                assert.ok(
+                  frameBefore.some((line) => new RegExp(`^\\s*>\\s*(?:\\d+\\.\\s+|\\[[ x]\\]\\s+)Option ${shown}\\s*$`).test(line)),
+                  `option ${shown} is marked in the frame immediately before Enter`,
+                );
+                component.handleInput("\r");
+                component.handleInput("\r");
+                const answer = result?.answers?.find((entry) => entry.stageId === "one");
+                assert.ok(answer, "the review completed and recorded an answer for the stage");
+                assert.deepEqual(
+                  answer.optionLabels,
+                  [`Option ${shown}`],
+                  `the review recorded exactly the option that carried the marker in the preceding frame (${shown})`,
+                );
+              }
+              component.dispose();
+            } finally {
+              if (previous) setCapabilities(previous);
+            }
+          }, { timeout: 30000 });
+        }
+      }
+    }
+  }
+});
+
+/**
  * The scroll follows the cursor, in both directions.
  *
  * The scroll offset is the reader's place in the content, and the wheel moves it
