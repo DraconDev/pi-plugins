@@ -1510,13 +1510,21 @@ describe("the answer is an option that was on screen, at every position in the l
                 component.handleInput("\r");
                 const answer = result?.answers?.find((entry) => entry.stageId === "one");
                 assert.ok(answer, "the review completed and recorded an answer for the stage");
-                for (const label of answer.optionLabels) {
-                  const number = Number(/(\d+)$/.exec(label)?.[1]);
-                  assert.ok(
-                    appearedMarked.has(number),
-                    `the recorded ${label} carried the marker in a frame before the commit (saw ${[...appearedMarked].join(",")})`,
-                  );
-                }
+                // Two assertions, and the second is the one with teeth. The first
+                // - that the recorded option was on screen carrying its marker -
+                // is satisfied by an option that merely passed by during the
+                // walk, so a commit that always recorded Option 1 satisfied it
+                // on every position. The second is what says which option the
+                // review is talking about: exactly the one that was checked.
+                assert.ok(
+                  appearedMarked.has(checked),
+                  `the checked option ${checked} carried the marker in a frame before the commit (saw ${[...appearedMarked].join(",")})`,
+                );
+                assert.deepEqual(
+                  answer.optionLabels,
+                  [`Option ${checked}`],
+                  `the review recorded exactly the option that was checked and on screen (${checked})`,
+                );
               } else {
                 const shown = markedOption();
                 const frameBefore = plain();
