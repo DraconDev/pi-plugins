@@ -492,4 +492,4 @@ node scripts/verify-activation.mjs
 ```
 
 The activation verifier requires a backup of the pre-activation settings file and checks that only the superseded package entry is replaced. It is intentionally not part of the default hermetic check because global settings are machine state, not package source. Keep the old package out of `packages`; the package intentionally owns the global `ask_user_question` name and Pi must load one registration for that name.
-audit trailing whitespace probe   
+AUDIT-PROBE-MARKER
