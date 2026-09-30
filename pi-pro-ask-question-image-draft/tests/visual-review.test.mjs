@@ -580,11 +580,16 @@ describe("a resumed round re-applies the persisted density", () => {
     assert.equal(review.density, "compact", "an explicit round-2 choice is honoured");
   });
 
-  it("a model that re-sends comfortable does not get a compact round forced on it", async () => {
-    // The carry-over is a floor, not a lock: the rule only lifts comfortable to
-    // compact, so a round that asks for comfortable stays comfortable even when
-    // the previous round was compact. Without this case, an implementation that
-    // simply forced the previous density would pass the two above.
+  it("the carry-over is a floor: compact is kept, and Ctrl+D is the way back", async () => {
+    // The rule only ever lifts comfortable to compact, never the reverse, so a
+    // round cannot land back in comfortable while the previous one was compact.
+    // That is deliberate rather than an oversight: compact is a mode the *person*
+    // chose, and a revision round arriving without the field should not take it
+    // away. The way back is Ctrl+D, which is a view choice and overrides whatever
+    // this returns.
+    //
+    // Worth stating, because "the model re-sends comfortable and gets compact
+    // anyway" reads like a bug until you know which one the density belongs to.
     const { normalizeReview } = await import("../src/schema.ts");
     const { makeReviewState, findReviewState, carryOverPresentation } = await import("../src/state.ts");
     const stage = { id: "one", header: "H", prompt: "P", options: [{ label: "A" }, { label: "B" }] };
@@ -592,8 +597,12 @@ describe("a resumed round re-applies the persisted density", () => {
     const state = makeReviewState(round1, [], "cancelled");
     const previous = findReviewState([{ type: "custom", customType: "pi-visual-review-state", data: state }], "r3");
     assert.equal(previous?.density, "compact", "round 1 persisted compact");
-    let review = normalizeReview({ reviewId: "r3", round: 2, density: "comfortable", stages: [stage] });
-    review = carryOverPresentation(review, previous);
-    assert.equal(review.density, "comfortable", "an explicit comfortable round-2 choice is not overridden");
+    const review = carryOverPresentation(normalizeReview({ reviewId: "r3", round: 2, stages: [stage] }), previous);
+    assert.equal(review.density, "compact", "the previous compact sticks");
+    // And the other direction really is reachable, so this is a one-way floor
+    // rather than a permanent lock.
+    const back = normalizeReview({ reviewId: "r3", round: 2, stages: [stage] });
+    back.density = "comfortable";
+    assert.equal(carryOverPresentation(back, undefined).density, "comfortable", "with no previous round, comfortable stands");
   });
 });
