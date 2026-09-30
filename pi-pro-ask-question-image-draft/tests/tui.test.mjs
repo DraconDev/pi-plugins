@@ -1473,15 +1473,17 @@ describe("the answer is an option that was on screen, at every position in the l
               if (position.downs === 0) {
                 assert.ok(current > 0, "the first option carries the marker");
               } else if (position.downs === Number.POSITIVE_INFINITY) {
-                // To the end of the options, then round once more for the wrap.
-                const rounds = position.wrap ? 2 : 1;
-                for (let round = 0; round < rounds; round += 1) {
-                  let guard = 0;
-                  while (guard < count + 4) {
-                    guard += 1;
-                    const before = markedOption();
-                    if (step() === before && guard > 2) break;
-                  }
+                // Down off the end of the options and onto the action rows, where
+                // no option carries the marker. That is how the end of the list
+                // is found: not by the marker repeating, but by it stopping.
+                for (let down = 0; down < count + 4 && markedOption() > 0; down += 1) step();
+                assert.equal(markedOption(), 0, "the walk reached the rows past the last option");
+                if (position.wrap) {
+                  // Round the whole list and come back to the top.
+                  for (let down = 0; down < count * 2 + 6 && markedOption() !== 1; down += 1) step();
+                } else {
+                  // One row back onto the last option itself.
+                  component.handleInput("\u001b[A");
                 }
               } else {
                 for (let down = 0; down < position.downs; down += 1) step();
