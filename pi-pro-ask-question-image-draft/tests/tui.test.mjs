@@ -1501,8 +1501,10 @@ describe("the answer is an option that was on screen, at every position in the l
                 for (let down = 0; down < count + 2 && !onDoneRow(); down += 1) component.handleInput("\u001b[B");
                 assert.ok(onDoneRow(), "the Done selecting row can be reached");
                 component.handleInput("\r");
-                const recorded = result === undefined ? undefined : undefined;
-                assert.ok(recorded === undefined, "the stage is not finished by committing its selection");
+                // Committing the selection answers the stage, it does not finish
+                // the review: there is still the approval row to confirm, and a
+                // test that assumed otherwise would be asserting nothing.
+                assert.equal(result, undefined, "committing the selection has not finished the review yet");
                 component.handleInput("\r");
                 const answer = result?.answers?.find((entry) => entry.stageId === "one");
                 assert.ok(answer, "the review completed and recorded an answer for the stage");
