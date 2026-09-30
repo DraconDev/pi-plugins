@@ -967,8 +967,8 @@ export class VisualReviewWizard implements Component, Focusable {
     // second test was there - so the band is windowed when either is true, not
     // only when the artwork is being squeezed.
     const panelTotal = this.panelHeight();
-    const pastTheCap = footerLines.length + tailLines.length + CHROME_ROWS > panelTotal;
-    const crowded = room(footerLines, tailLines) < floor || pastTheCap;
+    const pastTheCap = Math.max(0, footerLines.length + tailLines.length + CHROME_ROWS - panelTotal);
+    const crowded = room(footerLines, tailLines) < floor || pastTheCap > 0;
     // The band handed to `windowBand` is rebuilt from the rows on every render,
     // so it already carries the marker the renderer just drew on the row the
     // cursor is on. That marker is the cursor's position in the window, and it is
@@ -976,7 +976,7 @@ export class VisualReviewWizard implements Component, Focusable {
     // it indexes the rows, and the identity of those rows says nothing about
     // which one the person is looking at.
     const bandWindow = stage && hasVisualContent(stage) && footerLines.length > 0 && crowded
-      ? this.windowBand(footerLines, floor - room(footerLines, tailLines))
+      ? this.windowBand(footerLines, Math.max(floor - room(footerLines, tailLines), pastTheCap))
       : null;
     // Stacked or side-by-side is decided on the *degraded* band: the band gives
     // up its reasons before the layout gives up the picture or the frame.
