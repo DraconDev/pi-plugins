@@ -965,16 +965,20 @@ export class VisualReviewWizard implements Component, Focusable {
     // nothing left to scroll: the rows would go regardless of which option the
     // person is looking at. Only then do the reasons go, and the choice rows
     // stay either way, because the choices are the review.
-    if (bandWindow && this.density === "comfortable" && room(footerLines, tailLines) < MIN_ART_ROWS) {
-      // `windowBand` rewrites the band in place, so asking the budget again
-      // after it is the honest question: did the window manage to fit the band?
-      // If it did, the reasons stay and the list scrolls. If it did not, the
-      // band is still too tall - it is down to the rows that must be on screen -
-      // and the only thing left to give is the reasons.
-      footerLines.length = 0;
-      footerLines.push(...essentialFooter);
-      this.reasonsDropped = true;
-      bandWindow = this.windowBand(footerLines, MIN_ART_ROWS - room(footerLines, tailLines));
+    if (stage && hasVisualContent(stage) && footerLines.length > 0 && this.density === "comfortable") {
+      const smallest = this.renderRows(stage, rows, safeWidth - 2, { describe: true });
+      const firstChoice = smallest.findIndex((line) => isChoiceRow(line));
+      const oneOption = firstChoice >= 0
+        ? smallest.slice(firstChoice, firstChoice + 2).length
+        : smallest.length;
+      const essentialHeight = this.renderRows(stage, rows, safeWidth - 2, { describe: false }).length;
+      const proposed = [...footerLines.slice(0, 2), ...smallest.slice(0, oneOption), ...footerLines.slice(-(footerLines.length - essentialHeight))];
+      if (crowded && proposed.length > essentialHeight) {
+        footerLines.length = 0;
+        footerLines.push(...essentialFooter);
+        this.reasonsDropped = true;
+        bandWindow = this.windowBand(footerLines, MIN_ART_ROWS - room(footerLines, tailLines));
+      }
     }
     // Stacked is the layout for a stage that has content, and it is decided on
     // whatever band survives: the full one, or the essential one if even a single
