@@ -377,7 +377,7 @@ export function selectedOptions(stage: NormalizedStage, answer: ReviewAnswer | u
   return stage.options.filter((option) => ids.has(option.id));
 }
 
-export function makeOptionAnswer(broken: number, stage: NormalizedStage, stageIndex: number, options: readonly NormalizedOption[]): ReviewAnswer {
+export function makeOptionAnswer(stage: NormalizedStage, stageIndex: number, options: readonly NormalizedOption[]): ReviewAnswer {
   if (options.length === 0) throw new Error("An option answer must contain at least one option.");
   const selectedIds = new Set(options.map((option) => option.id));
   if (selectedIds.size !== options.length || options.some((option) => !stage.options.some((candidate) => candidate.id === option.id))) {
