@@ -55,6 +55,11 @@ const items = [
   },
   {
     name: "image",
+    // This is the round trip and nothing more: the bytes the terminal receives
+    // are parsed back out of the frame and compared with the file by hash. A
+    // truncated *file* still round-trips faithfully, so this item does not catch
+    // one - the panel item's artwork check does. Saying so here keeps the two
+    // from being read as interchangeable.
     what: "the image protocol round-trip: render, parse the escapes back, compare by hash",
     timeoutMs: 180_000,
     run: () => node("scripts/benchmark/verify-image-protocol.mjs"),
@@ -113,10 +118,17 @@ const node = (script, ...rest) => guard(run(process.execPath, [script, ...rest])
  * A verdict has to be derived from the child's exit code, and nothing else.
  */
 function guard(result) {
-  if (result?.error) return { ok: false, output: String(result.error.message ?? result.error) };
-  if (result?.signal) return { ok: false, output: `killed by ${result.signal}` };
+  // A child killed by its deadline arrives as ETIMEDOUT, and that is the only
+  // thing that may be called a timeout. An in-process item that returns a
+  // failure verdict has not timed out, and saying so would be a false label on
+  // a real failure.
+  if (result?.error) {
+    const timedOut = result.error.code === "ETIMEDOUT";
+    return { ok: false, timedOut, output: timedOut ? `no answer within the deadline: ${result.error.message ?? result.error}` : String(result.error.message ?? result.error) };
+  }
+  if (result?.signal) return { ok: false, timedOut: false, output: `killed by ${result.signal}` };
   const output = String(result?.stdout ?? "") + String(result?.stderr ?? "");
-  return { ok: result?.status === 0, status: result?.status, output };
+  return { ok: result?.status === 0, status: result?.status, timedOut: false, output };
 }
 
 /**
@@ -195,9 +207,11 @@ for (const item of items) {
     results[results.length - 1].evidence = evidence.slice(0, 110);
     process.stdout.write(`  ${item.name.padEnd(8)} pass  ${seconds}s  ${evidence.slice(0, 110)}\n`);
   } else {
-    const status = outcome?.status === null || outcome?.status === undefined
-      ? `timed out after ${item.timeoutMs}ms`
-      : `exit ${outcome.status}`;
+    const status = outcome?.timedOut === true
+      ? "timed out"
+      : outcome?.status === undefined
+        ? "reported a failure"
+        : `exit ${outcome.status}`;
     results.push({ ...item, ok: false, detail: outcome?.output ?? "" });
     process.stdout.write(`  ${item.name.padEnd(8)} FAIL  ${seconds}s  ${status}\n`);
     for (const line of String(outcome?.output ?? "").trim().split("\n").slice(-14)) {

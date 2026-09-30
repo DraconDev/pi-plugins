@@ -261,7 +261,7 @@ skipped, and a claim could quietly drop one and still read as a clean sweep.
 | 1 | `check` | `npm run check` | A type error or a broken hermetic smoke |
 | 2 | `panel` | `npm run verify:panel` | Losing the footer tail, the panel's fixed height, the cursor marker, or the artwork |
 | 3 | `unit` | `npm test` | Any behaviour the suite pins |
-| 4 | `image` | `node scripts/benchmark/verify-image-protocol.mjs` | An image that gets to the terminal as bytes but not as a picture |
+| 4 | `image` | `node scripts/benchmark/verify-image-protocol.mjs` | The terminal receiving different bytes than the file holds — the round trip is parsed back out of the frame and compared by hash. It says nothing about whether the *file* is a whole image; a truncated fixture passes it, and the `panel` item's artwork check is what catches that |
 | 5 | `live` | `npm run smoke:live -- --image .pi/benchmark/images/visual-001-option-1.png` | A review that only works outside a real terminal |
 | 6 | `hygiene` | `git diff --check` + the banned-token grep | Whitespace damage, and "fixes" that change how the terminal draws rather than what the panel renders |
 | 7 | `state` | `generations.json` and the host's package list | Work that moved the generation account or the activation without saying so |
