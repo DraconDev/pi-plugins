@@ -854,7 +854,7 @@ export class VisualReviewWizard implements Component, Focusable {
       // Comfortable spells the reason under every choice; compact lists the
       // choices alone, and the highlighted one's reason is rendered in the
       // content area instead, where there is room for the whole sentence.
-      const showReasons = this.density === "comfortable";
+      const showReasons = false;
       const choices = this.renderRows(stage, rows, safeWidth - 2, { describe: showReasons }).map((line) => ` ${line}`);
       const firstAction = choices.findIndex((line) => /^\s+(?![>\s]*\d+\.)/.test(line));
       if (firstAction > 0) {
