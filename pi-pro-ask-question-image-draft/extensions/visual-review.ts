@@ -6,6 +6,7 @@ import { buildResponse, errorResponse, type VisualReviewResultDetails } from "..
 import { fallbackText, makeFallbackResult, runDialogReview } from "../src/fallback.ts";
 import { generateReviewImages, ImageGenerationError } from "../src/image-generator.ts";
 import {
+  carryOverPresentation,
   findReviewState,
   makeReviewState,
   mergeAnswers,
