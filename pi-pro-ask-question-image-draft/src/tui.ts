@@ -107,15 +107,6 @@ const PANEL_MAX_ROWS = 32;
 const MIN_PANEL_ROWS = 14;
 /** An option that carries a picture gets this many rows, even on a short screen. */
 const MIN_ART_ROWS = 6;
-/**
- * What the artwork is held to once the list genuinely needs the rows.
- *
- * Not zero: a treatment too small to judge is not a treatment, and the point of
- * the picture is that somebody can look at it. Three rows is small enough to give
- * a long list its reasons back and large enough that the picture still reads as
- * a picture.
- */
-const ART_FLOOR_WHEN_LIST_IS_LONG = 3;
 const CHROME_ROWS = 6;
 
 const NOTE_LABEL = "Add note";
@@ -921,17 +912,8 @@ export class VisualReviewWizard implements Component, Focusable {
         if (footerLines.length === 0) break;
       }
     }
-    // The picture is the thing that yields, and only as far as it must. A review
-    // is a list of choices; artwork too small to judge is a smaller loss than a
-    // choice that is not on screen, and a smaller one than a mode called
-    // "comfortable" that shows no reasons at all. So the floor the artwork is
-    // held to is the full one while the list fits, and a lower one once it does
-    // not - never zero, so the treatment is always something to look at.
-    const floor = footerLines.length > essentialFooter.length && room(footerLines, tailLines) < MIN_ART_ROWS
-      ? ART_FLOOR_WHEN_LIST_IS_LONG
-      : MIN_ART_ROWS;
     this.reasonsDropped = false;
-    if (footerLines.length > essentialFooter.length && room(footerLines, tailLines) < floor) {
+    if (footerLines.length > essentialFooter.length && room(footerLines, tailLines) < MIN_ART_ROWS) {
       footerLines.length = 0;
       footerLines.push(...essentialFooter);
       this.reasonsDropped = true;
@@ -961,14 +943,7 @@ export class VisualReviewWizard implements Component, Focusable {
     // stage carrying a picture, a preview or a change list renders different rows,
     // and a multi-select row is a checkbox rather than a number, so
     // `isChoiceRow` has to recognise every shape that is really drawn.
-    // Two things make the band too big: it can starve the picture, and it can
-    // push the panel past its own cap. Lowering the picture's floor removed the
-    // first as a constraint without bound - the panel grew to 37 rows before this
-    // second test was there - so the band is windowed when either is true, not
-    // only when the artwork is being squeezed.
-    const panelTotal = this.panelHeight();
-    const pastTheCap = footerLines.length + tailLines.length + CHROME_ROWS > panelTotal;
-    const crowded = room(footerLines, tailLines) < floor || pastTheCap;
+    const crowded = room(footerLines, tailLines) < MIN_ART_ROWS;
     // The band handed to `windowBand` is rebuilt from the rows on every render,
     // so it already carries the marker the renderer just drew on the row the
     // cursor is on. That marker is the cursor's position in the window, and it is
@@ -976,7 +951,7 @@ export class VisualReviewWizard implements Component, Focusable {
     // it indexes the rows, and the identity of those rows says nothing about
     // which one the person is looking at.
     const bandWindow = stage && hasVisualContent(stage) && footerLines.length > 0 && crowded
-      ? this.windowBand(footerLines, floor - room(footerLines, tailLines))
+      ? this.windowBand(footerLines, MIN_ART_ROWS - room(footerLines, tailLines))
       : null;
     // Stacked or side-by-side is decided on the *degraded* band: the band gives
     // up its reasons before the layout gives up the picture or the frame.
