@@ -546,8 +546,12 @@ describe("density is validated, defaulted and remembered", () => {
  */
 describe("a resumed round re-applies the persisted density", () => {
   it("round two keeps compact when the model does not re-send the field", async () => {
-    const { normalizeReview, restoreForTest } = await import("../src/schema.ts").then((m) => ({ normalizeReview: m.normalizeReview }));
-    const { makeReviewState, findReviewState } = await import("../src/state.ts");
+    // The product's rule, called - not a copy of it written here. This suite
+    // used to re-implement the carry-over and assert on its own version, so the
+    // extension could stop carrying the density over and everything would still
+    // pass; a test that copies the rule it is testing tests itself.
+    const { normalizeReview } = await import("../src/schema.ts");
+    const { makeReviewState, findReviewState, carryOverPresentation } = await import("../src/state.ts");
     const stage = { id: "one", header: "H", prompt: "P", options: [{ label: "A" }, { label: "B" }] };
     const round1 = normalizeReview({ reviewId: "r", round: 1, density: "compact", stages: [stage] });
     const state = makeReviewState(round1, [], "cancelled");
@@ -558,20 +562,38 @@ describe("a resumed round re-applies the persisted density", () => {
     // revision round normally arrives.
     let review = normalizeReview({ reviewId: "r", round: 2, stages: [stage] });
     assert.equal(review.density, "comfortable", "the model left it out, so it defaults");
-    // The extension's carry-over, applied the way execute() applies it.
-    if (review.density === "comfortable" && previous?.density === "compact") review = { ...review, density: "compact" };
+    // The extension's carry-over, which is this call and nothing else.
+    review = carryOverPresentation(review, previous);
     assert.equal(review.density, "compact", "and the resumed round keeps the presentation it had");
+    assert.equal(review.images, previous?.images ?? review.images, "and the images setting with it");
   });
 
   it("a model that re-sends compact keeps compact", async () => {
     const { normalizeReview } = await import("../src/schema.ts");
-    const { makeReviewState, findReviewState } = await import("../src/state.ts");
+    const { makeReviewState, findReviewState, carryOverPresentation } = await import("../src/state.ts");
     const stage = { id: "one", header: "H", prompt: "P", options: [{ label: "A" }, { label: "B" }] };
     const round1 = normalizeReview({ reviewId: "r2", round: 1, density: "comfortable", stages: [stage] });
     const state = makeReviewState(round1, [], "cancelled");
     const previous = findReviewState([{ type: "custom", customType: "pi-visual-review-state", data: state }], "r2");
     let review = normalizeReview({ reviewId: "r2", round: 2, density: "compact", stages: [stage] });
-    if (review.density === "comfortable" && previous?.density === "compact") review = { ...review, density: "compact" };
+    review = carryOverPresentation(review, previous);
     assert.equal(review.density, "compact", "an explicit round-2 choice is honoured");
+  });
+
+  it("a model that re-sends comfortable does not get a compact round forced on it", async () => {
+    // The carry-over is a floor, not a lock: the rule only lifts comfortable to
+    // compact, so a round that asks for comfortable stays comfortable even when
+    // the previous round was compact. Without this case, an implementation that
+    // simply forced the previous density would pass the two above.
+    const { normalizeReview } = await import("../src/schema.ts");
+    const { makeReviewState, findReviewState, carryOverPresentation } = await import("../src/state.ts");
+    const stage = { id: "one", header: "H", prompt: "P", options: [{ label: "A" }, { label: "B" }] };
+    const round1 = normalizeReview({ reviewId: "r3", round: 1, density: "compact", stages: [stage] });
+    const state = makeReviewState(round1, [], "cancelled");
+    const previous = findReviewState([{ type: "custom", customType: "pi-visual-review-state", data: state }], "r3");
+    assert.equal(previous?.density, "compact", "round 1 persisted compact");
+    let review = normalizeReview({ reviewId: "r3", round: 2, density: "comfortable", stages: [stage] });
+    review = carryOverPresentation(review, previous);
+    assert.equal(review.density, "comfortable", "an explicit comfortable round-2 choice is not overridden");
   });
 });
