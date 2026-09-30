@@ -1110,8 +1110,7 @@ describe("the artwork keeps a reviewable size at every option count", () => {
     // fourteen; the rest were behind a scroll the person had no reason to
     // suspect was hiding them.
     for (const [options, atLeast] of [[14, 12], [20, 16]]) {
-      const { rows, columns } = await boxFor(options, "comfortable", 44);
-      const { frame } = await boxFor(options, "comfortable", 44);
+      const { columns, rows, frame } = await boxFor(options, "comfortable", 44);
       const choices = frame.split("\n").filter((line) => /^\s*(?:>\s*)?\d+\.\s+Option\b/.test(line)).length;
       assert.ok(
         choices >= atLeast,
@@ -1141,7 +1140,7 @@ describe("the artwork keeps a reviewable size at every option count", () => {
       const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 44 } }, plainTheme, review, process.cwd(), () => {});
       const deadline = Date.now() + 10_000;
       while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 50));
-      const frame = component.render(110).split("\n");
+      const frame = component.render(110).join("\n").split("\n");
       component.dispose();
       const reasons = frame.filter((line) => /Favors option \d+;/.test(line)).length;
       assert.equal(reasons, 4, `all four options keep their reason beside them, not zero`);
