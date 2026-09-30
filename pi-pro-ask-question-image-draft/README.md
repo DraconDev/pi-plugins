@@ -271,6 +271,14 @@ to-fail first. `--only=<item>` runs one and prints that the verdict is **partial
 because a shield that can be narrowed to the part that happens to be green is not
 one.
 
+A note on reading a shield result, because it is easy to get backwards: a row
+that *fails* here means a gate is broken, and a mutation run that reports failures
+is not a failed gate — it is the evidence that the gate has teeth. The two belong
+in different places. `regression-shield: 7/7 passed` is a status; "break the
+follow-the-cursor rule and 1,154 frames report a missing marker" is a
+demonstration, and it belongs with the evidence rather than in a list of things
+that are supposed to be green.
+
 What it does not cover: anything about a *review's content* — whether the
 questions are any good, whether the treatments look alike — because that is the
 judge's job (`npm run benchmark:judge`), and it is not automatable. A green
