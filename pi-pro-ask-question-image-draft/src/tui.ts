@@ -988,8 +988,15 @@ export class VisualReviewWizard implements Component, Focusable {
     const stacked = footerLines.length > 0;
     // The picture takes the rows the *windowed* band leaves, so a long list
     // spends its slack on the artwork rather than on blank rows above a sliver.
+    // The picture takes the rows the band leaves, bounded by what the panel
+    // actually has. The bound matters now that the floor can yield: `room` grows
+    // as the band shrinks, and an unbounded budget pads the artwork past the
+    // panel's own height - which is how a 32-row panel became 33.
     const imageBudget = stacked
-      ? Math.max(bandWindow ? MIN_ART_ROWS : 0, room(footerLines, tailLines))
+      ? Math.max(1, Math.min(
+        Math.max(bandWindow ? MIN_ART_ROWS : 0, room(footerLines, tailLines)),
+        panelTotal - footerLines.length - tailLines.length,
+      ))
       : 0;
     // Whether the frame actually prints a reason under each choice, which is
     // what the density line reports.
