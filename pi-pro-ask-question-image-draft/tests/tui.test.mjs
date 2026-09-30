@@ -1040,7 +1040,13 @@ describe("the artwork keeps a reviewable size at every option count", () => {
   // The real 1024x1024 benchmark image, not the 16x16 fixture: a sliver only
   // shows up on a picture with real proportions.
   const image = new URL("../.pi/benchmark/images/visual-001-option-1.png", import.meta.url).pathname;
-  const MIN_REVIEWABLE = 6; // MIN_ART_ROWS
+  // Two floors, because the artwork is the thing that yields and only as far as
+  // it must. While the list fits without help the picture keeps the full six
+  // rows; once the list genuinely needs them it is held to three, which is small
+  // but still a picture rather than a line of pixels. It is never zero: a
+  // treatment nobody can look at is not a treatment.
+  const MIN_REVIEWABLE = 6;    // MIN_ART_ROWS
+  const MIN_REVIEWABLE_YIELDING = 3; // ART_FLOOR_WHEN_LIST_IS_LONG
 
   const boxFor = async (options, density, rows) => {
     const { setCapabilities } = await import("@earendil-works/pi-tui");
@@ -1077,13 +1083,73 @@ describe("the artwork keeps a reviewable size at every option count", () => {
     for (const density of ["comfortable", "compact"]) {
       it(`draws a reviewable picture at ${options} options, ${density}`, async () => {
         const { columns, rows } = await boxFor(options, density, 44);
+        // Never a sliver, even when yielding.
         assert.ok(
-          rows >= MIN_REVIEWABLE || columns >= 12,
+          rows >= MIN_REVIEWABLE_YIELDING || columns >= 12,
           `${options} options ${density}: the picture is ${columns}x${rows} cells, which is a sliver rather than a preview`,
         );
       }, { timeout: 30000 });
     }
   }
+
+  it("holds the artwork to the full floor while the list fits without help", async () => {
+    // The point of two floors rather than one: a short list must not pay for the
+    // rule that a long one needs. Two options fit with room to spare, so the
+    // picture gets the whole six rows.
+    const { columns, rows } = await boxFor(2, "comfortable", 44);
+    assert.ok(
+      rows >= MIN_REVIEWABLE || columns >= 12,
+      `two options fit, so the picture keeps the full floor: it is ${columns}x${rows}`,
+    );
+  }, { timeout: 30000 });
+
+  it("the artwork yields to the list, so a long list shows more of itself", async () => {
+    // The rule the two floors buy, pinned as the thing it is for: a list is
+    // worth more rows than a picture. Before the floor could yield, a fourteen
+    // option review showed ten of its options and a twenty option review showed
+    // fourteen; the rest were behind a scroll the person had no reason to
+    // suspect was hiding them.
+    for (const [options, atLeast] of [[14, 12], [20, 16]]) {
+      const { rows, columns } = await boxFor(options, "comfortable", 44);
+      const { frame } = await boxFor(options, "comfortable", 44);
+      const choices = frame.split("\n").filter((line) => /^\s*(?:>\s*)?\d+\.\s+Option\b/.test(line)).length;
+      assert.ok(
+        choices >= atLeast,
+        `${options} options: ${choices} of them are on screen, expected at least ${atLeast} (picture ${columns}x${rows})`,
+      );
+    }
+  }, { timeout: 60000 });
+
+  it("a list that fits without help keeps its reasons, and the picture the full floor", async () => {
+    // The other half: the yield is for lists that need it. Four options fit, so
+    // they get their reasons *and* the artwork keeps six rows - a short list must
+    // not pay for the rule a long one needs.
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    try {
+      const review = normalizeReview({
+        reviewId: "yield", images: "on",
+        stages: [{
+          id: "one", header: "Treatment", prompt: "Which treatment ships first?",
+          options: Array.from({ length: 4 }, (_, index) => ({
+            id: `o${index}`, label: `Option ${index + 1}`,
+            description: `Favors option ${index + 1}; trade-off: a one-to-two sentence reason line.`,
+            image: { path: image, alt: "Fixture" },
+          })),
+        }],
+      });
+      const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 44 } }, plainTheme, review, process.cwd(), () => {});
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 50));
+      const frame = component.render(110).split("\n");
+      component.dispose();
+      const reasons = frame.filter((line) => /Favors option \d+;/.test(line)).length;
+      assert.equal(reasons, 4, `all four options keep their reason beside them, not zero`);
+      assert.equal(component.reasonsDropped, false, "and nothing was quietly dropped to make room");
+    } finally {
+      if (previous) setCapabilities(previous);
+    }
+  }, { timeout: 30000 });
 
   it("says so when the reasons were dropped, rather than claiming they are there", async () => {
     const { setCapabilities } = await import("@earendil-works/pi-tui");
