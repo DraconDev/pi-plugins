@@ -961,7 +961,14 @@ export class VisualReviewWizard implements Component, Focusable {
     // stage carrying a picture, a preview or a change list renders different rows,
     // and a multi-select row is a checkbox rather than a number, so
     // `isChoiceRow` has to recognise every shape that is really drawn.
-    const crowded = room(footerLines, tailLines) < floor;
+    // Two things make the band too big: it can starve the picture, and it can
+    // push the panel past its own cap. Lowering the picture's floor removed the
+    // first as a constraint without bound - the panel grew to 37 rows before this
+    // second test was there - so the band is windowed when either is true, not
+    // only when the artwork is being squeezed.
+    const panelTotal = this.panelHeight();
+    const pastTheCap = footerLines.length + tailLines.length + CHROME_ROWS > panelTotal;
+    const crowded = room(footerLines, tailLines) < floor || pastTheCap;
     // The band handed to `windowBand` is rebuilt from the rows on every render,
     // so it already carries the marker the renderer just drew on the row the
     // cursor is on. That marker is the cursor's position in the window, and it is
