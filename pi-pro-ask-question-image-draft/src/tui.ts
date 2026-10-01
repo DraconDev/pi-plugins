@@ -116,6 +116,14 @@ const MIN_ART_ROWS = 6;
  * a picture.
  */
 const ART_FLOOR_WHEN_LIST_IS_LONG = 3;
+/**
+ * As few rows as a drawn mockup is still worth drawing.
+ *
+ * Two of them are its title and its row count, so anything below this is a
+ * heading above nothing - which is worse than no drawing at all, because the
+ * rows are better spent on the list.
+ */
+const MOCKUP_MIN_ROWS = 6;
 const CHROME_ROWS = 6;
 
 const NOTE_LABEL = "Add note";
@@ -942,8 +950,22 @@ export class VisualReviewWizard implements Component, Focusable {
     // "comfortable" that shows no reasons at all. So the floor the artwork is
     // held to is the full one while the list fits, and a lower one once it does
     // not - never zero, so the treatment is always something to look at.
+    // A drawn mockup and a sampled photograph want different things from the
+    // same three rows. A photograph squeezed to two rows is a sliver nobody can
+    // judge, so it keeps a floor and the reasons give way instead. A mockup is
+    // drawn on a cell grid and is information-dense: below the few rows it needs
+    // to show anything, it is worth nothing at all - so when the list is long the
+    // mockup yields all the way and the reasons come back. Capping the artwork's
+    // *budget* is not enough on its own, and measuring that was the whole lesson:
+    // the band decides whether it is crowded using this floor, so the floor is
+    // where the answer has to live.
+    const selectedRowForFloor = stage ? rowsForStage(stage)[this.selectedIndex] : undefined;
+    const stageIsMockup = Boolean(selectedRowForFloor?.kind === "option"
+      && selectedRowForFloor.option.mockup
+      && !selectedRowForFloor.option.image);
+    const yieldingFloor = stageIsMockup ? 0 : ART_FLOOR_WHEN_LIST_IS_LONG;
     const floor = footerLines.length > essentialFooter.length && room(footerLines, tailLines) < MIN_ART_ROWS
-      ? ART_FLOOR_WHEN_LIST_IS_LONG
+      ? yieldingFloor
       : MIN_ART_ROWS;
     this.reasonsDropped = false;
     if (footerLines.length > essentialFooter.length && room(footerLines, tailLines) < floor) {
@@ -1123,7 +1145,10 @@ export class VisualReviewWizard implements Component, Focusable {
               for (const wrapped of wrapTextWithAnsi(this.theme.fg("text", `  • ${line}`), Math.max(1, safeWidth - 4))) detail.push(wrapped);
             }
             if (option.description && detail[detail.length - 1] !== "") detail.push("");
-          } else if (option.mockup) {
+          } else if (option.mockup && imageBudget >= MOCKUP_MIN_ROWS) {
+            // Below the rows it needs to show anything, a mockup is a title and a
+            // count with nothing under them - and the reasons are worth more than
+            // that. So it is not drawn, rather than drawn as an empty box.
             const mockup = this.mockupLines(option.mockup, safeWidth - 2, imageBudget);
             if (mockup && mockup.length > 0) {
               if (art.length > 0) detail.push("");
@@ -1667,7 +1692,7 @@ export class VisualReviewWizard implements Component, Focusable {
     // and a count with no content under them, which is a drawing of nothing: the
     // yield floor can legitimately hand the artwork three rows, and a wireframe
     // that renders as an empty box is not a wired-up feature.
-    const heightCells = Math.max(6, Math.min(30, height));
+    const heightCells = Math.max(MOCKUP_MIN_ROWS, Math.min(30, height));
     try {
       const { png } = renderMockup(spec, { widthCells, heightCells });
       // Through the same image path as a photograph, so the drawable spec gets
