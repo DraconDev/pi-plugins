@@ -865,7 +865,16 @@ export class VisualReviewWizard implements Component, Focusable {
       // content area instead, where there is room for the whole sentence.
       const showReasons = this.density === "comfortable";
       const choices = this.renderRows(stage, rows, safeWidth - 2, { describe: showReasons }).map((line) => ` ${line}`);
-      const firstAction = choices.findIndex((line) => /^\s+(?![>\s]*\d+\.)/.test(line));
+      // The seam goes between the *choices* and the *actions*, and the only
+      // reliable way to find that boundary is to ask the rows which are which.
+      // It used to be "the first line that is not a numbered option" - which is
+      // wrong the moment a choice carries a reason, because the reason line is
+      // also not a numbered option. The seam landed between option 1 and its own
+      // reason, and every comfortable review with artwork showed it.
+      const firstActionKind = rows.findIndex((row) => row.kind !== "option");
+      const firstAction = firstActionKind >= 0
+        ? choices.findIndex((line) => line.trim() === rowLabel(rows[firstActionKind]!))
+        : -1;
       if (firstAction > 0) {
         footerLines.push(...choices.slice(0, firstAction), seam(), ...choices.slice(firstAction));
       } else {
