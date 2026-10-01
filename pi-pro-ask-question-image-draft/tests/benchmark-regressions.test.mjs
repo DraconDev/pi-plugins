@@ -1165,14 +1165,14 @@ describe("SMOKE-001: the live smoke drives note, revision, reject and cancel on 
  * caught that, and it is cheap.
  */
 describe("the mockup font fits its cell", () => {
-  const inkColumns = async (text) => {
+  /** Decode a canvas to RGB rows. */
+  const pixels = async (label) => {
     const { renderMockupCanvas, encodeCanvasPng, CELL_WIDTH } = await import("../src/mockup-renderer.ts");
     const { inflateSync } = await import("node:zlib");
     const png = encodeCanvasPng(renderMockupCanvas(
-      { layout: "list", title: "", rows: [{ label: text, value: 1 }] },
+      { layout: "list", title: "", rows: [{ label, value: 1 }] },
       { widthCells: 12, heightCells: 8 },
     ));
-    // Minimal decode: we only need where the ink is, so read IDAT directly.
     let offset = 8;
     let idat = Buffer.alloc(0);
     let width = 0;
@@ -1180,40 +1180,41 @@ describe("the mockup font fits its cell", () => {
     while (offset < png.length) {
       const length = png.readUInt32BE(offset);
       const kind = png.subarray(offset + 4, offset + 8).toString("latin1");
-      if (kind === "IHDR") {
-        width = png.readUInt32BE(offset + 8);
-        height = png.readUInt32BE(offset + 12);
-      }
+      if (kind === "IHDR") { width = png.readUInt32BE(offset + 8); height = png.readUInt32BE(offset + 12); }
       if (kind === "IDAT") idat = Buffer.concat([idat, png.subarray(offset + 8, offset + 8 + length)]);
       offset += 12 + length;
     }
     const raw = inflateSync(idat);
     const stride = width * 3;
-    const pixel = (x, y) => {
+    const at = (x, y) => {
       const start = y * (stride + 1) + 1 + x * 3;
-      return [raw[start], raw[start + 1], raw[start + 2]];
+      return raw.subarray(start, start + 3);
     };
-    // The label row is the first row with a light background after the title.
-    let labelY = 0;
-    for (let y = 0; y < height; y += 1) {
-      if (pixel(1, y)[0] > 200) { labelY = y; break; }
-    }
-    // Only the label area: the row also carries a value bar to the right, and
-    // counting that as ink measures the wrong thing.
-    const labelWidth = Math.min(width, 5 * cellWidthFor(width));
-    const columns = [];
-    for (let x = 0; x < labelWidth; x += 1) {
-      let ink = false;
-      for (let y = labelY; y < Math.min(height, labelY + 16); y += 1) {
-        const [r, g, b] = pixel(x, y);
-        if (r < 200 || g < 200 || b < 200) { ink = true; break; }
-      }
-      columns.push(ink);
-    }
-    return { columns, cellWidth: CELL_WIDTH };
+    return { at, width, height, cellWidth: CELL_WIDTH };
   };
 
-  /** Contiguous runs of ink, which is where the letters are. */
+  /**
+   * The columns a label put ink in, found by differencing two renders.
+   *
+   * Guessing which row the label landed on was wrong twice - the canvas draws a
+   * title, a row count and separators, and any of them reads as text. Rendering
+   * "M" and "MM" and taking the columns that differ gives the label ink and
+   * nothing else, with no assumption about the chrome at all.
+   */
+  const labelInk = async (one, two) => {
+    const a = await pixels(one);
+    const b = await pixels(two);
+    const columns = [];
+    for (let x = 0; x < a.width; x += 1) {
+      let changed = false;
+      for (let y = 0; y < a.height && !changed; y += 1) {
+        if (!a.at(x, y).equals(b.at(x, y))) changed = true;
+      }
+      columns.push(changed);
+    }
+    return { columns, cellWidth: a.cellWidth };
+  };
+
   const runs = (columns) => {
     const found = [];
     let start = -1;
@@ -1225,20 +1226,18 @@ describe("the mockup font fits its cell", () => {
     return found;
   };
 
-  const cellWidthFor = (width) => (width === 96 ? 8 : 8);
-
   it("leaves a gap between two letters rather than running them together", async () => {
-    const two = await inkColumns("MM");
-    const letters = runs(two.columns);
+    const { columns } = await labelInk("M", "MM");
+    const letters = runs(columns);
     assert.ok(letters.length >= 2, `two M's are two separate ink runs, not one merged blob (got ${letters.length})`);
     const gap = letters[1][0] - letters[0][1] - 1;
     assert.ok(gap >= 1, `a gap of ${gap}px between the letters; 0 means they overlap`);
   });
 
   it("keeps a letter inside one cell", async () => {
-    const { columns, cellWidth } = await inkColumns("M");
+    const { columns, cellWidth } = await labelInk("", "M");
     const letters = runs(columns);
-    assert.ok(letters.length >= 1, "the single letter actually drew something");
+    assert.ok(letters.length >= 1, "the letter actually drew something");
     const widest = Math.max(...letters.map(([from, to]) => to - from + 1));
     assert.ok(widest <= cellWidth, `one letter spans ${widest}px, and a cell is ${cellWidth}px`);
   });
