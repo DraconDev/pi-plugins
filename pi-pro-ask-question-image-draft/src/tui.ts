@@ -1560,7 +1560,12 @@ export class VisualReviewWizard implements Component, Focusable {
       // to change. Its description has been in the code all along and was never
       // drawn - it only appeared if you moved the cursor onto it first, which is
       // the one moment you do not need it explained.
-      const description = row.kind === "option" || row.kind === "globalNote" || row.kind === "revision"
+      // `reject` is here for the same reason as `revision`: "Reject review" and
+      // the Esc hint both read as "no", and they are not the same no. Rejecting
+      // says the proposal is wrong; cancelling says you are walking away from
+      // it. The row that draws attention has to say which one it is.
+      const description = row.kind === "option" || row.kind === "globalNote"
+        || row.kind === "revision" || row.kind === "reject" || row.kind === "skip"
         ? rowDescription(row)
         : undefined;
       if (describe && description) {
