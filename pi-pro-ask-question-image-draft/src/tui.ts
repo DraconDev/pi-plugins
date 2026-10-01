@@ -1548,7 +1548,15 @@ export class VisualReviewWizard implements Component, Focusable {
       const label = `${box}${numbered}${rowLabel(row)}${recommended}`;
       const text = `${prefix}${label}`;
       lines.push(...(action && !active ? wrapTextWithAnsi(this.theme.fg("muted", text), Math.max(1, width)) : wrapTextWithAnsi(text, Math.max(1, width))));
-      const description = row.kind === "option" || row.kind === "globalNote" ? rowDescription(row) : undefined;
+      // `revision` is in here because the row is useless without its explanation:
+      // "Request revision" on its own is a button that looks like it should do
+      // something and cannot, because the revision needs a person to say *what*
+      // to change. Its description has been in the code all along and was never
+      // drawn - it only appeared if you moved the cursor onto it first, which is
+      // the one moment you do not need it explained.
+      const description = row.kind === "option" || row.kind === "globalNote" || row.kind === "revision"
+        ? rowDescription(row)
+        : undefined;
       if (describe && description) {
         for (const line of wrapTextWithAnsi(this.theme.fg("muted", `     ${description}`), Math.max(1, width))) lines.push(line);
       }
