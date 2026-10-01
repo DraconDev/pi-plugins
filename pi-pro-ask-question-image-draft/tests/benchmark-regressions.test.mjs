@@ -1226,19 +1226,20 @@ describe("the mockup font fits its cell", () => {
     return found;
   };
 
-  it("leaves a gap between two letters rather than running them together", async () => {
-    const { columns } = await labelInk("M", "MM");
+  it("draws letters as separate shapes, each inside its own cell", async () => {
+    // The label area truncates to about four cells, so the widest sample that
+    // still renders every letter is four of them. What matters is the shape of
+    // the ink: with the font at a two-pixel pitch a letter is ten pixels wide in
+    // an eight-pixel cell, so consecutive letters merge into one blob and lose
+    // their right-hand sides.
+    const { columns, cellWidth } = await labelInk("", "MMMM");
     const letters = runs(columns);
-    assert.ok(letters.length >= 2, `two M's are two separate ink runs, not one merged blob (got ${letters.length})`);
-    const gap = letters[1][0] - letters[0][1] - 1;
-    assert.ok(gap >= 1, `a gap of ${gap}px between the letters; 0 means they overlap`);
-  });
-
-  it("keeps a letter inside one cell", async () => {
-    const { columns, cellWidth } = await labelInk("", "M");
-    const letters = runs(columns);
-    assert.ok(letters.length >= 1, "the letter actually drew something");
+    assert.ok(letters.length >= 3, `the letters are drawn as separate shapes (got ${letters.length} runs for four letters)`);
+    for (let index = 1; index < letters.length; index += 1) {
+      const gap = letters[index][0] - letters[index - 1][1] - 1;
+      assert.ok(gap >= 1, `letters ${index} and ${index + 1} are ${gap}px apart; 0 means they overlap`);
+    }
     const widest = Math.max(...letters.map(([from, to]) => to - from + 1));
-    assert.ok(widest <= cellWidth, `one letter spans ${widest}px, and a cell is ${cellWidth}px`);
+    assert.ok(widest <= cellWidth, `the widest letter is ${widest}px, and a cell is ${cellWidth}px`);
   });
 });
