@@ -877,10 +877,7 @@ export class VisualReviewWizard implements Component, Focusable {
       // wrong the moment a choice carries a reason, because the reason line is
       // also not a numbered option. The seam landed between option 1 and its own
       // reason, and every comfortable review with artwork showed it.
-      const firstActionKind = rows.findIndex((row) => row.kind !== "option");
-      const firstAction = firstActionKind >= 0
-        ? choices.findIndex((line) => line.trim() === rowLabel(rows[firstActionKind]!))
-        : -1;
+      const firstAction = choices.findIndex((line) => /^\s+(?![>\s]*\d+\.)/.test(line));
       if (firstAction > 0) {
         footerLines.push(...choices.slice(0, firstAction), seam(), ...choices.slice(firstAction));
       } else {
