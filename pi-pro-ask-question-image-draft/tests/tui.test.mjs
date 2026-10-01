@@ -700,7 +700,14 @@ describe("a host that cannot draw says so in the content area", () => {
       const rows = frame.map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
       const first = rows.findIndex((line) => /1\. Transit airy/.test(line));
       assert.ok(first >= 0, "the choices are on screen");
-      assert.doesNotMatch(rows[first + 1] ?? "", /Scans fastest/, "and nothing is printed under a choice");
+      // Comfortable means a reason under every choice, and this is comfortable -
+      // so the reason belongs under its choice even when the host cannot draw the
+      // picture. This assertion used to say the opposite, and passed only because
+      // the seam was landing between the first choice and its own reason: line
+      // 17 used to be the rule, so "nothing under a choice" was true of a frame
+      // that was wrong. A test can be pinned to a bug just as easily as to a
+      // promise; this one is now pinned to what comfortable says it does.
+      assert.match(rows[first + 1] ?? "", /Scans fastest/, "the choice carries its own reason beneath it");
       component.dispose();
     } finally {
       if (previousTmux === undefined) delete process.env.TMUX;
