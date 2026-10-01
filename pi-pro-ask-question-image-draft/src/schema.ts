@@ -194,6 +194,7 @@ export const ReviewParamsSchema = Type.Object({
   title: Type.Optional(Type.String({ maxLength: 200, description: "Optional title for the review wizard." })),
   reviewId: Type.Optional(Type.String({ maxLength: 200, description: "Stable id used to resume a review after a revision." })),
   round: Type.Optional(Type.Integer({ minimum: 1, description: "Revision round, starting at 1." })),
+  rounds: Type.Optional(Type.Integer({ minimum: 1, description: "How many rounds this review is expected to take, so the panel can say 'round 1 of 3'. Omit when the model does not know - the header then says only which round this is." })),
   /**
    * How much fits in the fixed block.
    *
@@ -283,6 +284,8 @@ export interface NormalizedReview {
   stages: NormalizedStage[];
   reviewId: string;
   round: number;
+  /** How many rounds to expect, when the model said so. */
+  rounds?: number;
   /**
    * Off unless the review asks for pictures.
    *
@@ -640,6 +643,14 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
   if (params.reviewId !== undefined && typeof params.reviewId !== "string") throw new Error("reviewId must be a string.");
   if (params.round !== undefined && (typeof params.round !== "number" || !Number.isInteger(params.round))) {
     throw new Error("round must be a positive integer.");
+  }
+  if (params.rounds !== undefined && (typeof params.rounds !== "number" || !Number.isInteger(params.rounds) || params.rounds < 1)) {
+    throw new Error("rounds must be a positive integer.");
+  }
+  // A total below the round already reached is not a total, it is a mistake, and
+  // "round 3 of 2" in the header would be worse than no total at all.
+  if (params.rounds !== undefined && (params.round ?? 1) > params.rounds) {
+    throw new Error(`rounds (${params.rounds}) cannot be less than round (${params.round ?? 1}).`);
   }
   if (params.notes !== undefined && typeof params.notes !== "string") throw new Error("notes must be a string.");
   if (params.provider !== undefined && typeof params.provider !== "string") throw new Error("provider must be a string.");
