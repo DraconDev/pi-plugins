@@ -1683,9 +1683,9 @@ export class VisualReviewWizard implements Component, Focusable {
    * that keeps claiming otherwise is worse than no line: it is how a footer ends
    * up telling the reader to look for something that is not on screen.
    */
-  private densityLine(): string {
+  private densityLine(reasonsShown = this.reasonsShown): string {
     if (this.density === "compact") return "density: compact — one reason, in the panel above (Ctrl+D for comfortable)";
-    return this.reasonsShown
+    return reasonsShown
       ? "density: comfortable — a reason under every choice (Ctrl+D for compact)"
       : "density: comfortable — reasons dropped to fit the list (Ctrl+D for compact)";
   }
@@ -1754,7 +1754,18 @@ export class VisualReviewWizard implements Component, Focusable {
     return { above, below };
   }
 
-  private tailLines(stage: NormalizedStage | undefined, safeWidth: number): string[] {
+  /**
+   * `reasonsShown` is passed in rather than read, and that is the whole point.
+   *
+   * The tail is built before the band decides whether the reasons survive - the
+   * band cannot be sized without knowing how tall the tail is - so a density
+   * line that read the flag here would be reporting the *previous* frame, and
+   * on the very first frame it would report the default. That is how a review
+   * came up saying "reasons dropped to fit the list" with all four reasons on
+   * screen: the line was true about the frame before, and there was no frame
+   * before that.
+   */
+  private tailLines(stage: NormalizedStage | undefined, safeWidth: number, reasonsShown = this.reasonsShown): string[] {
     const out: string[] = [""];
     const current = stage ? this.answers.get(stage.id) : undefined;
     if (current) out.push(this.theme.fg("success", `Current answer: ${current.answer ?? current.optionLabels?.join(", ") ?? "(empty)"}${current.notes ? ` — ${current.notes}` : ""}`));
@@ -1770,7 +1781,7 @@ export class VisualReviewWizard implements Component, Focusable {
     // It reports what this frame is doing, not what the mode always does - a long
     // list drops the reasons to keep the picture, and the line says so rather
     // than claiming a reason under every choice that is not there.
-    out.push(this.theme.fg(this.density === "compact" ? "success" : "dim", this.densityLine()));
+    out.push(this.theme.fg(this.density === "compact" ? "success" : "dim", this.densityLine(reasonsShown)));
     if (stage?.multiSelect && selection.size > 0) {
       out.push(this.theme.fg("accent", `Selected: ${stage.options.filter((option) => selection.has(option.id)).map((option) => option.label).join(", ")}`));
     }
