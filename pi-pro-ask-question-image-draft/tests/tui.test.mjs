@@ -1164,7 +1164,10 @@ describe("the artwork keeps a reviewable size at every option count", () => {
         ...(kind === "mock" ? { mockup: { layout: "airy", title: "OPS", rows: [{ label: "On time", value: 0.9 }] } }
           : { image: { path: image, alt: "Fixture" } }),
       }));
-      for (const [kind, expected] of [["mock", 6], ["photo", 0]]) {
+      // Five, not six: the sixth option and its reason are a scroll away rather
+      // than dropped. The point is that the reasons are there at all - it was
+      // none before, and the band scrolls rather than deleting.
+      for (const [kind, expected] of [["mock", 5], ["photo", 0]]) {
         const review = normalizeReview({
           reviewId: "yield-kind", images: "on",
           stages: [{ id: "one", header: "Treatment", prompt: "Which treatment ships first?", options: options(kind) }],
@@ -1177,6 +1180,7 @@ describe("the artwork keeps a reviewable size at every option count", () => {
         assert.equal(reasons, expected, `${kind === "mock" ? "a drawn mockup" : "a photograph"}: ${reasons} reasons on screen, expected ${expected}`);
         if (kind === "mock") {
           assert.ok(lines.some((line) => /\u001b_G/.test(line)), "and the wireframe is still drawn");
+          assert.equal(component.reasonsDropped, false, "and nothing was quietly dropped to make room");
         }
         component.dispose();
       }
