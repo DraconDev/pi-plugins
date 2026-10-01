@@ -1022,9 +1022,10 @@ export class VisualReviewWizard implements Component, Focusable {
     // photograph does, and its value is in there being several to compare rather
     // than one being tall. So its budget is capped, and the rows it does not take
     // go back to the list, which is where the reasons live.
-    const selectedHasMockup = Boolean(rows[this.selectedIndex]?.kind === "option"
-      && rows[this.selectedIndex]?.option.mockup
-      && !rows[this.selectedIndex]?.option.image);
+    const selectedRow = rows[this.selectedIndex];
+    const selectedHasMockup = selectedRow?.kind === "option"
+      && Boolean(selectedRow.option.mockup)
+      && !selectedRow.option.image;
     const imageBudget = stacked
       ? Math.max(1, Math.min(
         selectedHasMockup ? MOCKUP_MAX_ROWS : Number.POSITIVE_INFINITY,
