@@ -1150,3 +1150,96 @@ describe("SMOKE-001: the live smoke drives note, revision, reject and cancel on 
     for (const mode of SESSION_MODES) assert.equal(record.pty.exitCodes[mode], 0, `${mode} must exit clean`);
   });
 });
+
+/**
+ * The mockup font has to fit the cell it is drawn in.
+ *
+ * Every other assertion in this file looks at the mockup the way a person does
+ * - is the layout right, are the rows there, does it parse. None of them looked
+ * at the *pixels*, and so 280 tests passed while every label in every drawn
+ * mockup was clipped: the glyph is five columns wide, drawn at a two-pixel
+ * pitch, which is ten pixels in an eight-pixel cell. Each letter overlapped the
+ * next by two pixels and lost its right-hand side.
+ *
+ * This one measures the ink. It is the only kind of assertion that could have
+ * caught that, and it is cheap.
+ */
+describe("the mockup font fits its cell", () => {
+  const inkColumns = async (text) => {
+    const { renderMockupCanvas, encodeCanvasPng, CELL_WIDTH } = await import("../src/mockup-renderer.ts");
+    const { inflateSync } = await import("node:zlib");
+    const png = encodeCanvasPng(renderMockupCanvas(
+      { layout: "list", title: "", rows: [{ label: text, value: 1 }] },
+      { widthCells: 12, heightCells: 8 },
+    ));
+    // Minimal decode: we only need where the ink is, so read IDAT directly.
+    let offset = 8;
+    let idat = Buffer.alloc(0);
+    let width = 0;
+    let height = 0;
+    while (offset < png.length) {
+      const length = png.readUInt32BE(offset);
+      const kind = png.subarray(offset + 4, offset + 8).toString("latin1");
+      if (kind === "IHDR") {
+        width = png.readUInt32BE(offset + 8);
+        height = png.readUInt32BE(offset + 12);
+      }
+      if (kind === "IDAT") idat = Buffer.concat([idat, png.subarray(offset + 8, offset + 8 + length)]);
+      offset += 12 + length;
+    }
+    const raw = inflateSync(idat);
+    const stride = width * 3;
+    const pixel = (x, y) => {
+      const start = y * (stride + 1) + 1 + x * 3;
+      return [raw[start], raw[start + 1], raw[start + 2]];
+    };
+    // The label row is the first row with a light background after the title.
+    let labelY = 0;
+    for (let y = 0; y < height; y += 1) {
+      if (pixel(1, y)[0] > 200) { labelY = y; break; }
+    }
+    // Only the label area: the row also carries a value bar to the right, and
+    // counting that as ink measures the wrong thing.
+    const labelWidth = Math.min(width, 5 * cellWidthFor(width));
+    const columns = [];
+    for (let x = 0; x < labelWidth; x += 1) {
+      let ink = false;
+      for (let y = labelY; y < Math.min(height, labelY + 16); y += 1) {
+        const [r, g, b] = pixel(x, y);
+        if (r < 200 || g < 200 || b < 200) { ink = true; break; }
+      }
+      columns.push(ink);
+    }
+    return { columns, cellWidth: CELL_WIDTH };
+  };
+
+  /** Contiguous runs of ink, which is where the letters are. */
+  const runs = (columns) => {
+    const found = [];
+    let start = -1;
+    for (let x = 0; x < columns.length; x += 1) {
+      if (columns[x] && start < 0) start = x;
+      if (!columns[x] && start >= 0) { found.push([start, x - 1]); start = -1; }
+    }
+    if (start >= 0) found.push([start, columns.length - 1]);
+    return found;
+  };
+
+  const cellWidthFor = (width) => (width === 96 ? 8 : 8);
+
+  it("leaves a gap between two letters rather than running them together", async () => {
+    const two = await inkColumns("MM");
+    const letters = runs(two.columns);
+    assert.ok(letters.length >= 2, `two M's are two separate ink runs, not one merged blob (got ${letters.length})`);
+    const gap = letters[1][0] - letters[0][1] - 1;
+    assert.ok(gap >= 1, `a gap of ${gap}px between the letters; 0 means they overlap`);
+  });
+
+  it("keeps a letter inside one cell", async () => {
+    const { columns, cellWidth } = await inkColumns("M");
+    const letters = runs(columns);
+    assert.ok(letters.length >= 1, "the single letter actually drew something");
+    const widest = Math.max(...letters.map(([from, to]) => to - from + 1));
+    assert.ok(widest <= cellWidth, `one letter spans ${widest}px, and a cell is ${cellWidth}px`);
+  });
+});
