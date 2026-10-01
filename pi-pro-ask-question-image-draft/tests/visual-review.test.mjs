@@ -606,3 +606,31 @@ describe("a resumed round re-applies the persisted density", () => {
     assert.equal(carryOverPresentation(back, undefined).density, "comfortable", "with no previous round, comfortable stands");
   });
 });
+
+describe("how many rounds are left", () => {
+  it("carries a total when the model says one, and validates it", async () => {
+    const { normalizeReview } = await import("../src/schema.ts");
+    const stage = { id: "one", header: "H", prompt: "P", options: [{ label: "A" }, { label: "B" }] };
+    assert.equal(normalizeReview({ reviewId: "r", round: 1, rounds: 3, stages: [stage] }).rounds, 3, "the total is carried");
+    assert.equal(normalizeReview({ reviewId: "r", stages: [stage] }).rounds, undefined, "and is absent when the model did not say");
+    assert.throws(() => normalizeReview({ reviewId: "r", rounds: 0, stages: [stage] }), /rounds must be a positive integer/);
+    assert.throws(() => normalizeReview({ reviewId: "r", rounds: 1.5, stages: [stage] }), /rounds must be a positive integer/);
+    // A total below the round already reached is not a total, it is a mistake,
+    // and "round 3 of 2" in the header would be worse than no total at all.
+    assert.throws(() => normalizeReview({ reviewId: "r", round: 3, rounds: 2, stages: [stage] }), /cannot be less than round/);
+  });
+
+  it("says round 1 of 3 in the header when there is a total, and round 1 when there is not", async () => {
+    const { VisualReviewWizard } = await import("../src/tui.ts");
+    const { normalizeReview } = await import("../src/schema.ts");
+    const theme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+    const stage = { id: "one", header: "H", prompt: "P", options: [{ label: "A" }, { label: "B" }] };
+    const header = (review) => new VisualReviewWizard(
+      { requestRender: () => {}, terminal: { rows: 40 } }, theme, review, process.cwd(), () => {},
+    ).render(100).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")).find((line) => /Visual review/.test(line)) ?? "";
+    assert.match(header(normalizeReview({ reviewId: "r", round: 1, rounds: 3, stages: [stage] })), /round 1 of 3/);
+    assert.match(header(normalizeReview({ reviewId: "r", round: 2, rounds: 3, stages: [stage] })), /round 2 of 3/);
+    assert.match(header(normalizeReview({ reviewId: "r", round: 2, stages: [stage] })), /\(round 2\)/);
+    assert.doesNotMatch(header(normalizeReview({ reviewId: "r", round: 1, stages: [stage] })), / of /);
+  });
+});
