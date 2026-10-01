@@ -1148,6 +1148,43 @@ describe("the artwork keeps a reviewable size at every option count", () => {
     }
   }, { timeout: 30000 });
 
+  it("a drawn mockup yields all the way, and the reasons come back", async () => {
+    // The same rule as the artwork yield, but by how far. A photograph squeezed
+    // to two rows is a sliver nobody can judge, so it keeps a floor and the
+    // reasons give way. A mockup is drawn on a cell grid and is
+    // information-dense, so below the rows it needs to show anything it is worth
+    // nothing - it yields to nothing at all, and six options keep their reasons
+    // instead of dropping every one of them.
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    try {
+      const options = (kind) => Array.from({ length: 6 }, (_, index) => ({
+        id: `${kind}${index}`, label: `Option ${index + 1}`,
+        description: `Favors option ${index + 1}; a one-to-two sentence reason line.`,
+        ...(kind === "mock" ? { mockup: { layout: "airy", title: "OPS", rows: [{ label: "On time", value: 0.9 }] } }
+          : { image: { path: image, alt: "Fixture" } }),
+      }));
+      for (const [kind, expected] of [["mock", 6], ["photo", 0]]) {
+        const review = normalizeReview({
+          reviewId: "yield-kind", images: "on",
+          stages: [{ id: "one", header: "Treatment", prompt: "Which treatment ships first?", options: options(kind) }],
+        });
+        const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 44 } }, plainTheme, review, process.cwd(), () => {});
+        const deadline = Date.now() + 10_000;
+        while (Date.now() < deadline && component.loadedImages.size === 0 && kind === "photo") await new Promise((r) => setTimeout(r, 50));
+        const lines = component.render(100).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+        const reasons = lines.filter((line) => /Favors option \d+;/.test(line)).length;
+        assert.equal(reasons, expected, `${kind === "mock" ? "a drawn mockup" : "a photograph"}: ${reasons} reasons on screen, expected ${expected}`);
+        if (kind === "mock") {
+          assert.ok(lines.some((line) => /\u001b_G/.test(line)), "and the wireframe is still drawn");
+        }
+        component.dispose();
+      }
+    } finally {
+      if (previous) setCapabilities(previous);
+    }
+  }, { timeout: 30000 });
+
   it("the artwork yields to the list, so a long list shows more of itself", async () => {
     // The rule the two floors buy, pinned as the thing it is for: a list is
     // worth more rows than a picture. Before the floor could yield, a fourteen
