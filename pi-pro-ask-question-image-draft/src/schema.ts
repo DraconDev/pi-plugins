@@ -680,6 +680,7 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
     stages,
     reviewId: optionalText(params.reviewId) || `review-${now.toString(36)}-${randomUUID().slice(0, 8)}`,
     round,
+    ...(params.rounds === undefined ? {} : { rounds: params.rounds }),
     images: params.images === "on" ? "on" : "off",
     density: params.density === "compact" ? "compact" : "comfortable",
     autoResolve: params.autoResolve === true ? true : undefined,

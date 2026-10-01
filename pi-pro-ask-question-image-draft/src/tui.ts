@@ -805,7 +805,13 @@ export class VisualReviewWizard implements Component, Focusable {
 
     lines.push(border("─".repeat(safeWidth)));
     const title = this.review.title ?? "Visual review";
-    lines.push(this.theme.fg("accent", this.theme.bold(`${title}  (round ${this.review.round})`)));
+    // "round 2" alone leaves the reader guessing whether more are coming. When the
+    // model said how many it expects, the header says so; when it did not, it
+    // says only which round this is rather than inventing a total.
+    const roundLabel = this.review.rounds
+      ? `round ${this.review.round} of ${this.review.rounds}`
+      : `round ${this.review.round}`;
+    lines.push(this.theme.fg("accent", this.theme.bold(`${title}  (${roundLabel})`)));
     lines.push("");
     const tabs = this.review.stages.map((item, index) => {
       const active = index === this.stageIndex;
