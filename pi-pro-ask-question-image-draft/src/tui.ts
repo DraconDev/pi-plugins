@@ -1661,7 +1661,13 @@ export class VisualReviewWizard implements Component, Focusable {
    */
   private mockupLines(spec: MockupSpec, width: number, height: number): string[] | null {
     const widthCells = Math.max(20, Math.min(80, width));
-    const heightCells = Math.max(4, Math.min(30, height));
+    // Six, not four. A mockup spends two cells on its own chrome - a title and
+    // a row count - before it draws anything, and the airier layouts space their
+    // rows out rather than packing them. At four cells the artwork was a title
+    // and a count with no content under them, which is a drawing of nothing: the
+    // yield floor can legitimately hand the artwork three rows, and a wireframe
+    // that renders as an empty box is not a wired-up feature.
+    const heightCells = Math.max(6, Math.min(30, height));
     try {
       const { png } = renderMockup(spec, { widthCells, heightCells });
       // Through the same image path as a photograph, so the drawable spec gets
