@@ -634,3 +634,59 @@ describe("how many rounds are left", () => {
     assert.doesNotMatch(header(normalizeReview({ reviewId: "r", round: 1, stages: [stage] })), / of /);
   });
 });
+
+describe("the model is told to draw, not only that it may", () => {
+  it("the tool description points at mockup as the default for a visual comparison", async () => {
+    const { TOOL_DESCRIPTION, PROMPT_GUIDELINES } = await import("../extensions/visual-review.ts");
+    // A mockup can be rendered all day and the model will never send one, because
+    // nothing it reads mentions it. This is the wiring: the field existed, the
+    // renderer existed, and the only description the model sees said nothing.
+    assert.match(TOOL_DESCRIPTION, /prefer option\.mockup/i, "the tool description says to prefer a mockup");
+    assert.match(TOOL_DESCRIPTION, /31 x 16 cell grid/i, "and says what it is drawn on");
+    assert.match(TOOL_DESCRIPTION, /list, airy, split, dense, rail/i, "and names the layouts it can choose between");
+    assert.match(TOOL_DESCRIPTION, /costs no provider quota/i, "and that it is free of provider quota");
+    assert.match(
+      PROMPT_GUIDELINES.join(" "),
+      /prefer options\[\]\.mockup/i,
+      "the session guidelines say the same",
+    );
+    assert.match(
+      TOOL_DESCRIPTION,
+      /when the artefact is a photograph|whose pixels are the point/i,
+      "and it says when a generated image is still the right answer",
+    );
+  });
+
+  it("a mockup always gets enough cells to draw a row of content", async () => {
+    // The artwork can legitimately be handed three rows by the yield floor, and
+    // a mockup spends two of them on its title and row count. At four cells it
+    // rendered as an empty box.
+    const { VisualReviewWizard } = await import("../src/tui.ts");
+    const { normalizeReview } = await import("../src/schema.ts");
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    try {
+      const theme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+      const review = normalizeReview({
+        reviewId: "draw", images: "off",
+        stages: [{
+          id: "one", header: "Treatment", prompt: "Which treatment ships first?",
+          options: [0, 1].map((index) => ({
+            id: `o${index}`, label: `Option ${index + 1}`,
+            description: `Favors option ${index + 1}; a one-to-two sentence reason line.`,
+            mockup: { layout: "airy", title: "Operations", rows: [
+              { label: "On time", value: 0.98 }, { label: "Active", value: 0.7 }, { label: "Delayed", value: 0.3 },
+            ] },
+          })),
+        }],
+      });
+      const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 44 } }, theme, review, process.cwd(), () => {});
+      const frame = component.render(100).join("\n");
+      const drawn = /\u001b_G/.test(frame);
+      assert.ok(drawn, "the mockup is drawn at all");
+      component.dispose();
+    } finally {
+      if (previous) setCapabilities(previous);
+    }
+  });
+});
