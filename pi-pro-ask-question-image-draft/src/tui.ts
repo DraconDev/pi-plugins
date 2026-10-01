@@ -116,14 +116,6 @@ const MIN_ART_ROWS = 6;
  * a picture.
  */
 const ART_FLOOR_WHEN_LIST_IS_LONG = 3;
-/**
- * As many rows as a drawn mockup is ever worth.
- *
- * Six is one row of content with its title and count; twelve shows a layout at
- * something like its intended proportion. Past that the extra rows are padding,
- * and padding taken from a list of choices is not free.
- */
-const MOCKUP_MAX_ROWS = 12;
 const CHROME_ROWS = 6;
 
 const NOTE_LABEL = "Add note";
@@ -1015,20 +1007,8 @@ export class VisualReviewWizard implements Component, Focusable {
     // actually has. The bound matters now that the floor can yield: `room` grows
     // as the band shrinks, and an unbounded budget pads the artwork past the
     // panel's own height - which is how a 32-row panel became 33.
-    // A drawn mockup is not a photograph, and giving it a photograph's budget is
-    // how a six-option review ended up with eleven rows of artwork - most of
-    // them blank - and no reasons at all. A wireframe is drawn on a 31 x 16 cell
-    // grid: it is legible at six rows, it carries more information per row than a
-    // photograph does, and its value is in there being several to compare rather
-    // than one being tall. So its budget is capped, and the rows it does not take
-    // go back to the list, which is where the reasons live.
-    const selectedRow = rows[this.selectedIndex];
-    const selectedHasMockup = selectedRow?.kind === "option"
-      && Boolean(selectedRow.option.mockup)
-      && !selectedRow.option.image;
     const imageBudget = stacked
       ? Math.max(1, Math.min(
-        selectedHasMockup ? MOCKUP_MAX_ROWS : Number.POSITIVE_INFINITY,
         Math.max(bandWindow ? MIN_ART_ROWS : 0, room(footerLines, tailLines)),
         panelTotal - footerLines.length - tailLines.length,
       ))
