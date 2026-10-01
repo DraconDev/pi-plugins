@@ -29,3 +29,14 @@ for (const [stage, downs] of [[0,2],[1,3],[2,1]]) {
   const drawn = f.some(l=>/\u001b_G/.test(l));
   console.log(`${names[stage].padEnd(16)} rows=${f.length} choices=${String(choices).padStart(2)} reasons=${String(reasons).padStart(2)} artDrawn=${drawn} dropped=${c.reasonsDropped}`);
 }
+
+// Is the option that scrolled out still reachable?
+c.stageIndex = 0; c.selectedIndex = 0;
+const seen = new Set();
+for (let step = 0; step < 12; step += 1) {
+  const f = plain(c.render(100));
+  const marked = f.find((l) => /^\s*>\s*(?:\d+\.\s+|\[[ x]\]\s+)Transit /.test(l));
+  if (marked) seen.add(marked.trim().replace(/^>\s*\d+\.\s*/, ""));
+  c.handleInput("\u001b[B");
+}
+console.log(`\nstage 1 options reachable by walking: ${seen.size} of 6  [${[...seen].join(", ")}]`);
