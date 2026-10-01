@@ -1110,6 +1110,44 @@ describe("the artwork keeps a reviewable size at every option count", () => {
     );
   }, { timeout: 30000 });
 
+  it("the seam falls between the choices and the actions, never inside a choice", async () => {
+    // It used to fall at "the first line that is not a numbered option" - which
+    // is the first *reason* the moment a choice carries one. So the rule landed
+    // between option 1 and its own reason, and every comfortable review with
+    // artwork showed it. Only visible once the density work put the reasons
+    // back, which is to say the seam had been quietly wrong the whole time.
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    try {
+      const review = normalizeReview({
+        reviewId: "seam", images: "off",
+        stages: [{
+          id: "one", header: "Treatment", prompt: "Which treatment ships first?",
+          options: ["airy", "split", "dense", "ledger"].map((name, index) => ({
+            id: `o${index}`, label: `Option ${index + 1}`,
+            description: `Favors option ${index + 1}; a one-to-two sentence reason line.`,
+            mockup: { layout: "list", title: `T${index}`, rows: [{ label: "On time", value: 1 }] },
+          })),
+        }],
+      });
+      const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 44 } }, plainTheme, review, process.cwd(), () => {});
+      const lines = component.render(100).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+      component.dispose();
+      const firstChoice = lines.findIndex((line) => /^\s*(?:>\s*)?1\.\s+Option 1/.test(line));
+      const reason = lines.findIndex((line) => /Favors option 1;/.test(line));
+      const note = lines.findIndex((line) => /Add note/.test(line));
+      assert.ok(firstChoice >= 0 && note > firstChoice, "the choices and the actions are both on screen");
+      assert.ok(reason === firstChoice + 1, `the reason sits directly under its choice (choice ${firstChoice}, reason ${reason})`);
+      const between = lines
+        .map((line, index) => (/^[─]{10,}$/.test(line.trim()) && index > reason && index < note ? index : -1))
+        .filter((index) => index >= 0);
+      assert.ok(between.length >= 1, "there is a rule between the choices and the actions");
+      assert.equal(between.length, 1, "and only one: a rule inside the list is the bug");
+    } finally {
+      if (previous) setCapabilities(previous);
+    }
+  }, { timeout: 30000 });
+
   it("the artwork yields to the list, so a long list shows more of itself", async () => {
     // The rule the two floors buy, pinned as the thing it is for: a list is
     // worth more rows than a picture. Before the floor could yield, a fourteen
