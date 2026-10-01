@@ -1002,6 +1002,17 @@ export class VisualReviewWizard implements Component, Focusable {
     // what the density line reports.
     this.reasonsShown = this.density === "comfortable" && !this.reasonsDropped && stacked;
     this.bandWindow = bandWindow;
+    // Now that the band has decided, restate the density line in the tail that
+    // was sized before the decision was made. The size never changes - only the
+    // wording does, both ways round the same number of rows - so the panel's
+    // arithmetic is untouched and the footer finally describes this frame.
+    const densityRow = tailLines.findIndex((line) => /density: (comfortable|compact)/.test(stripPlain(line)));
+    if (densityRow >= 0) {
+      tailLines[densityRow] = this.theme.fg(
+        this.density === "compact" ? "success" : "dim",
+        this.densityLine(this.reasonsShown),
+      );
+    }
 
     if (stage) {
       // In the stacked layout the question is already in the footer, so the
