@@ -1150,6 +1150,48 @@ describe("the artwork keeps a reviewable size at every option count", () => {
     }
   }, { timeout: 30000 });
 
+  it("the density line describes *this* frame, not the one before it", async () => {
+    // The line used to be built with the tail, which is sized before the band
+    // decides whether the reasons survive - so it reported the previous frame,
+    // and on the first frame it reported the default. A four-option review came
+    // up saying "reasons dropped to fit the list" with all four reasons on
+    // screen, because that sentence was true of the frame before and there was
+    // no frame before that.
+    const setCapabilities = (await import("@earendil-works/pi-tui")).setCapabilities;
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    try {
+      for (const options of [2, 4, 6, 8, 14, 20]) {
+        const review = normalizeReview({
+          reviewId: "truth", images: "on",
+          stages: [{
+            id: "one", header: "Treatment", prompt: "Which treatment ships first?",
+            options: Array.from({ length: options }, (_, index) => ({
+              id: `o${index}`, label: `Option ${index + 1}`,
+              description: `Favors option ${index + 1}; trade-off: a one-to-two sentence reason line.`,
+              image: { path: image, alt: "Fixture" },
+            })),
+          }],
+        });
+        const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 44 } }, plainTheme, review, process.cwd(), () => {});
+        const deadline = Date.now() + 10_000;
+        while (Date.now() < deadline && component.loadedImages.size === 0) await new Promise((r) => setTimeout(r, 50));
+        const lines = component.render(100).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+        component.dispose();
+        const onScreen = lines.filter((line) => /Favors option \d+;/.test(line)).length;
+        const density = lines.find((line) => /density: comfortable/.test(line)) ?? "";
+        // A review with reasons on screen says so; one that dropped them says
+        // so. The line is about this frame, whichever it is.
+        const claimsReasons = /a reason under every choice/.test(density);
+        const claimsDropped = /reasons dropped to fit the list/.test(density);
+        assert.ok(density.length > 0, `${options} options: there is a density line`);
+        assert.equal(claimsReasons, onScreen > 0, `${options} options: ${onScreen} reasons on screen, and the line says ${density.trim()}`);
+        assert.equal(claimsDropped, onScreen === 0, `${options} options: the line agrees about what was dropped`);
+      }
+    } finally {
+      if (previous) setCapabilities(previous);
+    }
+  }, { timeout: 60000 });
+
   it("says so when the reasons were dropped, rather than claiming they are there", async () => {
     const { setCapabilities } = await import("@earendil-works/pi-tui");
     const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
