@@ -1171,7 +1171,7 @@ describe("the mockup font fits its cell", () => {
     const { inflateSync } = await import("node:zlib");
     const png = encodeCanvasPng(renderMockupCanvas(
       { layout: "list", title: "", rows: [{ label, value: 1 }] },
-      { widthCells: 12, heightCells: 8 },
+      { widthCells: 14, heightCells: 8 },
     ));
     let offset = 8;
     let idat = Buffer.alloc(0);

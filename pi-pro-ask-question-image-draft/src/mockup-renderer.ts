@@ -283,7 +283,7 @@ export class Canvas {
       const bits = packed[column];
       for (let row = 0; row < 7; row += 1) {
         if (bits & (1 << row)) {
-          for (let dx = 0; dx < 1 + 1; dx += 1) this.set(originX + column * 1 + dx, originY + row, colour);
+          for (let dx = 0; dx < 1 + 1; dx += 1) this.set(originX + column * 2 + dx, originY + row, colour);
         }
       }
     }
