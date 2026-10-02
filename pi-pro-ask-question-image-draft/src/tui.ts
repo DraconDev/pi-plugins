@@ -438,6 +438,8 @@ export class VisualReviewWizard implements Component, Focusable {
   private _focused = false;
   /** Set when the external editor rejected; drawn, and cleared on the next attempt. */
   private editorError: string | undefined;
+  /** Stages whose carried answer the revised review no longer accepts. */
+  private readonly droppedAnswerStageIds: readonly string[];
   private stageIndex = 0;
   private selectedIndex = 0;
   private inputMode: "none" | "other" | "revision" | "note" | "globalNote" = "none";
@@ -474,12 +476,14 @@ export class VisualReviewWizard implements Component, Focusable {
     signal?: AbortSignal,
     initialSkippedStageIds: readonly string[] = [],
     initialGlobalNote = "",
+    droppedAnswerStageIds: readonly string[] = [],
     keybindings?: KeybindingsManager,
     editExternal?: (value: string) => Promise<string | undefined>,
   ) {
     this.review = review;
     this.theme = theme;
     this.keybindings = keybindings;
+    this.droppedAnswerStageIds = droppedAnswerStageIds;
     this.editExternal = editExternal;
     this.externalEditorConfigured = Boolean(editExternal);
     this.tui = tui;
@@ -864,6 +868,14 @@ export class VisualReviewWizard implements Component, Focusable {
     tabs.push(reviewTab ? " ✓ Review " : " □ Review ");
     lines.push(` ${tabs.join(" ")} `);
     lines.push("");
+    // An answer carried from the previous round that the revised stage no longer
+    // accepts is dropped silently, and a silently dropped answer looks like one
+    // the model forgot to ask about. Said here because it is true of every stage
+    // and it is chrome, so it costs no artwork budget.
+    if (this.droppedAnswerStageIds.length > 0) {
+      lines.push(this.theme.fg("muted", ` Reconsidered this round: ${this.droppedAnswerStageIds.join(", ")}`));
+      lines.push("");
+    }
     // The layout is decided before anything is drawn, because in the stacked
     // layout the question belongs in the footer with the options - printing it
     // at the top as well is how it ended up on screen twice.
