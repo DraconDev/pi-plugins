@@ -14,6 +14,15 @@
 import { deflateSync, inflateSync } from "node:zlib";
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+/**
+ * The largest decoded image this will attempt.
+ *
+ * A PNG declares its own dimensions, and those dimensions decide the size of
+ * the allocation. 16 megapixels is comfortably past anything a terminal shows -
+ * the renderer resamples down to a few hundred cells - and it turns a 62-byte
+ * file claiming 40000x40000 from a 4.8 GB allocation attempt into a clear error.
+ */
+const MAX_PNG_PIXELS = 16_000_000;
 const CRC_TABLE: Int32Array = (() => {
   const table = new Int32Array(256);
   for (let n = 0; n < 256; n += 1) {
