@@ -92,9 +92,9 @@ export async function loadImage(reference: ImageReference, cwd: string, signal?:
         : resolve(process.env.HOME ?? cwd, reference.path === "~" ? "." : reference.path.slice(1).replace(/^[/\\]/, ""));
     // Checked before reading, not after: the loader runs for every option at
     // once, so an unbounded read is held once per option in the same tick.
-    const stat = await stat(path).catch(() => undefined);
-    if (stat?.isFile() && stat.size > MAX_IMAGE_BYTES) {
-      throw new Error(`Image at ${path} is ${stat.size} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
+    const info = await stat(path).catch(() => undefined);
+    if (info?.isFile() && info.size > MAX_IMAGE_BYTES) {
+      throw new Error(`Image at ${path} is ${info.size} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
     }
     bytes = await readFile(path);
     if (bytes.length > MAX_IMAGE_BYTES) {
