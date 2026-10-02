@@ -750,3 +750,45 @@ describe("declared limits that were not enforced", () => {
     assert.throws(() => normalizeReview({ reviewId: "r", questions: [...questions, { question: "five", options: [{ label: "A" }, { label: "B" }] }] }), /at most 4 questions/);
   });
 });
+
+/**
+ * The presentation state a resumed round needs, and did not have.
+ *
+ * `rounds` was validated on the way in and then never written to the state, so a
+ * resumed round could never say "round 2 of 3" - the header silently degraded to
+ * "round 2", which is the whole promise the field was added to keep. Ctrl+A was
+ * never persisted at all, so a chosen mode was lost across a revision. Neither
+ * survives a round trip unless something reads it back.
+ */
+describe("what a resumed round needs to look the same", () => {
+  const stage = { id: "one", header: "H", prompt: "P", options: [{ label: "A" }, { label: "B" }] };
+
+  it("persists the round total and the auto-resolve mode", async () => {
+    const { normalizeReview } = await import("../src/schema.ts");
+    const { makeReviewState, findReviewState, carryOverPresentation } = await import("../src/state.ts");
+    const review = normalizeReview({ reviewId: "r", round: 2, rounds: 4, autoResolve: true, stages: [stage] });
+    const state = makeReviewState(review, [], "cancelled");
+    assert.equal(state.rounds, 4, "the total is written, so the header can say 'round 2 of 4'");
+    assert.equal(state.autoResolve, true, "and so is the Ctrl+A mode");
+    const found = findReviewState([{ type: "custom", customType: "pi-visual-review-state", data: state }], "r");
+    assert.equal(found?.rounds, 4, "and both come back on resume");
+    assert.equal(found?.autoResolve, true, "including auto-resolve");
+    const next = normalizeReview({ reviewId: "r", round: 3, stages: [stage] });
+    const carried = carryOverPresentation(next, found);
+    assert.equal(carried.rounds, 4, "the expected total carries forward");
+    assert.equal(carried.autoResolve, true, "and so does the mode");
+    assert.equal(carried.density, next.density, "an explicit choice is never overridden");
+  });
+
+  it("validates the persisted presentation rather than coercing it", async () => {
+    const { normalizeReview } = await import("../src/schema.ts");
+    const { makeReviewState, findReviewState } = await import("../src/state.ts");
+    const good = makeReviewState(normalizeReview({ reviewId: "r", stages: [stage] }), [], "cancelled");
+    const asState = (data) => findReviewState([{ type: "custom", customType: "pi-visual-review-state", data }], "r");
+    // A state written by a different or older tool should not be able to change
+    // the presentation mode with no error at all.
+    assert.equal(asState({ ...good, density: "banana" }), undefined, "a bogus density is not a valid state");
+    assert.equal(asState({ ...good, images: "sometimes" }), undefined, "and neither is a bogus images value");
+    assert.ok(asState(good), "a good state is still found");
+  });
+});
