@@ -136,7 +136,7 @@ function renderSummary(result: ReviewResult, review: NormalizedReview, theme: Th
             // unreachable provider was shown to the user, and re-read by the
             // model, as the host being unavailable.
             : result.status === "failed"
-              ? theme.fg("danger", "failed")
+              ? theme.fg("error", "failed")
               : theme.fg("muted", "fallback");
   const summary = `${theme.fg("accent", theme.bold(review.title ?? "Visual review"))} ${status}`;
   const answerCount = result.answers.length;
