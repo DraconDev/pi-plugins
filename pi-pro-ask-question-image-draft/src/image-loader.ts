@@ -83,15 +83,22 @@ export async function loadImage(reference: ImageReference, cwd: string, signal?:
     mimeType = parsed.mimeType;
     source = "data URI";
   } else if (reference.path) {
+    // `~` is the home directory and `~/x` a path inside it. Slicing two
+    // characters off unconditionally turned `~` into nothing (fine, by luck) and
+    // `~name/x` into `ame/x`, which resolved against the home directory and
+    // silently read the wrong file. Written without a regular expression because
+    // an escaped slash inside a character class is more than one parser here
+    // will take.
+    const expandHome = (value: string): string => {
+      const rest = value.slice(1);
+      const trimmed = rest.startsWith("/") || rest.startsWith("\\") ? rest.slice(1) : rest;
+      return resolve(process.env.HOME ?? cwd, trimmed.length > 0 ? trimmed : ".");
+    };
     const path = reference.path.startsWith("file:")
       ? fileURLToPath(reference.path)
       : reference.path.startsWith("~")
-        // `~` alone means the home directory and `~/x` a path inside it;
-        // slicing two characters off `~name` produced `ame`, which resolved
-        // against the home directory and silently read the wrong file.
-        : resolve(process.env.HOME ?? cwd, reference.path === "~" ? "." : reference.path.slice(1).replace(/^[\/\\]+/, ""));
-    // Checked before reading, not after: the loader runs for every option at
-    // once, so an unbounded read is held once per option in the same tick.
+        ? expandHome(reference.path)
+        : resolve(cwd, reference.path);
     const info = await stat(path).catch(() => undefined);
     if (info?.isFile() && info.size > MAX_IMAGE_BYTES) {
       throw new Error(`Image at ${path} is ${info.size} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
