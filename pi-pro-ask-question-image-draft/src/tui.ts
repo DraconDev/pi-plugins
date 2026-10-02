@@ -436,6 +436,8 @@ export class VisualReviewWizard implements Component, Focusable {
   private bandWindow: { above: number; below: number } | null = null;
   private collapsed = false;
   private _focused = false;
+  /** Set when the external editor rejected; drawn, and cleared on the next attempt. */
+  private editorError: string | undefined;
   private stageIndex = 0;
   private selectedIndex = 0;
   private inputMode: "none" | "other" | "revision" | "note" | "globalNote" = "none";
@@ -548,6 +550,7 @@ export class VisualReviewWizard implements Component, Focusable {
 
   private async editExternalAnswer(): Promise<void> {
     if (!this.editExternal || this.finished) return;
+    this.editorError = undefined;
     // Caught here because this runs detached. `editExternalAnswer` is fired
     // with `void` and nothing in the host installs an `unhandledRejection`
     // handler, so the editor's own rejection - `:cq` in vim, any editor that
