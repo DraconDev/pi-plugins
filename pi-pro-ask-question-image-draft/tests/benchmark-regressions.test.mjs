@@ -1243,3 +1243,69 @@ describe("the mockup font fits its cell", () => {
     assert.ok(widest <= cellWidth, `the widest letter is ${widest}px, and a cell is ${cellWidth}px`);
   });
 });
+
+/**
+ * The character-drawn mockup's geometry, measured rather than eyeballed.
+ *
+ * The first version came out with rules two cells narrower than the rows they
+ * framed, a height budget one row short of what it emitted, a degenerate frame
+ * for a NaN width, and code-point counting that overflowed on a CJK label. None
+ * of those is visible in a snapshot of *one* frame, so they are pinned by
+ * measuring the ink: every line the same display width, never more lines than
+ * the budget, and a bounded frame for hostile geometry.
+ */
+describe("the text mockup's frame is a frame", () => {
+  /** Display columns, counting the wide ranges twice. */
+  const columns = (line) => {
+    let total = 0;
+    for (const character of line) {
+      const code = character.codePointAt(0);
+      total += ((code >= 0x1100 && code <= 0x115f) || (code >= 0x2e80 && code <= 0xa4cf) || (code >= 0xff00 && code <= 0xff60)) ? 2 : 1;
+    }
+    return total;
+  };
+
+  const sample = { layout: "airy", title: "TRANSIT AIRY", rows: [
+    { label: "On time", value: 0.98, status: "ok" }, { label: "Active", value: 0.71, status: "warn" },
+  ] };
+
+  it("draws every line the same width, at every width", async () => {
+    const { renderMockupText } = await import("../src/mockup-text.ts");
+    for (const width of [28, 40, 54, 72, 100]) {
+      const lines = renderMockupText(sample, { width, height: 9 });
+      const widths = [...new Set(lines.map(columns))];
+      assert.equal(widths.length, 1, `at ${width} columns every line is the same width: ${JSON.stringify(widths)}`);
+    }
+  });
+
+  it("never emits more lines than it was given", async () => {
+    const { renderMockupText } = await import("../src/mockup-text.ts");
+    const many = { ...sample, rows: Array.from({ length: 20 }, (_, index) => ({ label: `Row ${index + 1}`, value: 0.5 })) };
+    for (const height of [5, 6, 8, 9, 12, 20, 40]) {
+      const lines = renderMockupText(many, { width: 40, height });
+      assert.ok(lines.length <= height, `budget ${height}: emitted ${lines.length}`);
+    }
+  });
+
+  it("draws a bounded frame for geometry that is not a number", async () => {
+    const { renderMockupText } = await import("../src/mockup-text.ts");
+    for (const [width, height] of [[NaN, NaN], [-5, -5], [1e9, 1e9], [0, 0], [undefined, undefined]]) {
+      const lines = renderMockupText(sample, { width, height });
+      const widths = [...new Set(lines.map(columns))];
+      assert.ok(lines.length >= 4, `width=${width}: something like a frame, ${lines.length} lines`);
+      assert.equal(widths.length, 1, `width=${width}: and one consistent width, ${JSON.stringify(widths)}`);
+      assert.ok(widths[0] >= 28 && widths[0] <= 72, `width=${width}: inside the documented 28..72, got ${widths[0]}`);
+    }
+  });
+
+  it("counts columns rather than code points, so a CJK label cannot overflow", async () => {
+    const { renderMockupText } = await import("../src/mockup-text.ts");
+    const lines = renderMockupText(
+      { ...sample, title: "日本語のタイトル", rows: [{ label: "運行状況", value: 0.9 }] },
+      { width: 40, height: 8 },
+    );
+    const widths = [...new Set(lines.map(columns))];
+    assert.equal(widths.length, 1, `a CJK title and label keep the frame square: ${JSON.stringify(widths)}`);
+    assert.ok(widths[0] <= 40, "and do not overflow the width they were given");
+  });
+});

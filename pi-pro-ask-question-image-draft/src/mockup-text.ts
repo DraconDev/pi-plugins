@@ -138,8 +138,9 @@ export function renderMockupText(spec: {
   // frame whose own border is broken is not a drawing of anything.
   const top = (title: string) => {
     const text = ` ${truncate(title, Math.max(1, inner - 2))} `;
-    const used = 1 + cells(text); // the corner, then the title and its spaces
-    return `┌${FRAME_CHARS.horizontal}${text}${FRAME_CHARS.horizontal.repeat(Math.max(0, outer - 1 - used))}┐`;
+    // corner + rule + text + fill + corner must be exactly `outer`, so the fill
+    // is what is left after three of the five parts are spent.
+    return `┌${FRAME_CHARS.horizontal}${text}${FRAME_CHARS.horizontal.repeat(Math.max(0, outer - 3 - cells(text)))}┐`;
   };
   // The rules are as wide as the rows they frame: a row is `│` + space + inner
   // + space + `│`, which is `outer` columns, so a rule needs `outer - 2`
