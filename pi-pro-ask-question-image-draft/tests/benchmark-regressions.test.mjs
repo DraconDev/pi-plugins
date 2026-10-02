@@ -332,8 +332,22 @@ describe("ledger: harness defects", () => {
     const corpus = generateCorpus({ count: 4, seed: 7 });
     corpus.scenarios[0].canonicalInput.questions[0].options.push({ label: "Other", description: "probes the reserved label" });
     corpus.scenarios[0].inputValid = false;
+    // A scenario that carries a reserved label has to be local-only, or the
+    // corpus is comparing a hostile label across a boundary it was never meant
+    // to cross. Without this the corpus below is rejected for an unrelated
+    // reason and the assertion passes for the wrong one.
+    corpus.scenarios[0].comparisonScope = "local-only";
     corpus.scenarios[0].expected = { outcome: "invalid", oracle: "exact", classification: "rejected-before-ui", answers: [] };
-    assert.doesNotThrow(() => { import("../scripts/benchmark/corpus.mjs"); });
+    // The assertion used to be `assert.doesNotThrow(() => { import(...) })` -
+    // a bare, non-awaited dynamic import of a module already loaded at the top
+    // of this file. `corpus` was never handed to anything, and `validateCorpus`
+    // in fact *rejects* the object this test builds. So the test named as the
+    // regression guard for two P0 harness defects could not fail, whatever
+    // `validateCorpus` did.
+    assert.equal(validateCorpus(corpus), true, "a local-only invalid scenario may carry a reserved label");
+    const crossing = structuredClone(corpus);
+    crossing.scenarios[0].comparisonScope = "cross-session";
+    assert.throws(() => validateCorpus(crossing), /local-only/, "and the same label is still refused when the scenario compares across sessions");
   });
 
   it("HARNESS-009: an existing imported corpus is re-validated rather than silently overwritten", async () => {
