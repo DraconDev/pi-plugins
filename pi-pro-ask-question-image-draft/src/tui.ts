@@ -27,6 +27,7 @@ import {
 
 import { canRenderImages, imageFileLink, loadImage, type LoadedImage } from "./image-loader.ts";
 import { renderMockup, type MockupSpec } from "./mockup-renderer.ts";
+import { renderMockupText } from "./mockup-text.ts";
 import type { NormalizedOption, NormalizedReview, NormalizedStage } from "./schema.ts";
 import {
   isStageAnswered,
@@ -380,6 +381,11 @@ class LinesComponent implements Component {
  * The short-screen trim decides which footer lines it can afford to drop by
  * reading them, and a line wrapped in colour still has to be recognisable.
  */
+/** The character-drawn form of a mockup, trimmed to the panel's box. */
+function mockupTextLines(spec: MockupSpec, width: number, height: number): string[] {
+  return renderMockupText(spec, { width: Math.max(28, Math.min(width, 72)), height: Math.max(6, Math.min(height, 30)) });
+}
+
 function stripPlain(line: string): string {
   return line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
 }
@@ -1145,6 +1151,13 @@ export class VisualReviewWizard implements Component, Focusable {
               for (const wrapped of wrapTextWithAnsi(this.theme.fg("text", `  • ${line}`), Math.max(1, safeWidth - 4))) detail.push(wrapped);
             }
             if (option.description && detail[detail.length - 1] !== "") detail.push("");
+          } else if (option.mockup && !canRenderImages()) {
+            // A drawn mockup does not need the graphics protocol. Where the host
+            // cannot send one, the same spec is drawn with characters instead of
+            // rasterised and dropped - which is what used to happen, and it is
+            // the one thing a drawing should never need. Under tmux the reader
+            // used to get a sentence about pictures instead of a picture.
+            detail.push(...this.theme.fg("text", mockupTextLines(option.mockup, safeWidth - 2, imageBudget)));
           } else if (option.mockup && imageBudget >= MOCKUP_MIN_ROWS) {
             // Below the rows it needs to show anything, a mockup is a title and a
             // count with nothing under them - and the reasons are worth more than
@@ -1684,6 +1697,11 @@ export class VisualReviewWizard implements Component, Focusable {
    * review built out of mockups showed its questions and nothing else. The
    * content area is exactly where it belongs, and it now fills it.
    */
+  /** The same spec, drawn with characters, for hosts that cannot send a picture. */
+  private mockupTextRows(spec: MockupSpec, width: number, height: number): string[] {
+    return renderMockupText(spec, { width, height: Math.max(6, height) });
+  }
+
   private mockupLines(spec: MockupSpec, width: number, height: number): string[] | null {
     const widthCells = Math.max(20, Math.min(80, width));
     // Six, not four. A mockup spends two cells on its own chrome - a title and
