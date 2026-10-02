@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -21,41 +21,76 @@ const MAX_IMAGE_BYTES = 24 * 1024 * 1024;
 /**
  * Refuse a path that leaves the review's own directory.
  *
- * `relative(cwd, target)` is the whole test: it resolves `..` for us, so
+ * `relative(root, target)` is the whole test: it resolves `..` for us, so
  * `../../.ssh/id_rsa` and an absolute `/etc/shadow` are both caught, and a path
  * that lands inside - however it was spelled - is allowed. The error names the
  * path and the directory, because a model that gets this back needs to know
  * where to put the file, not just that it was refused.
+ *
+ * Both sides are resolved through `realpath` first. The lexical test sees the
+ * path as it was spelled, and `readFile` then follows a symlink: a link inside
+ * the review directory pointing at `/etc/shadow` passed the check and was read
+ * whole, which is exactly the read primitive the check exists to remove.
  */
-function assertInsideRoot(target: string, root: string): void {
-  const inside = relative(resolve(root), resolve(target));
+async function assertInsideRoot(target: string, root: string): Promise<void> {
+  // A target that does not exist is reported by the read that follows, so a
+  // missing file falls back to its spelled path rather than to a second error.
+  const [realRoot, realTarget] = await Promise.all([
+    realpath(root).catch(() => resolve(root)),
+    realpath(target).catch(() => resolve(target)),
+  ]);
+  const inside = relative(realRoot, realTarget);
   if (inside === "" || (!inside.startsWith(`..${sep}`) && inside !== ".." && !isAbsolute(inside))) return;
   throw new Error(
     `Image path is outside the review's directory: ${target}. `
-    + `Only files under ${resolve(root)} can be read; put the image there or pass a relative path.`,
+    + `Only files under ${realRoot} can be read; put the image there or pass a relative path.`,
   );
+}
+
+/**
+ * The addresses that name this machine, the LAN, or a cloud metadata service.
+ *
+ * `100.64/10` is not exotic: it is the block Alibaba Cloud's metadata service
+ * answers on. `198.18/15` is the benchmarking range, which is routed nowhere a
+ * fetch should reach.
+ */
+function isPrivateOctets(a: number, b: number): boolean {
+  if (a === 127 || a === 10 || a === 0) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  if (a === 198 && (b === 18 || b === 19)) return true;
+  return false;
 }
 
 /** Hostnames that address this machine rather than somewhere else. */
 function isLocalHost(hostname: string): boolean {
-  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  // The URL parser has already normalised what it will, so the spellings that
+  // matter are not the ones a person would type. `[::ffff:127.0.0.1]` comes
+  // back as `[::ffff:7f00:1]` - hex groups, not dotted octets - and a trailing
+  // dot survives on `localhost.`. Both reached a live loopback server while
+  // this function reported the host was fine.
+  const host = hostname.replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
   if (host === "localhost" || host === "ip6-localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true;
   if (host === "::1" || host === "::" ) return true;
-  // 127.0.0.0/8, 10/8, 172.16/12, 192.168/16, 169.254/16, and the IPv6
-  // unique-local range. Parsed as numbers rather than by string so 2130706433
-  // and 0177.0.0.1 do not slip past.
+  // 127.0.0.0/8, 10/8, 172.16/12, 192.168/16, 169.254/16, 100.64/10 and
+  // 198.18/15. Parsed as numbers rather than by string so 2130706433 and
+  // 0177.0.0.1 do not slip past.
   const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (v4) {
     const [a, b] = [Number(v4[1]), Number(v4[2])];
-    if (a === 127 || a === 10 || a === 0) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 169 && b === 254) return true;
-    return false;
+    return isPrivateOctets(a, b);
   }
-  const v6 = host.replace(/^::ffff:/i, "");
-  if (/^f[cd][0-9a-f]{2}:/i.test(v6)) return true;
-  return /^fc|^fd/i.test(v6);
+  // The same address in the form the parser hands back: two hex groups holding
+  // the high and low halves of the 32 bits. `7f00:1` is 127.0.0.1.
+  const mapped = host.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (mapped) {
+    const high = parseInt(mapped[1]!, 16);
+    return isPrivateOctets(high >> 8, high & 0xff);
+  }
+  if (/^f[cd][0-9a-f]{2}:/i.test(host)) return true;
+  return /^fc|^fd/i.test(host);
 }
 
 /** Refuse a URL that addresses this machine rather than the network. */
