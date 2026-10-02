@@ -982,5 +982,22 @@ describe("the plain-chat script offers what the dialog path offers", () => {
     // The dialog path dropped it, so the two paths disagreed about the same
     // option: the script named the bytes and the choice list showed a bare label.
     assert.match(fallbackText(withDataUri, "no_ui"), /Inline — image: inline data URI/);
+
+    // And the dialog path, which used to drop the data URI and show a bare label.
+    const offered = [];
+    const dialogCtx = {
+      signal: new AbortController().signal,
+      ui: {
+        select: async (_title, choices) => { offered.push(...choices); return "Inline — inline data URI"; },
+        confirm: async () => true,
+        input: async () => undefined,
+      },
+    };
+    const dialog = await runDialogReview(dialogCtx, withDataUri);
+    assert.equal(dialog.status, "completed", "the data-URI label is what the dialog offers, so selecting it must resolve");
+    assert.ok(
+      offered.includes("Inline — inline data URI"),
+      `the dialog must name a data-URI option; it offered ${JSON.stringify(offered)}`,
+    );
   });
 });
