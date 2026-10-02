@@ -1606,7 +1606,7 @@ describe("a reference body is abandoned the moment it passes the limit", () => {
  */
 describe("decodePng checks what the format checks", () => {
   it("refuses a chunk whose CRC has been altered, and still decodes an untouched file", () => {
-    const png = encodePng(4, 3, Buffer.alloc(4 * 3 * 3, 90));
+    const png = encodePng({ width: 4, height: 3, data: Buffer.alloc(4 * 3 * 3, 90) });
     assert.doesNotThrow(() => decodePng(png), "an intact PNG decodes");
     // The stored CRC of the IHDR chunk, not its content: the pixels stay valid
     // and only the integrity field is wrong.
@@ -1618,7 +1618,7 @@ describe("decodePng checks what the format checks", () => {
   });
 
   it("still refuses a chunk whose declared length overruns the buffer", () => {
-    const png = encodePng(2, 2, Buffer.alloc(2 * 2 * 3, 10));
+    const png = encodePng({ width: 2, height: 2, data: Buffer.alloc(2 * 2 * 3, 10) });
     const corrupted = Buffer.from(png);
     corrupted.writeUInt32BE(9999, 8);
     assert.throws(() => decodePng(corrupted), /claims 9999 bytes/, "the length guard is independent of the CRC");
@@ -1643,7 +1643,10 @@ describe("an art format this decoder cannot read costs the art, not the review",
       reviewId: "composed", title: "Composed",
       stages: [{
         id: "one", header: "One", prompt: "Choose",
-        options: [{ id: "grid", label: "Grid", generate: { prompt: "a photograph of a grid" }, mockup: { layout: "list", title: "Layout", rows: [{ label: "Columns", value: 0.6 }, { label: "Gutter", value: 0.3 }] } }],
+        options: [
+          { id: "grid", label: "Grid", generate: { prompt: "a photograph of a grid" }, mockup: { layout: "list", title: "Layout", rows: [{ label: "Columns", value: 0.6 }, { label: "Gutter", value: 0.3 }] } },
+          { id: "stack", label: "Stack", generate: { prompt: "a photograph of a stack" }, mockup: { layout: "list", title: "Layout", rows: [{ label: "Columns", value: 0.3 }, { label: "Gutter", value: 0.6 }] } },
+        ],
       }],
     });
     const option = review.stages[0].options[0];
