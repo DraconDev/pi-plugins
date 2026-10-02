@@ -8,6 +8,7 @@ import type { MockupSpec, NormalizedImageGeneration, NormalizedOption, Normalize
 
 import { DEFAULT_MOCKUP_CELLS, renderMockup } from "./mockup-renderer.ts";
 import { composePreview, decodeArt } from "./preview-composer.ts";
+import { assertFetchableUrl, fetchRedirectSafe } from "./image-loader.ts";
 
 export const DEFAULT_IMAGE_PROVIDER = "agnes";
 export const DEFAULT_IMAGE_MODEL = "agnes-image-2.5-flash";
@@ -176,6 +177,25 @@ async function readResponseBytes(response: Response, signal: AbortSignal): Promi
   if (Number.isFinite(declaredLength) && declaredLength > MAX_GENERATED_IMAGE_BYTES) {
     throw new ImageGenerationError("invalid_response", "The generated image exceeds the size limit.");
   }
+  // Counted as it arrives rather than after the fact. A chunked response with
+  // no `content-length` skipped the guard above and was buffered whole before
+  // the length check could run, so a body far past the limit was held in memory
+  // in order to be refused.
+  const body = response.body;
+  if (body) {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {
+      total += chunk.byteLength;
+      if (total > MAX_GENERATED_IMAGE_BYTES) {
+        await body.cancel().catch(() => undefined);
+        throw new ImageGenerationError("invalid_response", "The generated image exceeds the size limit.");
+      }
+      chunks.push(Buffer.from(chunk));
+    }
+    signal.throwIfAborted();
+    return Buffer.concat(chunks);
+  }
   const bytes = Buffer.from(await response.arrayBuffer());
   if (bytes.length > MAX_GENERATED_IMAGE_BYTES) {
     throw new ImageGenerationError("invalid_response", "The generated image exceeds the size limit.");
@@ -216,7 +236,11 @@ async function downloadRemoteImage(
   }
   let response: Response;
   try {
-    response = await fetcher(url, { signal, redirect: "follow" });
+    // The URL came back from the provider rather than from the model, but the
+    // guard is the same one the model's references get: a provider that answers
+    // with a loopback or metadata address would otherwise be fetched from, and
+    // `redirect: "follow"` would let any hop past the check.
+    response = await fetchRedirectSafe(url, fetcher, signal);
   } catch (error) {
     if (signal.aborted) throw new ImageGenerationError("aborted", "Image download was cancelled.", { cause: error });
     throw new ImageGenerationError("request_failed", `Unable to download generated image: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
