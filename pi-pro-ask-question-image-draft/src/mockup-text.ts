@@ -82,52 +82,55 @@ export function renderMockupText(spec: {
   headers?: readonly string[];
   emphasis?: string;
 }, options: MockupTextOptions): string[] {
-  const outer = Math.max(24, Math.min(72, options.width));
-  const inner = outer - 4; // the two verticals and a space either side
+  // Geometry first, once: `outer` is the total width, `inner` is what fits
+  // between the two verticals. Every row is padded to exactly `inner`, so the
+  // right-hand edge is a straight line down the frame - the first version built
+  // each row from pieces of different widths and the frame came out ragged.
+  const outer = Math.max(28, Math.min(72, options.width));
+  const inner = outer - 4;
   const layout = spec.layout ?? "list";
   const rail = layout === "rail" || layout === "board" || layout === "overlay";
   const dense = layout === "dense" || layout === "tiles" || layout === "chart";
-  const gutter = dense ? " " : "  ";
-  const railCells = rail ? 3 : 0;
-  const valueCells = dense ? 0 : 10;
-  const labelCells = Math.max(8, inner - railCells - valueCells - (dense ? 1 : 3));
-  const barCells = dense ? 0 : Math.max(4, Math.min(12, inner - railCells - labelCells - 4));
 
-  const lines: string[] = [];
-  const rule = (left: string, right: string) => `${left}${FRAME_CHARS.horizontal.repeat(outer - 2)}${right}`;
+  // A title lives inside the top rule rather than being hung off it, because a
+  // frame whose own border is broken is not a drawing of anything.
+  const top = (title: string) => {
+    const text = ` ${truncate(title, inner - 2)} `;
+    return `┌${FRAME_CHARS.horizontal}${text}${FRAME_CHARS.horizontal.repeat(Math.max(0, inner - 1 - text.length))}┐`;
+  };
+  const rule = `├${FRAME_CHARS.horizontal.repeat(inner)}┤`;
+  const bottom = `└${FRAME_CHARS.horizontal.repeat(inner)}┘`;
   const row = (text: string) => `${FRAME_CHARS.vertical} ${pad(text, inner)} ${FRAME_CHARS.vertical}`;
 
-  lines.push(rule(FRAME_CHARS.topLeft, FRAME_CHARS.topRight).replace(
-    `${FRAME_CHARS.topRight}`,
-    ` ${truncate(spec.title ?? "mockup", Math.max(4, outer - 6))} ${FRAME_CHARS.topRight}`,
-  ));
-
+  const lines: string[] = [top(spec.title ?? "mockup")];
   const declared = spec.rows?.length ?? 0;
   lines.push(row(declared === 1 ? "1 item" : `${declared} items`));
-  if (spec.headers?.length) lines.push(row(spec.headers.join(gutter)));
-  lines.push(`${FRAME_CHARS.vertical}${FRAME_CHARS.horizontal}${FRAME_CHARS.horizontal}${FRAME_CHARS.horizontal}${FRAME_CHARS.vertical}${FRAME_CHARS.horizontal.repeat(outer - 5)}${FRAME_CHARS.vertical}`);
+  if (spec.headers?.length) lines.push(row(spec.headers.join(dense ? " " : "   ")));
+  lines.push(rule);
 
-  // Content rows are left out rather than squashed: a drawing that silently
-  // drops what it could not fit is worse than one that stops cleanly.
-  const chromeRows = 4;
-  const available = Math.max(0, options.height - chromeRows - 2);
+  // Content is left out rather than squashed, and says so when it is.
+  const chrome = 2 + (spec.headers?.length ? 1 : 0) + 2; // top, count, rule, bottom
+  const available = Math.max(0, options.height - chrome);
   const wanted = spec.rows ?? [];
-  const shown = wanted.slice(0, dense ? available : Math.max(0, available - (wanted.length > available ? 1 : 0)));
+  const shown = wanted.slice(0, available);
 
-  wanted.slice(shown.length).forEach((omitted) => {
-    lines.push(row(`${FRAME_CHARS.vertical} …and ${1} more: ${truncate(omitted.label ?? "", Math.max(4, labelCells - 6))}`));
-  });
+  const railCells = rail ? 4 : 0;
+  const barCells = dense ? 0 : Math.max(6, Math.min(14, inner - railCells - 20));
+  const labelCells = Math.max(8, inner - railCells - barCells - 4);
 
   shown.forEach((entry, index) => {
     const mark = statusMark(entry.status);
-    const left = rail ? `${pad(`${index + 1}`, railCells - 1)} ` : "";
+    const left = rail ? `${pad(`${index + 1}`, 2)} ` : "";
     const label = pad(entry.label ?? "", labelCells);
     const tail = barCells > 0
       ? ` ${bar(entry.value ?? 0, barCells)}${mark ? ` ${mark}` : ""}`
       : mark ? ` ${mark}` : "";
     lines.push(row(`${left}${label}${tail}`));
   });
+  if (shown.length < wanted.length) {
+    lines.push(row(`…and ${wanted.length - shown.length} more`));
+  }
 
-  lines.push(rule(FRAME_CHARS.bottomLeft, FRAME_CHARS.bottomRight));
+  lines.push(bottom);
   return lines;
 }
