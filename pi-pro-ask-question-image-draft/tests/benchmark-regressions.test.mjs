@@ -1361,7 +1361,12 @@ describe("a hostile PNG is refused, not attempted", () => {
     const zero = await claiming(0, 100);
     assert.throws(() => decodePng(huge), /40000x40000|the limit is/);
     assert.throws(() => decodePng(zero), /not positive/);
-    assert.ok(decodePng(await claiming(8, 8)).length > 0, "an ordinary PNG is unaffected");
+    // The sanity check uses the project's own encoder, so it is a real PNG with
+    // real scanlines rather than a header wrapped around some compressed zeroes.
+    const { Canvas, encodeCanvasPng } = await import("../src/mockup-renderer.ts");
+    const canvas = new Canvas(64, 64, "white");
+    canvas.text("ok", 1, 1, 8, [0, 0, 0]);
+    assert.ok(decodePng(encodeCanvasPng(canvas)).length > 0, "an ordinary PNG still decodes");
   });
 
   it("reports a chunk that lies about its length", async () => {
