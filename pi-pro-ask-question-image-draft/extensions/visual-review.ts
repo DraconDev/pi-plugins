@@ -43,7 +43,7 @@ export const PROMPT_GUIDELINES = [
   "For a visual comparison, prefer options[].mockup: give each option the layout the reviewer is choosing between and the rows that layout would show. It is drawn by the tool on a fixed cell grid, costs no provider quota and cannot be judged unreadable - which a generated image often is at terminal size. Use options[].generate.prompt or options[].image only when the artefact's pixels are the point, such as a photograph or a render, and fall back to a concise option.preview on hosts that cannot draw.",
   "Draw one mockup per option and let the layout carry the difference. 'list' versus 'split' says more about a layout choice than any description, and every option keeps its reason beside it because the drawing is small by construction rather than a picture that took the room.",
   "Use stable stage and option ids when a review may span multiple rounds. Preserve reviewId, send the next round after a revision, and reset only the affected stage ids. Image generation is explicit and may consume provider quota; never add generate to an option unless the user asked for a generated visual.",
-  "Treat a returned cancelled decision as an explicit user cancellation, not as approval. Treat a fallback decision as host unavailability and ask the questions in plain chat.",
+  "Treat a returned cancelled decision as an explicit user cancellation, not as approval. Treat a fallback decision as host unavailability and ask the questions in plain chat. A returned failed status means the review could not start at all - a malformed request or an unreachable image provider - not that the user declined; fix the request and try again.",
 ];
 
 function getPriorState(ctx: ExtensionContext, reviewId: string): ReviewState | undefined {
