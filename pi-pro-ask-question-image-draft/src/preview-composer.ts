@@ -63,8 +63,6 @@ export interface ComposeOptions {
    * one small raster is mud, not composition.
    */
   artRows?: number;
-  /** "fit" letterboxes the whole artwork into the panel; "crop" fills it. */
-  artMode?: "fit" | "crop";
   /**
    * Row pitch for the drawn structure, in cells. The composed preview defaults
    * to 2: at 31 x 16 cells, pitch 1 draws eleven rows of 5x7 glyphs and the
@@ -143,9 +141,4 @@ export function composePreview(options: ComposeOptions): { png: Buffer; width: n
   const structure = renderMockupCanvas({ ...spec, rowPitch: options.rowPitch ?? 2 }, { widthCells, heightCells: heightCells - artRows });
   canvas.blit(structure, 0, artRows * CELL_HEIGHT);
   return { png: encodeCanvasPng(canvas), width: canvas.width, height: canvas.height };
-}
-
-/** Compose straight from generated PNG bytes, which is the shape the callers have. */
-export function composePreviewFromPng(spec: MockupSpec, artPng: Buffer, options: Omit<ComposeOptions, "spec" | "art"> = {}): { png: Buffer; width: number; height: number } {
-  return composePreview({ ...options, spec, art: decodeArt(artPng) });
 }
