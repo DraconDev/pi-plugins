@@ -1,5 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
-import { basename, extname, resolve } from "node:path";
+import { basename, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { getImageDimensions, getCapabilities, type ImageDimensions } from "@earendil-works/pi-tui";
@@ -17,6 +17,24 @@ import type { ImageReference } from "./schema.ts";
  * stricter for a reference the model handed us directly.
  */
 const MAX_IMAGE_BYTES = 24 * 1024 * 1024;
+
+/**
+ * Refuse a path that leaves the review's own directory.
+ *
+ * `relative(cwd, target)` is the whole test: it resolves `..` for us, so
+ * `../../.ssh/id_rsa` and an absolute `/etc/shadow` are both caught, and a path
+ * that lands inside - however it was spelled - is allowed. The error names the
+ * path and the directory, because a model that gets this back needs to know
+ * where to put the file, not just that it was refused.
+ */
+function assertInsideRoot(target: string, root: string): void {
+  const inside = relative(resolve(root), resolve(target));
+  if (inside === "" || (!inside.startsWith(`..${sep}`) && inside !== ".." && !isAbsolute(inside))) return;
+  throw new Error(
+    `Image path is outside the review's directory: ${target}. `
+    + `Only files under ${resolve(root)} can be read; put the image there or pass a relative path.`,
+  );
+}
 
 export interface LoadedImage {
   base64: string;
@@ -99,6 +117,13 @@ export async function loadImage(reference: ImageReference, cwd: string, signal?:
       : reference.path.startsWith("~")
         ? expandHome(reference.path)
         : resolve(cwd, reference.path);
+    // Confined to the review's own directory. A review is a JSON file the model
+    // writes, so an unrestricted path is a read primitive for anything this
+    // process can read - `../../.ssh/id_rsa` and `/etc/shadow` both arrive here
+    // and were both base64-encoded into the panel. An absolute path is allowed
+    // when it lands inside the directory, because that is the same thing written
+    // the long way round.
+    assertInsideRoot(path, cwd);
     const info = await stat(path).catch(() => undefined);
     if (info?.isFile() && info.size > MAX_IMAGE_BYTES) {
       throw new Error(`Image at ${path} is ${info.size} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
@@ -111,6 +136,7 @@ export async function loadImage(reference: ImageReference, cwd: string, signal?:
   } else if (reference.url) {
     if (/^file:\/\//i.test(reference.url)) {
       const path = fileURLToPath(reference.url);
+      assertInsideRoot(path, cwd);
       bytes = await readFile(path);
       if (bytes.length > MAX_IMAGE_BYTES) {
         throw new Error(`Image at ${path} is ${bytes.length} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
