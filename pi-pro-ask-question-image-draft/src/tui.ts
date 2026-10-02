@@ -2115,6 +2115,8 @@ export async function runVisualReviewWizard(
   initialAnswers: readonly ReviewAnswer[] = [],
   initialSkippedStageIds: readonly string[] = [],
   initialGlobalNote = "",
+  /** Stages whose previous answer no longer matches the revised stage. */
+  droppedAnswerStageIds: readonly string[] = [],
 ): Promise<ReviewResult> {
   if (ctx.mode !== "tui" || !ctx.hasUI) {
     const { makeFallbackResult } = await import("./fallback.ts");
@@ -2141,6 +2143,7 @@ export async function runVisualReviewWizard(
         initialSkippedStageIds,
         initialGlobalNote,
         keybindings,
+        droppedAnswerStageIds,
         async (value) => {
           const command = SettingsManager.create(ctx.cwd, undefined, { projectTrusted: ctx.isProjectTrusted() }).getExternalEditorCommand();
           if (!command) return ctx.ui.editor("Edit custom answer", value);
