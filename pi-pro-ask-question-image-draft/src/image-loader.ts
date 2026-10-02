@@ -94,8 +94,17 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   ".gif": "image/gif",
 };
 
+/**
+ * What the bytes actually are, with the declared type as a fallback.
+ *
+ * The declared type used to win outright, so `mimeType: "image/png"` on a
+ * forty-megabyte text file sent it to the dimension probe and then to the
+ * terminal's graphics protocol. The generator requires the signature to match,
+ * so the two loaders disagreed about the same invariant; the bytes decide here
+ * too, and a declared type is only believed when the signature says nothing.
+ */
 function inferMimeType(reference: ImageReference, bytes?: Buffer): string {
-  if (reference.mimeType?.startsWith("image/")) return reference.mimeType;
+  const declared = reference.mimeType?.startsWith("image/") ? reference.mimeType : undefined;
   if (bytes) {
     if (bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return "image/png";
     if (bytes[0] === 0xff && bytes[1] === 0xd8) return "image/jpeg";
