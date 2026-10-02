@@ -1756,20 +1756,19 @@ describe("unused-symbol gate", () => {
 
   it("AUDIT-LEFTOVER-2: every name tui.ts imports from state.ts is used in its body", async () => {
     // The specific failure: tui.ts imported `selectedOptions` after the pass that
-    // deleted its only re-export. Counting occurrences over the whole file means a
-    // name that appears only inside the import list is a dead import.
+    // deleted its only re-export. A name that occurs only inside the import list
+    // is a dead import, and tsc used not to be asked about it.
     const tui = await readFile(join(import.meta.dirname, "..", "src", "tui.ts"), "utf8");
-    const importBlock = /import\s*\{([\s\S]*?)\}\s*from\s*"\.\/state\.ts";/.exec(tui);
-    assert.ok(importBlock, "tui.ts must import from ./state.ts");
-    const names = importBlock[1]
+    const end = tui.indexOf('} from "./state.ts";');
+    assert.notEqual(end, -1, "tui.ts must import from ./state.ts");
+    const open = tui.lastIndexOf("import {", end);
+    const block = tui.slice(open + "import {".length, end);
+    const names = block
       .split(",")
-      .map((entry) => entry.replace(/\/^type\s+/, "").trim())
+      .map((entry) => entry.replace(/^type\s+/, "").trim())
       .filter(Boolean);
-    const body = tui.slice(importBlock.index + importBlock[0].length);
-    const dead = names.filter((name) => {
-      const id = name.replace(/[^A-Za-z0-9_$]/g, "");
-      return !new RegExp(`\\b${id}\\b`).test(body);
-    });
+    const body = tui.slice(end + '} from "./state.ts";'.length);
+    const dead = names.filter((name) => !new RegExp(`\\b${name}\\b`).test(body));
     assert.deepEqual(dead, [], `tui.ts imports but never uses: ${dead.join(", ")}`);
   });
 });
