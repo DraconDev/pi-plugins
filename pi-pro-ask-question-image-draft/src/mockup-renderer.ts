@@ -312,11 +312,13 @@ export class Canvas {
   blitInto(target: Canvas, atX: number, atY: number, width: number, height: number): void {
     const destination = target.pixelsForWrite();
     const source = this.pixels;
-    const stride = this.width * 3;
-    for (let row = 0; row < height; row += 1) {
-      const from = row * stride;
-      if (from + stride > source.length) break;
-      destination.set(source.subarray(from, from + stride), (atY + row) * target.width * 3 + atX * 3);
+    const rows = Math.max(0, Math.min(height, target.height - atY, this.height));
+    const cols = Math.max(0, Math.min(width, this.width, target.width - atX));
+    if (rows === 0 || cols === 0) return;
+    const targetStride = target.width * 3;
+    for (let row = 0; row < rows; row += 1) {
+      const from = (atY + row) * this.width * 3 + atX * 3;
+      destination.set(source.subarray(from, from + cols * 3), (atY + row) * targetStride + atX * 3);
     }
   }
 
@@ -544,7 +546,7 @@ function drawEmphasis(canvas: Canvas, spec: MockupSpec, style: MockupStyle): voi
  * the same drawing - `src/preview-composer.ts` puts generated art inside the
  * structure this function draws - without decoding the bytes again.
  */
-export function renderMockupCanvas(spec: MockupSpec, { widthCells = 31, heightCells = 16, fit = "fill" }: { widthCells?: number; heightCells?: number; fit?: "fill" | "content" } = {}): Canvas {
+export function renderMockupCanvas(spec: MockupSpec, { widthCells = 31, heightCells = 16 }: { widthCells?: number; heightCells?: number } = {}): Canvas {
   const style = { ...DEFAULT_STYLE, ...(spec.style ?? {}) };
   const canvas = new Canvas(widthCells * CELL_WIDTH, heightCells * CELL_HEIGHT, style.background);
   const columns = widthCells;
@@ -619,7 +621,6 @@ export function renderMockupCanvas(spec: MockupSpec, { widthCells = 31, heightCe
   } else if (layout === "tiles") {
     const perRow = columns >= 24 ? 3 : 2;
     const tileWidth = Math.floor(columns / perRow);
-    const tileRows = Math.max(1, Math.floor((rows - top) / 3));
     spec.rows.forEach((row, index) => {
       const x = (index % perRow) * tileWidth;
       const y = top + Math.floor(index / perRow) * 3;

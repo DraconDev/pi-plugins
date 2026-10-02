@@ -8,7 +8,7 @@ import type { MockupSpec, NormalizedImageGeneration, NormalizedOption, Normalize
 
 import { DEFAULT_MOCKUP_CELLS, renderMockup } from "./mockup-renderer.ts";
 import { composePreview, decodeArt } from "./preview-composer.ts";
-import { assertFetchableUrl, fetchRedirectSafe } from "./image-loader.ts";
+import { fetchRedirectSafe } from "./image-loader.ts";
 
 export const DEFAULT_IMAGE_PROVIDER = "agnes";
 export const DEFAULT_IMAGE_MODEL = "agnes-image-2.5-flash";

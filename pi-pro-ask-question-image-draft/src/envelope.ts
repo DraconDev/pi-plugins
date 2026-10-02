@@ -82,7 +82,6 @@ function legacyAnswers(result: ReviewResult, review: NormalizedReview): VisualRe
     if (!stage) return [];
     const questionIndex = review.stages.indexOf(stage);
     const optionById = new Map(stage.options.map((option) => [option.id, option]));
-    const selected = answer.optionIds?.map((id) => optionById.get(id)?.label).filter((label): label is string => Boolean(label));
     const preview = answer.kind === "option" && answer.optionIds?.length === 1
       ? optionById.get(answer.optionIds[0]!)?.preview
       : undefined;

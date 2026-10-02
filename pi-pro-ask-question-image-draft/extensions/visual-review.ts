@@ -1,6 +1,5 @@
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { Type } from "typebox";
 
 import { buildResponse, errorResponse, type VisualReviewResultDetails } from "../src/envelope.ts";
 import { fallbackText, makeFallbackResult, runDialogReview } from "../src/fallback.ts";

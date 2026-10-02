@@ -81,7 +81,7 @@ export function makeFallbackResult(review: NormalizedReview, reason: FallbackRea
   };
 }
 
-function displayOption(stage: NormalizedStage, option: NormalizedOption): string {
+function displayOption(option: NormalizedOption): string {
   // The data URI is named the way `fallbackText` names it. It used to be dropped,
   // so an option carrying only a data URI - which the schema allows - rendered as
   // a bare label on the dialog path while the plain-chat script showed it, and the
@@ -92,7 +92,7 @@ function displayOption(stage: NormalizedStage, option: NormalizedOption): string
 
 function findOption(stage: NormalizedStage, selected: string): NormalizedOption | undefined {
   const unselected = selected.startsWith("✓ ") ? selected.slice(2) : selected;
-  return stage.options.find((option) => displayOption(stage, option) === unselected || option.label === unselected);
+  return stage.options.find((option) => displayOption(option) === unselected || option.label === unselected);
 }
 
 function orderedSelected(stage: NormalizedStage, ids: ReadonlySet<string>): NormalizedOption[] {
@@ -181,11 +181,11 @@ export async function runDialogReview(
 
     while (!confirmed && !skipStage && revisionFeedback === undefined && customText === undefined) {
       const selectedLabels = orderedSelected(stage, optionIds).map((option) => option.label);
-      const choices = stage.options.map((option) => displayOption(stage, option));
+      const choices = stage.options.map((option) => displayOption(option));
       if (stage.multiSelect) {
         for (const option of stage.options) {
           if (optionIds.has(option.id)) {
-            const position = choices.indexOf(displayOption(stage, option));
+            const position = choices.indexOf(displayOption(option));
             if (position >= 0) choices[position] = `✓ ${choices[position]}`;
           }
         }
