@@ -412,9 +412,11 @@ threshold. The properties that matter for an audit:
   report names, failing if any claim disagrees with them. Verifying a report that
   is not release-ready exits nonzero and lists the unmet gates.
 - **The visual gate is measured at the condition the objective states.** Images
-  are attached as the raster a terminal actually displays - resampled onto the
-  cell grid `src/tui.ts` gives an option preview (31 x 16 cells on a
-  110-column terminal) - not as the untouched 1024x1024 source, and those renders
+  are attached as the raster a terminal actually displays - resampled onto a
+  fixed 31 x 16 cell grid, the harness's own constant
+  (`scripts/benchmark/terminal-render.mjs` picks the panel width from the
+  terminal and lands on 31 cells at 110 columns) - not as the untouched
+  1024x1024 source, and those renders
   are kept as artifacts. The baseline arm is the text the package prints today
   (`scripts/benchmark/text-arm.mjs` reproduces `renderRows` and
   `fallbackPreview`), not a summary written for the judge.
