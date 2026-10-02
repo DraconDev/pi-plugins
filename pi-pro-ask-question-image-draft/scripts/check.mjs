@@ -45,7 +45,10 @@ for (const path of required) {
 
 const text = await readFile(resolve(root, "tests/fixtures/tui-smoke.txt"), "utf8");
 assert.match(text, /TUI evidence/);
-assert.match(text, /Choose a layout/);
+// What the generator's own review declares. Asserted here so the evidence file
+// is known to carry the review, not merely some frame of the right width.
+assert.match(text, /> 1\. Grid/);
+assert.match(text, /Request revision/);
 // The fixture has to be *reproducible*, not merely present. It was asserted on
 // with a string - `Tiny checked-in fixture` - that the generator stopped
 // emitting, so the gate stayed green on a stale artifact while the documented
