@@ -89,7 +89,7 @@ export async function loadImage(reference: ImageReference, cwd: string, signal?:
         // `~` alone means the home directory and `~/x` a path inside it;
         // slicing two characters off `~name` produced `ame`, which resolved
         // against the home directory and silently read the wrong file.
-        : resolve(process.env.HOME ?? cwd, reference.path === "~" ? "." : reference.path.slice(1).replace(/^[/\\]/, ""));
+        : resolve(process.env.HOME ?? cwd, reference.path === "~" ? "." : reference.path.slice(1).replace(/^[\/\\]+/, ""));
     // Checked before reading, not after: the loader runs for every option at
     // once, so an unbounded read is held once per option in the same tick.
     const info = await stat(path).catch(() => undefined);
