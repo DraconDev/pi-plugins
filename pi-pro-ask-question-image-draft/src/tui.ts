@@ -1169,6 +1169,14 @@ export class VisualReviewWizard implements Component, Focusable {
             for (const line of mockupTextLines(option.mockup, safeWidth - 2, imageBudget)) {
               detail.push(this.theme.fg("text", line));
             }
+          } else if (option.mockup && imageBudget >= MOCKUP_MIN_ROWS) {
+            // The raster road, for a host that can send one. The character road
+            // above is for the host that cannot, and the two never both run.
+            const mockup = this.mockupLines(option.mockup, safeWidth - 2, imageBudget);
+            if (mockup && mockup.length > 0) {
+              if (art.length > 0) detail.push("");
+              detail.push(...mockup);
+            }
           } else if (option.mockup) {
             // A mockup that cannot be given the rows it needs to show anything is
             // not drawn, and the content area says so. A stage with a long list
