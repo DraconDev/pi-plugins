@@ -1587,6 +1587,11 @@ export class VisualReviewWizard implements Component, Focusable {
     this.applyAutoResolve();
     const lines: string[] = [];
     const selected = this.selection(stage.id);
+    // Per call, not per session. `renderRows` runs several times per render -
+    // the footer band, the essential band and the list - and the flag was
+    // instance state, so the first frame showed the separator between the
+    // choices and the actions and every frame after it did not.
+    this.actionRule = false;
     rows.forEach((row, index) => {
       const active = index === this.selectedIndex;
       const prefix = active ? this.theme.fg("accent", "> ") : "  ";
