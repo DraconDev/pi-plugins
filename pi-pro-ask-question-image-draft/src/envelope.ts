@@ -137,6 +137,12 @@ export function buildResponse(result: ReviewResult, review: NormalizedReview): V
     case "fallback":
       text = result.fallback?.message ?? "Visual review UI is unavailable. Ask the user in plain chat instead; this is not a decline.";
       break;
+    case "failed":
+      // The request could not be started - a malformed review, an unreachable
+      // image provider. It is not a decline, and saying so is the whole point:
+      // a model that reads `cancelled` here tells the user they declined.
+      text = `The visual review could not start: ${result.error ?? "the request was rejected"}. This is not a user decision - fix the request or the configuration and try again.`;
+      break;
   }
   return { content: [{ type: "text", text }], details };
 }
