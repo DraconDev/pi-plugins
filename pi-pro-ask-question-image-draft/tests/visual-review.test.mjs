@@ -924,7 +924,8 @@ describe("the documented tool-description size is measured, not claimed", () => 
   it("quotes the current description length", async () => {
     const { TOOL_DESCRIPTION } = await import("../extensions/visual-review.ts");
     const { readFileSync } = await import("node:fs");
-    const doc = readFileSync(fileURLToPath(new URL("../docs/harness-audit.md", import.meta.url)), "utf8");
+    const { fileURLToPath: toPath } = await import("node:url");
+    const doc = readFileSync(toPath(new URL("../docs/harness-audit.md", import.meta.url)), "utf8");
     const thousands = TOOL_DESCRIPTION.length.toLocaleString("en-US");
     assert.ok(
       doc.includes(`is ${thousands} characters`) || doc.includes(`Ours is ${thousands} characters`),
@@ -937,8 +938,9 @@ describe("the documented tool-description size is measured, not claimed", () => 
   it("does not claim a fixed mockup grid anywhere the model or a reader can see it", async () => {
     const { TOOL_DESCRIPTION } = await import("../extensions/visual-review.ts");
     const { readFileSync } = await import("node:fs");
-    const readme = readFileSync(fileURLToPath(new URL("../README.md", import.meta.url)), "utf8");
-    const audit = readFileSync(fileURLToPath(new URL("../docs/harness-audit.md", import.meta.url)), "utf8");
+    const { fileURLToPath: toPath } = await import("node:url");
+    const readme = readFileSync(toPath(new URL("../README.md", import.meta.url)), "utf8");
+    const audit = readFileSync(toPath(new URL("../docs/harness-audit.md", import.meta.url)), "utf8");
     // The panel clamps to the terminal. A fixed grid in the string the model
     // reads, or in a document positioning the package, is drift waiting to
     // happen - it has been written and retracted twice.
