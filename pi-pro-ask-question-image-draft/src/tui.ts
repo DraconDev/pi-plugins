@@ -2154,8 +2154,8 @@ export async function runVisualReviewWizard(
         ctx.signal,
         initialSkippedStageIds,
         initialGlobalNote,
-        keybindings,
         droppedAnswerStageIds,
+        keybindings,
         async (value) => {
           const command = SettingsManager.create(ctx.cwd, undefined, { projectTrusted: ctx.isProjectTrusted() }).getExternalEditorCommand();
           if (!command) return ctx.ui.editor("Edit custom answer", value);
