@@ -9,6 +9,7 @@ import {
   carryOverPresentation,
   findReviewState,
   makeReviewState,
+  droppedAnswers,
   mergeAnswers,
   type GeneratedImageReference,
   type ReviewAnswer,
@@ -57,6 +58,23 @@ function initialAnswersFor(review: NormalizedReview, previous: ReviewState | und
   const merged = mergeAnswers(previous.answers, review.stages);
   for (const stageId of review.resetStageIds) merged.delete(stageId);
   return [...merged.values()];
+}
+
+/**
+ * The answers a revised round threw away, so the panel can say so.
+ *
+ * `droppedAnswers` existed and was never called, which left the ledger's claim
+ * that a dropped answer is now visible to the reader true of the helper and
+ * false of the behaviour. A carried answer the revised stage no longer accepts
+ * is dropped on purpose, but not silently: from the panel it is
+ * indistinguishable from one the model never asked about.
+ */
+function droppedAnswerStageIdsFor(review: NormalizedReview, previous: ReviewState | undefined): string[] {
+  if (!previous) return [];
+  const reset = new Set(review.resetStageIds);
+  return droppedAnswers(previous.answers, review.stages)
+    .map((answer) => answer.stageId)
+    .filter((stageId) => !reset.has(stageId));
 }
 
 function initialSkippedStageIdsFor(review: NormalizedReview, previous: ReviewState | undefined): string[] {
@@ -349,7 +367,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
           }
         } else if (ctx.mode === "tui") {
           try {
-            const wizardResult = await runVisualReviewWizard(ctx, review, initialAnswers, initialSkippedStageIds, initialGlobalNote);
+            const wizardResult = await runVisualReviewWizard(ctx, review, initialAnswers, initialSkippedStageIds, initialGlobalNote, droppedAnswerStageIdsFor(review, previous));
             result = wizardResult ?? makeFallbackResult(review, "no_custom_ui");
           } catch (error) {
             if (isAbortError(error) || signal?.aborted || ctx.signal?.aborted) {
