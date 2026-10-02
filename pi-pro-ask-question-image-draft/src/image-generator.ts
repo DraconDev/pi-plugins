@@ -132,6 +132,19 @@ function decodeBase64(value: string): Buffer {
   return bytes;
 }
 
+/**
+ * A cell count that is safe to multiply by 8 and 16.
+ *
+ * The schema range-checks these, but a caller of the generator can hand a spec
+ * straight to it, and the allocation is `widthCells * 8 * heightCells * 16`. A
+ * negative one threw an uncaught RangeError from these two entry points,
+ * because the panel is the only place that wraps its render in a try/catch.
+ */
+function clampCells(value: number): number {
+  if (!Number.isFinite(value)) return 31;
+  return Math.max(1, Math.min(400, Math.floor(value)));
+}
+
 function safePart(value: string, fallback: string): string {
   const cleaned = value.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
   return cleaned || fallback;
@@ -351,8 +364,8 @@ export async function renderOptionMockup(
   const directory = options.outputDir ?? join(options.cwd, ".pi", "generated-images");
   const path = join(directory, `${stem}.png`);
   const rendered = renderMockup(spec as MockupSpec, {
-    widthCells: spec.widthCells ?? DEFAULT_MOCKUP_CELLS.widthCells,
-    heightCells: spec.heightCells ?? DEFAULT_MOCKUP_CELLS.heightCells,
+    widthCells: clampCells(spec.widthCells ?? DEFAULT_MOCKUP_CELLS.widthCells),
+    heightCells: clampCells(spec.heightCells ?? DEFAULT_MOCKUP_CELLS.heightCells),
   });
   try {
     await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -392,8 +405,8 @@ export async function renderComposedMockup(
   const composed = composePreview({
     spec: spec as MockupSpec,
     art: decodeArt(await readFile(art.path)),
-    widthCells: spec.widthCells ?? DEFAULT_MOCKUP_CELLS.widthCells,
-    heightCells: spec.heightCells ?? DEFAULT_MOCKUP_CELLS.heightCells,
+    widthCells: clampCells(spec.widthCells ?? DEFAULT_MOCKUP_CELLS.widthCells),
+    heightCells: clampCells(spec.heightCells ?? DEFAULT_MOCKUP_CELLS.heightCells),
   });
   const now = options.now ?? Date.now;
   const id = (options.randomId ?? randomUUID)();
