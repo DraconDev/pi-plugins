@@ -338,7 +338,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
           result = makeFallbackResult(review, "no_ui");
         } else if (ctx.mode === "rpc" && hasDialogUI(ctx)) {
           try {
-            result = await runDialogReview(ctx, review, initialAnswers, initialSkippedStageIds);
+            result = await runDialogReview(ctx, review, initialAnswers, initialSkippedStageIds, initialGlobalNote);
           } catch (error) {
             if (isAbortError(error) || signal?.aborted || ctx.signal?.aborted) {
               result = cancelledResult(review, initialAnswers, generatedImages);
@@ -355,7 +355,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
               result = cancelledResult(review, initialAnswers, generatedImages);
             } else if (hasDialogUI(ctx)) {
               try {
-                result = await runDialogReview(ctx, review, initialAnswers, initialSkippedStageIds);
+                result = await runDialogReview(ctx, review, initialAnswers, initialSkippedStageIds, initialGlobalNote);
               } catch {
                 result = makeFallbackResult(review, "no_custom_ui");
               }
