@@ -162,9 +162,33 @@ export function renderMockupText(spec: {
   const height = Math.max(5, Math.floor(safeHeight));
   const chrome = 4 + (spec.headers?.length ? 1 : 0); // top, count, rule, bottom
   const wanted = spec.rows ?? [];
-  const overflows = wanted.length > Math.max(0, height - chrome);
-  const available = Math.max(0, height - chrome - (overflows ? 1 : 0));
-  const shown = wanted.slice(0, available);
+
+  // `code` and `detail` are drawn, on a continuation line under their own row.
+  // The schema accepts and bounds both and the raster renders both, so on every
+  // host that cannot draw a picture - tmux, ssh, a log - the character frame
+  // was silently losing two fields the question might be about. Decided
+  // 2026-10-02: draw them when they fit, and drop rows before the frame grows
+  // past the height it was handed.
+  const continuationOf = (entry: { code?: string; detail?: string }): string => {
+    const parts = [entry.code, entry.detail].filter((part): part is string => Boolean(part && part.trim()));
+    return parts.join("  ");
+  };
+  // Rows are admitted while the *lines* they need fit, so a frame of ten rows
+  // that all carry a detail shows fewer rows rather than one row too many.
+  let used = 0;
+  const admitted: typeof wanted = [];
+  for (const entry of wanted) {
+    const cost = 1 + (continuationOf(entry) ? 1 : 0);
+    if (used + cost > Math.max(0, height - chrome)) break;
+    used += cost;
+    admitted.push(entry);
+  }
+  const shown = admitted;
+  const overflows = wanted.length > shown.length;
+  const dropTheRest = () => {
+    const rest = wanted.length - shown.length;
+    lines.push(row(`…and ${rest} more`));
+  };
 
   // The tail is ` bar status`, and the longest status word is four characters,
   // so the tail needs six inner cells before the label is given any. Getting
@@ -183,9 +207,13 @@ export function renderMockupText(spec: {
       ? ` ${bar(entry.value ?? 0, barCells)}${mark ? ` ${mark}` : ""}`
       : mark ? ` ${mark}` : "";
     lines.push(row(`${left}${label}${tail}`));
+    // Under its own row, indented past the label so it reads as that row's
+    // detail and not as a row of its own.
+    const continuation = continuationOf(entry);
+    if (continuation) lines.push(row(`${left}     ${truncate(continuation, Math.max(1, inner - cells(left) - 5))}`));
   });
   if (overflows) {
-    lines.push(row(`…and ${wanted.length - shown.length} more`));
+    dropTheRest();
   }
 
   lines.push(bottom);
