@@ -1157,7 +1157,13 @@ export class VisualReviewWizard implements Component, Focusable {
             // rasterised and dropped - which is what used to happen, and it is
             // the one thing a drawing should never need. Under tmux the reader
             // used to get a sentence about pictures instead of a picture.
-            detail.push(...this.theme.fg("text", mockupTextLines(option.mockup, safeWidth - 2, imageBudget)));
+            // Bounded by the same budget as the raster road. Drawn without it,
+            // the drawing took the whole detail area, the band was squeezed, and
+            // the footer went on claiming a reason under every choice while the
+            // reasons were gone - the same lie, reached a different way.
+            for (const line of mockupTextLines(option.mockup, safeWidth - 2, imageBudget)) {
+              detail.push(this.theme.fg("text", line));
+            }
           } else if (option.mockup && imageBudget >= MOCKUP_MIN_ROWS) {
             // Below the rows it needs to show anything, a mockup is a title and a
             // count with nothing under them - and the reasons are worth more than
