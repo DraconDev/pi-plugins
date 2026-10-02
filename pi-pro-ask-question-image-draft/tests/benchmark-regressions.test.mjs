@@ -16,9 +16,9 @@ import { aggregateSessionEvidence, BEHAVIOUR_SESSIONS, HAPPY_SESSION, NOTE_TEXT,
 import { DURABLE_CORPUS_PATH, generateCorpus, loadDurableCorpus, validateCorpus } from "../scripts/benchmark/corpus.mjs";
 import { editorCandidates, quitSequenceFor, resolveEditorCommand, whichExecutable } from "../scripts/benchmark/editor.mjs";
 import { optionPrompt, surfaceSubject, treatmentDirective } from "../scripts/benchmark/image-prompt.mjs";
-import { adjudicate, buildCase, judgeSummary, parseJudgeReply, parseStrictJudge } from "../scripts/benchmark/judge.mjs";
+import { adjudicate, buildCase, judgeSummary, parseJudgeReply } from "../scripts/benchmark/judge.mjs";
 import { CONTRACT_ALIAS_PREFIX, ingestImageManifest, optionPrompt as imageOptionPrompt, planImages, promptHash } from "../scripts/benchmark/images.mjs";
-import { buildAggregateReport, recomputeGates, verifyAggregateReport, verifyDefectLedger, verifyTerminalOutcomes } from "../scripts/benchmark/report.mjs";
+import { buildAggregateReport, verifyAggregateReport, verifyDefectLedger, verifyTerminalOutcomes } from "../scripts/benchmark/report.mjs";
 import { resolveSmokeImage } from "../scripts/benchmark/smoke-live.mjs";
 import { verifyEvidence } from "../scripts/benchmark/publish.mjs";
 import { compositionsFor } from "../scripts/benchmark/composition.mjs";

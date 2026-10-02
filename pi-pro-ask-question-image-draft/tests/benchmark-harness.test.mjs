@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 
-import { absoluteScore, blindLabels, compareCorpus, runLocal } from "../scripts/benchmark/compare.mjs";
+import { absoluteScore, blindLabels, runLocal } from "../scripts/benchmark/compare.mjs";
 import { generateCorpus, normalizeCorpus, validateCorpus } from "../scripts/benchmark/corpus.mjs";
 import { adjudicate, judgeSummary, parseStrictJudge } from "../scripts/benchmark/judge.mjs";
 import { ingestImageManifest } from "../scripts/benchmark/images.mjs";
