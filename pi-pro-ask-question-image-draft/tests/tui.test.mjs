@@ -2354,6 +2354,16 @@ describe("a coloured theme does not break selection", () => {
  * or a configured binary that is not on PATH.
  */
 describe("an external editor that fails is a message, not a crash", () => {
+  /** Ctrl+G opens the editor; the rest is the navigation needed to reach it. */
+  const externalEditorBindings = (data, action) => {
+    if (action === "app.editor.external") return data === "\u0007";
+    if (action === "tui.select.down") return data === "\x1b[B";
+    if (action === "tui.select.up") return data === "\x1b[A";
+    if (action === "tui.select.confirm" || action === "tui.input.submit") return data === "\r";
+    if (action === "tui.select.cancel") return data === "\u001b";
+    return false;
+  };
+
   const openTypedAnswer = (component) => {
     // Row 3 of the default review is the "Type something." escape hatch, which
     // is the only way into inputMode "other" and the only place Ctrl+G applies.
@@ -2371,7 +2381,10 @@ describe("an external editor that fails is a message, not a crash", () => {
       let unhandled = 0;
       const onUnhandled = () => { unhandled += 1; };
       process.on("unhandledRejection", onUnhandled);
-      const keybindings = { matches: (data, action) => action === "app.editor.external" && data === "\u0007" };
+      // The wizard routes every binding through `this.keybindings` when one is
+      // supplied, so the stub has to know the navigation keys as well or the
+      // panel cannot be walked to the row that opens the editor.
+      const keybindings = { matches: (data, action) => externalEditorBindings(data, action) };
       let result;
       const component = new VisualReviewWizard(
         { requestRender: () => {}, terminal: { rows: 40 } }, theme(), review(), process.cwd(),
@@ -2398,7 +2411,7 @@ describe("an external editor that fails is a message, not a crash", () => {
   }
 
   it("clears the message once the editor is opened again", async () => {
-    const keybindings = { matches: (data, action) => action === "app.editor.external" && data === "\u0007" };
+    const keybindings = { matches: (data, action) => externalEditorBindings(data, action) };
     let calls = 0;
     const component = new VisualReviewWizard(
       { requestRender: () => {}, terminal: { rows: 40 } }, theme(), review(), process.cwd(), () => {}, [], undefined, [], "",
