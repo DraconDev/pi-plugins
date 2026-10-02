@@ -690,3 +690,62 @@ describe("the model is told to draw, not only that it may", () => {
     }
   });
 });
+
+/**
+ * The schema declares limits that nothing was enforcing.
+ *
+ * There is no runtime TypeBox validation in this project, so every `maxLength`,
+ * `maxItems` and `Type.Literal` union in `src/schema.ts` is documentation until
+ * `normalizeReview` checks it. These are the declarations that were not checked:
+ * a NaN bar value, an unknown layout, a negative canvas width, unbounded
+ * headers, a 400-character change line, and a fifth legacy question all used to
+ * be accepted and reach the renderer.
+ */
+describe("declared limits that were not enforced", () => {
+  const stage = { id: "one", header: "H", prompt: "P", options: [{ label: "A" }, { label: "B" }] };
+  const withMockup = (mockup) => normalizeReview({
+    reviewId: "r",
+    stages: [{ id: "one", header: "H", prompt: "P", options: [{ ...stage.options[0], mockup }] }],
+  });
+
+  it("rejects a mockup that cannot be drawn or read", async () => {
+    const { normalizeReview } = await import("../src/schema.ts");
+    const row = { label: "On time", value: 0.9 };
+    // NaN passes every comparison written as `value < 0 || value > 1`, so it
+    // used to reach the bar renderer as a bar width.
+    assert.throws(() => withMockup({ layout: "airy", rows: [row, { label: "x", value: NaN }] }), /value must be a number between 0 and 1/);
+    assert.throws(() => withMockup({ layout: "wobbly", rows: [row] }), /layout must be one of/);
+    assert.throws(() => withMockup({ layout: "airy", emphasis: "shouty", rows: [row] }), /emphasis must be one of/);
+    assert.throws(() => withMockup({ layout: "airy", rows: [{ ...row, status: "chartreuse" }] }), /status must be one of/);
+    // These become `new Canvas(widthCells * 8, heightCells * 16)` directly.
+    assert.throws(() => withMockup({ layout: "airy", widthCells: -3, rows: [row] }), /widthCells must be a number between/);
+    assert.throws(() => withMockup({ layout: "airy", heightCells: NaN, rows: [row] }), /heightCells must be a number between/);
+    assert.throws(() => withMockup({ layout: "airy", widthCells: 2e6, rows: [row] }), /widthCells must be a number between/);
+    // Declared maxima that were never checked.
+    assert.throws(() => withMockup({ layout: "chart", headers: ["a", "b", "c", "d", "e"], rows: [row] }), /at most 4 headers/);
+    assert.throws(() => withMockup({ layout: "airy", rows: [{ ...row, code: "far too long to be a badge" }] }), /code is longer than 6/);
+    assert.throws(() => withMockup({ layout: "airy", rows: [{ ...row, detail: "x".repeat(201) }] }), /detail is longer than 200/);
+    // And the accepted shape still normalises.
+    assert.equal(withMockup({ layout: "airy", rows: [row] }).stages[0].options[0].mockup.layout, "airy");
+  });
+
+  it("rejects an unbounded change list or a mistyped recommended flag", async () => {
+    const { normalizeReview } = await import("../src/schema.ts");
+    const build = (option) => normalizeReview({ reviewId: "r", stages: [{ ...stage, options: [option] }] });
+    assert.throws(() => build({ label: "A", changes: ["x".repeat(281)] }), /changes\[0\] is longer than 280/);
+    assert.equal(build({ label: "A", changes: ["one", "two"] }).stages[0].options[0].changes.length, 2);
+    assert.throws(() => build({ label: "A", changes: Array.from({ length: 20 }, (_, i) => `c${i}`) }).stages[0].options[0].changes.length === 16 ? () => {} : build.bind(null, { label: "A", changes: Array.from({ length: 20 }, (_, i) => `c${i}`) }), () => {});
+    // `recommended: "yes"` used to be silently dropped.
+    assert.throws(() => build({ label: "A", recommended: "yes" }), /recommended must be true when present/);
+    assert.equal(build({ label: "A", recommended: true }).stages[0].options[0].recommended, true);
+  });
+
+  it("rejects more than the four legacy questions the schema declares", async () => {
+    const { normalizeReview } = await import("../src/schema.ts");
+    const questions = ["one", "two", "three", "four"].map((prompt, index) => ({
+      question: prompt, options: [{ label: `A${index}` }, { label: `B${index}` }],
+    }));
+    assert.equal(normalizeReview({ reviewId: "r", questions }).stages.length, 4);
+    assert.throws(() => normalizeReview({ reviewId: "r", questions: [...questions, { question: "five", options: [{ label: "A" }, { label: "B" }] }] }), /at most 4 questions/);
+  });
+});
