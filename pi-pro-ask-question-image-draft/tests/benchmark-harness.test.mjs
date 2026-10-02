@@ -131,7 +131,12 @@ describe("harness honesty: execution and oracles", () => {
   });
 
   it("keeps deterministic labels seeded per case", () => {
-    assert.deepEqual(blindLabels(1, "a"), blindLabels(1, "a"));
+    // The first of these compared the same expression with itself, so a
+    // blindLabels that ignored its seed and id entirely still passed. The
+    // "seeded" in the name is now pinned by an assertion that can fail.
+    assert.deepEqual(blindLabels(1, "a"), blindLabels(1, "a"), "stable for the same seed and id");
+    assert.notDeepEqual(blindLabels(1, "a"), blindLabels(2, "a"), "a different seed relabels");
+    assert.notDeepEqual(blindLabels(1, "a"), blindLabels(1, "b"), "a different id relabels");
     assert.deepEqual(Object.values(blindLabels(7, "case-1")).sort(), ["candidate", "reference"]);
   });
 });
