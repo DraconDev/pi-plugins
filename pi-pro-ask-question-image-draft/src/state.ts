@@ -320,13 +320,19 @@ export function isReviewState(value: unknown): value is ReviewState {
  * the suite would still pass. A test that copies the rule it is testing tests
  * itself; this one is called.
  */
-export function carryOverPresentation<T extends { images?: "off" | "on"; density?: "comfortable" | "compact" }>(
+export function carryOverPresentation<T extends { images?: "off" | "on"; density?: "comfortable" | "compact"; autoResolve?: boolean; rounds?: number; round?: number }>(
   review: T,
-  previous: { images?: "off" | "on"; density?: "comfortable" | "compact" } | undefined,
+  previous: { images?: "off" | "on"; density?: "comfortable" | "compact"; autoResolve?: boolean; rounds?: number } | undefined,
 ): T {
   let next = review;
   if (next.images === "off" && previous?.images === "on") next = { ...next, images: "on" };
   if (next.density === "comfortable" && previous?.density === "compact") next = { ...next, density: "compact" };
+  // Ctrl+A is a view choice in the same family as density, so it survives a
+  // revision round the same way. Carried as a one-way: a round that asks for it
+  // explicitly is honoured, and a round that does not inherits it.
+  if (next.autoResolve !== true && previous?.autoResolve === true) next = { ...next, autoResolve: true };
+  // The expected total, so a resumed round can still say "round 2 of 3".
+  if (next.rounds === undefined && previous?.rounds !== undefined) next = { ...next, rounds: previous.rounds };
   return next;
 }
 
