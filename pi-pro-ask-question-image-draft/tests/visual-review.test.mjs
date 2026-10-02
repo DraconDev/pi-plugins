@@ -841,7 +841,8 @@ describe("the envelope says what actually happened", () => {
 describe("what a resumed round reads back is what was written", () => {
   const persisted = (overrides) => {
     const review = baseReview();
-    const state = makeReviewState(review, [], "completed");
+    // "cancelled" rather than "completed": an unresolved stage cannot be persisted as approved.
+    const state = makeReviewState(review, [], "cancelled");
     return { ...state, ...overrides };
   };
 
@@ -872,15 +873,24 @@ describe("what a resumed round reads back is what was written", () => {
     // state takes, and the comment in state.ts calls this the only gate it
     // passes through.
     const review = baseReview();
-    const withMockup = (value) => ({
-      ...review,
+    const withNaNReview = () => ({
+      reviewId: review.reviewId,
+      title: review.title,
+      round: review.round,
       stages: [{
         ...review.stages[0],
-        options: [{ id: "grid", label: "Grid", value: "grid", mockup: { layout: "list", title: "T", rows: [{ label: "r", value }] } }],
+        options: [
+          { id: "grid", label: "Grid", value: "grid", mockup: { layout: "list", title: "T", rows: [{ label: "r", value: Number.NaN }] } },
+          { id: "stack", label: "Stack", value: "stack" },
+        ],
       }],
     });
-    assert.throws(() => validateReview(withMockup(Number.NaN)), /between 0 and 1/, "NaN must not survive validateReview");
-    assert.equal(normalizeReview({ ...review, stages: [{ ...review.stages[0], options: [{ id: "grid", label: "Grid", value: "grid", mockup: { layout: "list", title: "T", rows: [{ label: "r", value: Number.NaN }] } }] }] }), undefined, "normalizeReview rejects it too");
+    assert.throws(() => validateReview(withNaNReview()), /between 0 and 1/, "NaN must not survive validateReview");
+    assert.throws(
+      () => normalizeReview(withNaNReview()),
+      /must be a number between 0 and 1/,
+      "the input path already rejected it",
+    );
   });
 
   it("refuses a persisted autoResolve that is not a boolean, rather than coercing it", () => {
