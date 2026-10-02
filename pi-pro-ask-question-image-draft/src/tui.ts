@@ -548,7 +548,21 @@ export class VisualReviewWizard implements Component, Focusable {
 
   private async editExternalAnswer(): Promise<void> {
     if (!this.editExternal || this.finished) return;
-    const edited = await this.editExternal(this.editor.getText());
+    // Caught here because this runs detached. `editExternalAnswer` is fired
+    // with `void` and nothing in the host installs an `unhandledRejection`
+    // handler, so the editor's own rejection - `:cq` in vim, any editor that
+    // exits 1, or a configured binary that is not on PATH - became an unhandled
+    // rejection and took the Pi process down mid-review. A panel that is still
+    // on screen is the only place this failure can become an ordinary one.
+    let edited: string | undefined;
+    try {
+      edited = await this.editExternal(this.editor.getText());
+    } catch (error) {
+      if (this.finished) return;
+      this.editorError = error instanceof Error ? error.message : String(error);
+      this.invalidate();
+      return;
+    }
     if (edited === undefined || this.finished) return;
     this.editor.setText(edited);
     this.invalidate();
