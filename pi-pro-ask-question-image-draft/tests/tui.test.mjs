@@ -2354,6 +2354,15 @@ describe("a coloured theme does not break selection", () => {
  * or a configured binary that is not on PATH.
  */
 describe("an external editor that fails is a message, not a crash", () => {
+  const openTypedAnswer = (component) => {
+    // Row 3 of the default review is the "Type something." escape hatch, which
+    // is the only way into inputMode "other" and the only place Ctrl+G applies.
+    component.handleInput("\u001b[B");
+    component.handleInput("\u001b[B");
+    component.handleInput("\u001b[B");
+    component.handleInput("\r");
+  };
+
   for (const [name, rejection] of [
     ["a non-zero exit", new Error("External editor exited with exit code 1")],
     ["a binary that is not on PATH", Object.assign(new Error("spawn nvim ENOENT"), { code: "ENOENT" })],
@@ -2362,19 +2371,18 @@ describe("an external editor that fails is a message, not a crash", () => {
       let unhandled = 0;
       const onUnhandled = () => { unhandled += 1; };
       process.on("unhandledRejection", onUnhandled);
+      const keybindings = { matches: (data, action) => action === "app.editor.external" && data === "\u0007" };
       let result;
       const component = new VisualReviewWizard(
         { requestRender: () => {}, terminal: { rows: 40 } }, theme(), review(), process.cwd(),
-        (value) => { result = value; }, [],
-        undefined,
-        undefined,
+        (value) => { result = value; }, [], undefined, [], "", keybindings,
         () => Promise.reject(rejection),
       );
       try {
-        // Ctrl+G in the "other" input mode is the only way in.
-        component.handleInput("answer text");
+        openTypedAnswer(component);
+        assert.match(component.render(100).join("\n"), /Type your answer/, "the typed-answer prompt is open");
         component.handleInput("\u0007");
-        // The promise chain the detached call runs in: give it a turn.
+        // The detached call's own microtasks, then one macrotask turn.
         for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
         await new Promise((done) => setImmediate(done));
         assert.equal(unhandled, 0, "the rejection must be caught, not left for the process");
@@ -2388,4 +2396,29 @@ describe("an external editor that fails is a message, not a crash", () => {
       }
     });
   }
+
+  it("clears the message once the editor is opened again", async () => {
+    const keybindings = { matches: (data, action) => action === "app.editor.external" && data === "\u0007" };
+    let calls = 0;
+    const component = new VisualReviewWizard(
+      { requestRender: () => {}, terminal: { rows: 40 } }, theme(), review(), process.cwd(), () => {}, [], undefined, [], "",
+      keybindings,
+      () => { calls += 1; return calls === 1 ? Promise.reject(new Error("boom")) : Promise.resolve("typed in vim"); },
+    );
+    try {
+      openTypedAnswer(component);
+      component.handleInput("\u0007");
+      for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
+      await new Promise((done) => setImmediate(done));
+      assert.match(component.render(100).join("\n"), /Editor failed/);
+      component.handleInput("\u0007");
+      for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
+      await new Promise((done) => setImmediate(done));
+      const frame = component.render(100).join("\n");
+      assert.doesNotMatch(frame, /Editor failed/, "the stale failure is not left on screen");
+      assert.match(frame, /typed in vim/, "and the second answer did land");
+    } finally {
+      component.dispose();
+    }
+  });
 });
