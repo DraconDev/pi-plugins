@@ -114,9 +114,14 @@ export function renderMockupText(spec: {
   const wanted = spec.rows ?? [];
   const shown = wanted.slice(0, available);
 
+  // The tail is ` bar status`, and the longest status word is four characters,
+  // so the tail needs six inner cells before the label is given any. Getting
+  // this wrong truncates the status to "w…" and "l…", which is worse than not
+  // drawing it: the reader cannot tell what the colour was going to say.
+  const STATUS_CELLS = 6;
   const railCells = rail ? 4 : 0;
-  const barCells = dense ? 0 : Math.max(6, Math.min(14, inner - railCells - 20));
-  const labelCells = Math.max(8, inner - railCells - barCells - 4);
+  const barCells = dense ? 0 : Math.max(6, Math.min(14, inner - railCells - STATUS_CELLS - 18));
+  const labelCells = Math.max(8, inner - railCells - barCells - STATUS_CELLS);
 
   shown.forEach((entry, index) => {
     const mark = statusMark(entry.status);
