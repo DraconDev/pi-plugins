@@ -123,7 +123,13 @@ describe("harness honesty: execution and oracles", () => {
     assert.equal(absoluteScore(wrongFeedback, local).pass, false);
   });
 
-  it("never invents an answer when the oracle records none", async () => {
+  it("reports a terminal-only scenario with no oracle answer", async () => {
+    // The name used to say "never invents an answer when the oracle records
+    // none" and the body asserted the opposite - that an answer *was* recorded -
+    // so a reader believed a property was covered that the test was pinning the
+    // reverse of. Renamed to what it checks, so the file no longer claims a
+    // guarantee it does not make. The behaviour itself is deliberate: the local
+    // run drives the terminal and records what the terminal produced.
     const noAnswer = legacyScenario({ expected: { outcome: "completed", oracle: "terminal-only", classification: "source-terminal-only", answers: [] } });
     const local = await runLocal(noAnswer);
     assert.equal(local.result.status, "completed");
