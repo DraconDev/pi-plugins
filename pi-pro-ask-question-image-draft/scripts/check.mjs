@@ -1,18 +1,23 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, stat, writeFile, rm, mkdtemp } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { fileURLToPath, resolve } from "node:path";
 
-const root = resolve(new URL("..", import.meta.url).pathname);
+const root = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
+// `typescript` is a devDependency, so a clean clone has it in `node_modules`
+// like anything else. It used to resolve only from `TSC` or from two hardcoded
+// absolute paths in sibling projects on one machine, which means `npm run check`
+// - the gate the README calls hermetic - died on its first line anywhere else,
+// and `npm install` could never fix it because no dependency was declared to
+// install.
 const compiler = [
   process.env.TSC,
   resolve(root, "node_modules/typescript/bin/tsc"),
-  "/home/dracon/Dev/pi-plugins/pi-goal-list-loop-audit/node_modules/typescript/bin/tsc",
-  "/home/dracon/Dev/pi-plugins/pi-codebuddy-sdk/node_modules/typescript/bin/tsc",
 ].filter(Boolean).find((candidate) => existsSync(candidate));
-assert.ok(compiler, "No TypeScript compiler found. Install the package's dev dependency or set TSC=/path/to/tsc.");
+assert.ok(compiler, "No TypeScript compiler found. Run `npm install` (typescript is a devDependency) or set TSC=/path/to/tsc.");
 
 const tsc = spawnSync(process.execPath, [compiler, "--noEmit", "-p", resolve(root, "tsconfig.json")], { stdio: "inherit" });
 assert.equal(tsc.status, 0, "TypeScript check failed");
@@ -39,7 +44,31 @@ for (const path of required) {
 
 const text = await readFile(resolve(root, "tests/fixtures/tui-smoke.txt"), "utf8");
 assert.match(text, /TUI evidence/);
-assert.match(text, /Tiny checked-in fixture/);
+assert.match(text, /Choose a layout/);
+// The fixture has to be *reproducible*, not merely present. It was asserted on
+// with a string - `Tiny checked-in fixture` - that the generator stopped
+// emitting, so the gate stayed green on a stale artifact while the documented
+// regeneration step turned it red. Regenerating into a temporary file and
+// comparing is the check that cannot go stale again: change the panel and this
+// fails until the evidence is refreshed with it.
+const scratch = await mkdtemp(resolve(tmpdir(), "pi-tui-evidence-"));
+try {
+  const regenerated = resolve(scratch, "tui-smoke.txt");
+  const result = spawnSync(process.execPath, [resolve(root, "scripts/render-tui-evidence.mjs"), regenerated], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, `regenerating the TUI evidence failed: ${result.stderr}`);
+  const fresh = await readFile(regenerated, "utf8");
+  assert.equal(
+    fresh,
+    text,
+    "tests/fixtures/tui-smoke.txt no longer matches what the shipped generator produces. "
+    + "Run `node scripts/render-tui-evidence.mjs && python3 scripts/render-tui-evidence.py`.",
+  );
+} finally {
+  await rm(scratch, { recursive: true, force: true });
+}
 const png = await readFile(resolve(root, "tests/fixtures/tui-smoke.png"));
 assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
 assert.equal(png.readUInt32BE(16), 1800, "visual evidence PNG width changed unexpectedly");

@@ -47,6 +47,9 @@
     "benchmark:mockups": "node scripts/benchmark/mockups.mjs",
     "benchmark:compose": "node scripts/benchmark/compose.mjs"
   },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "^0.99.1",
