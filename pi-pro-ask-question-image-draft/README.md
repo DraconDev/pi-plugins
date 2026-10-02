@@ -74,7 +74,8 @@ Cancellation and rejection return their own result envelopes. If TUI/RPC interac
 
 ## TUI controls
 
-The review is a full-screen dashboard: it takes the whole screen, because a
+The review is a fixed block anchored at the bottom of the screen, not a full-screen takeover:
+it is capped at 32 rows however much the prompt or the list would like. A
 paragraph-long prompt plus real options plus a preview needs the rows, and a
 half-height drawer both truncated the list and covered the transcript the user
 needed to check the answer against. `Ctrl+]` still collapses the whole thing to
@@ -116,7 +117,9 @@ are deliberately **not** numbered, because "press 3" should never be a way to
 skip the question. A multi-select stage renders real checkboxes (`[ ]` / `[x]`),
 and an option the model marked `recommended` says so on its row.
 
-Image previews are inline when the terminal supports them and otherwise use a safe path/URL/alt/preview text fallback. A failed or loading image never prevents answering the review, and a host that cannot draw inline images is told so, with the switch that fixes it. Explicit generation happens before the review opens, so the user sees the generated artifact in the same decision flow.
+Images are **off unless the review asks for them**: set `images: "on"` at the top level of the
+review, or nothing is drawn inline. With it, previews are inline when the terminal supports
+them and otherwise use a safe path/URL/alt/preview text fallback. A failed or loading image never prevents answering the review, and a host that cannot draw inline images is told so, with the switch that fixes it. Explicit generation happens before the review opens, so the user sees the generated artifact in the same decision flow.
 
 ### Composed previews: structure from the package, character from the art
 
@@ -127,7 +130,8 @@ first and the generated art is scaled to fill the frame, washed back by a
 bounded scrim, and the structure's ink is keyed on top of it.
 
 That split is not cosmetic, and it came out of measurement rather than taste. An
-option preview is 31 x 16 character cells - about 248 x 256 device pixels. A
+option preview is drawn on a cell grid that follows the terminal - up to 28 rows on a tall
+terminal, 16 on a short one - rather than a fixed 31 x 16. A
 generated image judged on that raster can carry a *shape* and an *emphasis*; it
 cannot carry a sentence, and every question a visual review asks is answered by
 information (which route is late, which release is blocked, which bin is under
