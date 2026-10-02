@@ -59,8 +59,15 @@ export function decodePng(bytes: Buffer): RgbImage {
   while (offset + 8 <= bytes.length) {
     const length = bytes.readUInt32BE(offset);
     const type = bytes.subarray(offset + 4, offset + 8).toString("ascii");
+    // A declared length is a claim, not a fact. Truncating silently turned a
+    // short IHDR into `undefined` fields coerced to NaN, and an over-long one
+    // walked `offset` past the buffer and ended the loop with no error at all.
+    if (offset + 12 + length > bytes.length) {
+      throw new Error(`PNG chunk ${type} claims ${length} bytes but only ${bytes.length - offset - 8} remain.`);
+    }
     const body = bytes.subarray(offset + 8, offset + 8 + length);
     if (type === "IHDR") {
+      if (length < 13) throw new Error(`PNG IHDR is ${length} bytes; the header is 13.`);
       header = {
         width: body.readUInt32BE(0), height: body.readUInt32BE(4),
         bitDepth: body[8], colorType: body[9], interlace: body[12],
@@ -74,9 +81,18 @@ export function decodePng(bytes: Buffer): RgbImage {
   if (header.colorType !== 2 && header.colorType !== 6) throw new Error(`Unsupported PNG colour type ${header.colorType}`);
   if (header.interlace !== 0) throw new Error("Interlaced PNGs are not supported");
   const channels = header.colorType === 6 ? 4 : 3;
-  const raw = inflateSync(Buffer.concat(idat));
+  // The declared dimensions decide the allocation, so they are checked before it
+  // is made. A 62-byte file claiming 40000x40000 RGB asks for 4.8 GB: without
+  // this the allocation is attempted and only fails later, when the truncated
+  // IDAT cannot satisfy the filter check.
+  if (header.width < 1 || header.height < 1) throw new Error(`PNG dimensions ${header.width}x${header.height} are not positive.`);
   const stride = header.width * channels;
-  const out = Buffer.alloc(header.height * stride);
+  const pixels = header.height * stride;
+  if (pixels > MAX_PNG_PIXELS) {
+    throw new Error(`PNG is ${header.width}x${header.height} (${pixels} bytes of pixels); the limit is ${MAX_PNG_PIXELS}.`);
+  }
+  const raw = inflateSync(Buffer.concat(idat), { maxOutputSize: pixels + header.height });
+  const out = Buffer.alloc(pixels);
   let position = 0;
   for (let row = 0; row < header.height; row += 1) {
     const filter = raw[position];
