@@ -141,7 +141,7 @@ export const ReviewStageSchema = Type.Object({
   ),
   kind: Type.Optional(
     Type.Union([Type.Literal("choice"), Type.Literal("draft")], {
-      description: "Presentation hint. Draft stages are intended for comparing generated visual drafts.",
+      description: "Presentation hint. Draft labels a stage as comparing generated drafts: the plain-chat fallback says so, and the interactive panel treats it as an ordinary choice stage.",
     }),
   ),
   header: Type.String({ maxLength: MAX_HEADER_LENGTH, description: "Short stage title shown in the wizard tab bar." }),
@@ -218,7 +218,7 @@ export const ReviewParamsSchema = Type.Object({
       description: "Stage ids whose previous answers should be cleared before opening the wizard.",
     }),
   ),
-  notes: Type.Optional(Type.String({ maxLength: 20_000, description: "Optional notes shown on the final review tab." })),
+  notes: Type.Optional(Type.String({ maxLength: 20_000, description: "Optional notes. Rendered by the plain-chat fallback only; the interactive panel does not display them." })),
   provider: Type.Optional(Type.String({ maxLength: 100, description: "Image provider metadata to carry into the next generation request." })),
   model: Type.Optional(Type.String({ maxLength: 200, description: "Image model metadata to carry into the next generation request." })),
   imagePrompt: Type.Optional(Type.String({ maxLength: 20_000, description: "Prompt for the first/next image generation pass." })),
