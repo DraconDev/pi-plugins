@@ -2540,38 +2540,44 @@ describe("the panel's arithmetic matches what it draws", () => {
  * whenever the run is followed by another escape. It was exported and imported
  * by this file, and the test that "covered" it asserted on a raw frame instead,
  * so breaking or deleting the helper would not have failed a thing.
+ *
+ * The shape is the one the panel emits: `File=inline=1;size=N;width=W;height=H:<base64>`.
  */
 describe("the iTerm2 payload terminator", () => {
   const payload = "AAAA";
+  const head = `\u001b]1337;File=inline=1;size=${payload.length};width=2;height=1`;
 
   it("terminates a payload that has no terminator", () => {
-    const line = `before \u001b]1337;File=name=${payload} after`;
-    const out = terminateITerm2Images(line);
-    assert.equal(out, `before \u001b]1337;File=name=${payload}\u0007 after`);
+    const line = `before ${head}:${payload} after`;
+    assert.equal(terminateITerm2Images(line), `before ${head}:${payload}\u0007 after`);
   });
 
   it("leaves a BEL-terminated payload exactly as it is", () => {
-    const line = `before \u001b]1337;File=name=${payload}\u0007 after`;
+    const line = `before ${head}:${payload}\u0007 after`;
     assert.equal(terminateITerm2Images(line), line, "a payload that already ends in BEL must not be touched");
   });
 
-  it("terminates a ST-terminated payload rather than truncating it", () => {
+  it("terminates a payload that runs into another escape rather than truncating it", () => {
     // The backtracking case: a payload followed by another escape. A lookahead
     // match shortens the run here and the image comes out corrupt.
-    const line = `a \u001b]1337;File=name=${payload} b \u001b[36mc`;
+    const line = `a ${head}:${payload} b \u001b[36mc`;
     const out = terminateITerm2Images(line);
-    assert.ok(out.startsWith(`a \u001b]1337;File=name=${payload}\u0007`), `payload was lost: ${JSON.stringify(out)}`);
+    assert.ok(out.startsWith(`a ${head}:${payload}\u0007`), `the payload was lost: ${JSON.stringify(out)}`);
     assert.ok(out.endsWith("\u001b[36mc"), "and the following escape survives");
   });
 
   it("handles two payloads on one line independently", () => {
-    const line = `\u001b]1337;File=a=${payload}\u0007 mid \u001b]1337;File=b=${payload}`;
-    const out = terminateITerm2Images(line);
-    assert.equal(out, `\u001b]1337;File=a=${payload}\u0007 mid \u001b]1337;File=b=${payload}\u0007`);
+    const line = `${head}:${payload}\u0007 mid ${head}:${payload}`;
+    assert.equal(terminateITerm2Images(line), `${head}:${payload}\u0007 mid ${head}:${payload}\u0007`);
   });
 
   it("leaves a line with no image payload alone", () => {
     const line = "plain text with an escape \u001b[1m and nothing else";
+    assert.equal(terminateITerm2Images(line), line);
+  });
+
+  it("leaves a kitty payload alone - a different protocol with its own terminator", () => {
+    const line = `\u001b_Ga=T,f=100;AAAA\u001b\\ tail`;
     assert.equal(terminateITerm2Images(line), line);
   });
 });
