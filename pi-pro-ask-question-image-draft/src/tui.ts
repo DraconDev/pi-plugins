@@ -1802,7 +1802,17 @@ export class VisualReviewWizard implements Component, Focusable {
    * up telling the reader to look for something that is not on screen.
    */
   private densityLine(reasonsShown = this.reasonsShown): string {
-    if (this.density === "compact") return "density: compact — one reason, in the panel above (Ctrl+D for comfortable)";
+    if (this.density === "compact") {
+      // Only claim the reason is above the list when there *is* a list above it.
+      // On "Add note" or "Approve review" the selected row is an action, which
+      // carries no description, so the panel showed nothing and the line said it
+      // was somewhere above.
+      const selected = this.currentRows()[this.selectedIndex];
+      const onAChoice = selected?.kind === "option";
+      return onAChoice
+        ? "density: compact — one reason, in the panel above (Ctrl+D for comfortable)"
+        : "density: compact — the highlighted choice's reason, in the panel above (Ctrl+D for comfortable)";
+    }
     return reasonsShown
       ? "density: comfortable — a reason under every choice (Ctrl+D for compact)"
       : "density: comfortable — reasons dropped to fit the list (Ctrl+D for compact)";
