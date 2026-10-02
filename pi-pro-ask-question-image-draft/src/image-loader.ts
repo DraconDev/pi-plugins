@@ -27,6 +27,15 @@ const MAX_IMAGE_BYTES = 24 * 1024 * 1024;
  * path and the directory, because a model that gets this back needs to know
  * where to put the file, not just that it was refused.
  */
+function assertInsideRoot(target: string, root: string): void {
+  const inside = relative(resolve(root), resolve(target));
+  if (inside === "" || (!inside.startsWith(`..${sep}`) && inside !== ".." && !isAbsolute(inside))) return;
+  throw new Error(
+    `Image path is outside the review's directory: ${target}. `
+    + `Only files under ${resolve(root)} can be read; put the image there or pass a relative path.`,
+  );
+}
+
 /** Hostnames that address this machine rather than somewhere else. */
 function isLocalHost(hostname: string): boolean {
   const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
@@ -66,15 +75,6 @@ function assertFetchableUrl(reference: string): void {
       + "A review may not fetch from the loopback interface or a private network; pass a file path inside the review's directory instead.",
     );
   }
-}
-
-function assertInsideRoot(target: string, root: string): void {
-  const inside = relative(resolve(root), resolve(target));
-  if (inside === "" || (!inside.startsWith(`..${sep}`) && inside !== ".." && !isAbsolute(inside))) return;
-  throw new Error(
-    `Image path is outside the review's directory: ${target}. `
-    + `Only files under ${resolve(root)} can be read; put the image there or pass a relative path.`,
-  );
 }
 
 export interface LoadedImage {
