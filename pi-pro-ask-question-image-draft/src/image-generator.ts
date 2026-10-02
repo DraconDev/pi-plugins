@@ -428,10 +428,10 @@ export async function renderComposedMockup(
   if (!spec) throw new ImageGenerationError("invalid_request", "Option has no mockup to compose into.");
   const widthCells = clampCells(spec.widthCells ?? DEFAULT_MOCKUP_CELLS.widthCells);
   const heightCells = clampCells(spec.heightCells ?? DEFAULT_MOCKUP_CELLS.heightCells);
-  const mockup = { spec: spec as MockupSpec, widthCells, heightCells };
+  const cells = { widthCells, heightCells };
   let composed: { png: Buffer; width: number; height: number };
   try {
-    composed = composePreview({ ...mockup, art: decodeArt(await readFile(art.path)) });
+    composed = composePreview({ spec: spec as MockupSpec, ...cells, art: decodeArt(await readFile(art.path)) });
   } catch {
     // Not a failure. The provider's answer may be a JPEG or a WebP - a normal
     // `b64_json` payload - and this module saves it as `.jpg` itself, then hands
@@ -444,7 +444,7 @@ export async function renderComposedMockup(
     // That keeps the invariant this function exists for - a preview is never
     // less informative than the text - instead of trading one broken option for a
     // broken review.
-    composed = renderMockup(mockup);
+    composed = renderMockup(spec as MockupSpec, cells);
   }
   const now = options.now ?? Date.now;
   const id = (options.randomId ?? randomUUID)();
