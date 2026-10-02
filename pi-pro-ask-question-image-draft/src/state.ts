@@ -453,6 +453,10 @@ export function mergeAnswers(previous: readonly ReviewAnswer[], stages: readonly
 
 
 
+export function selectedOptions(stage: NormalizedStage, answer: ReviewAnswer | undefined): NormalizedOption[] {
+  return stage.options.filter((o) => answer?.optionIds?.includes(o.id));
+}
+
 export function makeOptionAnswer(stage: NormalizedStage, stageIndex: number, options: readonly NormalizedOption[]): ReviewAnswer {
   if (options.length === 0) throw new Error("An option answer must contain at least one option.");
   const selectedIds = new Set(options.map((option) => option.id));

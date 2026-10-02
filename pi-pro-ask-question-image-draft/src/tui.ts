@@ -38,6 +38,7 @@ import {
   type ReviewAnswer,
   type ReviewResult,
   type ReviewRevision,
+  selectedOptions,
 } from "./state.ts";
 
 interface LoadedOption {
