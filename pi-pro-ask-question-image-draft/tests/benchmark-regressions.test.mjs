@@ -714,12 +714,21 @@ describe("VISUAL-007: the composed preview is a deterministic product path", () 
     assert.equal(first.height, 16 * 16);
   });
 
-  it("VISUAL-007: the art is cropped to fill, never squashed", () => {
+  it("VISUAL-007: the art is fitted to the panel, never squashed to the art's aspect", () => {
+    // This used to assert `cropToFill` in isolation, which nothing in the
+    // product path called any more - the composer fits the art and the test was
+    // green about a helper the panel never reached. Asserted where the behaviour
+    // actually happens instead: the composed frame is the panel's grid whatever
+    // the art's aspect, so a squash cannot happen, and the art band stays a band.
     const wide = { width: 200, height: 20, data: Buffer.alloc(200 * 20 * 3, 200) };
-    // A squashed 10:1 source into a 3:2 target would come out with a changed
-    // aspect; the crop keeps it, which is why the shape is preserved.
-    assert.equal(cropped.width, 60);
-    assert.equal(cropped.height, 40);
+    const square = { width: 40, height: 40, data: Buffer.alloc(40 * 40 * 3, 200) };
+    const fromWide = composePreview({ spec, art: wide });
+    const fromSquare = composePreview({ spec, art: square });
+    const plain = renderMockup(spec);
+    assert.equal(fromWide.width, plain.width, "a 10:1 art must not widen the panel");
+    assert.equal(fromWide.height, plain.height, "nor heighten it");
+    assert.deepEqual([fromWide.width, fromWide.height], [fromSquare.width, fromSquare.height],
+      "the composed frame is the panel's grid, so a squash is not reachable");
   });
 
   it("VISUAL-007: the structure survives compositing, so a preview is never less informative than text", () => {
