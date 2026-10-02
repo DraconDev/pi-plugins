@@ -818,6 +818,19 @@ export function validateReview(review: NormalizedReview): void {
   if (!Number.isInteger(review.round) || review.round < 1) {
     throw new Error("round must be a positive integer.");
   }
+  // `validateReview` is the only check a *restored* state goes through, so an
+  // unknown presentation value has to be rejected here rather than coerced
+  // downstream - otherwise a state written by another or older tool silently
+  // changes the mode the review is shown in.
+  oneOf(review.images, ["off", "on"] as const, "images");
+  oneOf(review.density, ["comfortable", "compact"] as const, "density");
+  if (review.rounds !== undefined) {
+    boundedNumber(review.rounds, "rounds", 1, 1000);
+    if (review.rounds < review.round) throw new Error(`rounds (${review.rounds}) cannot be less than round (${review.round}).`);
+  }
+  if (review.autoResolve !== undefined && typeof review.autoResolve !== "boolean") {
+    throw new Error("autoResolve must be a boolean when present.");
+  }
   if (review.resetStageIds.length > MAX_STAGES) {
     throw new Error(`A review may reset at most ${MAX_STAGES} stages.`);
   }
