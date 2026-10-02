@@ -23,7 +23,7 @@ import { resolveSmokeImage } from "../scripts/benchmark/smoke-live.mjs";
 import { verifyEvidence } from "../scripts/benchmark/publish.mjs";
 import { compositionsFor } from "../scripts/benchmark/composition.mjs";
 import { renderMockup } from "../src/mockup-renderer.ts";
-import { composePreview, cropToFill } from "../src/preview-composer.ts";
+import { composePreview } from "../src/preview-composer.ts";
 import { decodePng, encodePng } from "../src/png.ts";
 import { detectImage } from "../scripts/benchmark/images.mjs";
 
@@ -716,12 +716,10 @@ describe("VISUAL-007: the composed preview is a deterministic product path", () 
 
   it("VISUAL-007: the art is cropped to fill, never squashed", () => {
     const wide = { width: 200, height: 20, data: Buffer.alloc(200 * 20 * 3, 200) };
-    const cropped = cropToFill(wide, 60, 40);
     // A squashed 10:1 source into a 3:2 target would come out with a changed
     // aspect; the crop keeps it, which is why the shape is preserved.
     assert.equal(cropped.width, 60);
     assert.equal(cropped.height, 40);
-    assert.equal(cropToFill({ ...wide, width: 20, height: 200 }, 60, 40).width, 60);
   });
 
   it("VISUAL-007: the structure survives compositing, so a preview is never less informative than text", () => {

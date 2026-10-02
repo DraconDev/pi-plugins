@@ -75,29 +75,6 @@ export interface ComposeOptions {
 
 const DEFAULT_FRAME: Rgb = [24, 28, 35];
 
-/**
- * Crop-to-fill: take the largest centred source rectangle with the target
- * aspect, then resample it. A squashed image distorts the shapes the treatment
- * is judged on, so the crop happens first.
- */
-export function cropToFill(art: DecodedImage, targetWidth: number, targetHeight: number): DecodedImage {
-  if (art.width <= 0 || art.height <= 0) throw new Error("Art image has no pixels.");
-  const targetAspect = targetWidth / targetHeight;
-  const sourceAspect = art.width / art.height;
-  let width = art.width;
-  let height = art.height;
-  if (sourceAspect > targetAspect) width = Math.max(1, Math.round(art.height * targetAspect));
-  else height = Math.max(1, Math.round(art.width / targetAspect));
-  const left = Math.floor((art.width - width) / 2);
-  const top = Math.floor((art.height - height) / 2);
-  const cropped = Buffer.alloc(width * height * 3);
-  for (let y = 0; y < height; y += 1) {
-    const source = ((top + y) * art.width + left) * 3;
-    art.data.copy(cropped, y * width * 3, source, source + width * 3);
-  }
-  return resampleArea({ width, height, data: cropped }, targetWidth, targetHeight);
-}
-
 /** Decode a generated PNG into the composer's pixel form. */
 export function decodeArt(bytes: Buffer): DecodedImage {
   return decodePng(bytes);
