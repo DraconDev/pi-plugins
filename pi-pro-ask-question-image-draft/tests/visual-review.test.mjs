@@ -979,8 +979,8 @@ describe("the plain-chat script offers what the dialog path offers", () => {
         ],
       }],
     });
-    assert.match(fallbackText(withDataUri, "no_ui"), /inline data URI/, "the script already named it");
-    // The dialog path dropped it, so the two paths disagreed about the same option.
-    assert.match(fallbackText(withDataUri, "no_ui"), /Inline — inline data URI/);
+    // The dialog path dropped it, so the two paths disagreed about the same
+    // option: the script named the bytes and the choice list showed a bare label.
+    assert.match(fallbackText(withDataUri, "no_ui"), /Inline — image: inline data URI/);
   });
 });
