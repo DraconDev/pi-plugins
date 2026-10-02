@@ -287,11 +287,16 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
                 version: 1,
                 reviewId: review.reviewId,
                 round: review.round,
-                status: "fallback",
+                // `fallback`/`no_ui` is reserved for a host that genuinely cannot
+                // show the review, and the guidelines tell the model to read it as
+                // that. Borrowing it for "still generating" logged a perfectly
+                // healthy run as a degraded host in every transcript and ledger
+                // that recorded the details.
+                status: "failed",
                 decision: "fallback",
                 cancelled: false,
                 answers: [],
-                fallback: { reason: "no_ui", message: "Image generation is in progress." },
+                error: "Image generation is in progress; the review will open when it finishes.",
               },
             },
           }),
