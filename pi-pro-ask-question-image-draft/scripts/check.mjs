@@ -4,7 +4,8 @@ import { existsSync } from "node:fs";
 import { readFile, stat, writeFile, rm, mkdtemp } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { fileURLToPath, resolve } from "node:path";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 // `typescript` is a devDependency, so a clean clone has it in `node_modules`
