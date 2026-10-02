@@ -2156,12 +2156,12 @@ export async function runVisualReviewWizard(
         initialSkippedStageIds,
         initialGlobalNote,
         keybindings,
-        droppedAnswerStageIds,
         async (value) => {
           const command = SettingsManager.create(ctx.cwd, undefined, { projectTrusted: ctx.isProjectTrusted() }).getExternalEditorCommand();
           if (!command) return ctx.ui.editor("Edit custom answer", value);
           return editWithExternalEditor(tui, command, value);
         },
+        droppedAnswerStageIds,
       );
       return wizard;
     }, {
