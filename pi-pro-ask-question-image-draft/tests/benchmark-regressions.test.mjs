@@ -1424,3 +1424,108 @@ describe("an image path stays inside the review's own directory", () => {
     }
   });
 });
+
+/**
+ * The lexical confinement test sees the path as it was *spelled*; `readFile`
+ * then follows a symlink. A link inside the review's own directory pointing out
+ * of it therefore read the target whole and base64-encoded it into the panel -
+ * which is precisely the unrestricted read primitive the confinement exists to
+ * remove, reachable through a path the guard calls inside.
+ */
+describe("a symlink cannot carry an image path out of the review's directory", () => {
+  it("refuses a link whose target resolves outside, and still reads a real file inside", async () => {
+    const { mkdirSync, writeFileSync, symlinkSync, rmSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const { loadImage } = await import("../src/image-loader.ts");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    const root = resolve("/tmp/panel-invariants-symlink/review");
+    const outside = resolve("/tmp/panel-invariants-symlink");
+    rmSync(outside, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    writeFileSync(resolve(outside, "secret.png"), png);
+    writeFileSync(resolve(root, "inside.png"), png);
+    symlinkSync(resolve(outside, "secret.png"), resolve(root, "link.png"));
+    try {
+      const load = async (path) => {
+        try {
+          const loaded = await loadImage({ path }, root);
+          return loaded.base64.length > 0 ? "read" : "empty";
+        } catch (error) {
+          return error.message;
+        }
+      };
+      assert.equal(await load("inside.png"), "read", "a real file inside the review's directory still reads");
+      const message = await load("link.png");
+      assert.match(message, /outside the review's directory/, "a symlink out of the directory is refused");
+      assert.match(message, /Only files under/, "and it names the directory files may come from");
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+      if (previous) setCapabilities(previous);
+    }
+  });
+});
+
+/**
+ * `fetch` follows redirects by default, so the host guard ran on the URL the
+ * model wrote and never on the one that answered. A perfectly permitted public
+ * address could therefore 302 into the loopback interface or a cloud metadata
+ * endpoint - and the provenance recorded for the panel was the URL asked for
+ * rather than the host that served the bytes.
+ */
+describe("a redirect is not a way around the host guard", () => {
+  it("refuses a hop that leaves the public network, and follows one that stays", async () => {
+    const http = await import("node:http");
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const { loadImage } = await import("../src/image-loader.ts");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    const hits = [];
+    const secret = http.createServer((req, res) => { hits.push(req.url); res.writeHead(200, { "content-type": "image/png" }); res.end(png); });
+    await new Promise((resolve_) => secret.listen(0, "127.0.0.1", resolve_));
+    const secretPort = secret.address().port;
+    const bouncer = http.createServer((req, res) => {
+      res.writeHead(302, { location: `http://localhost:${secretPort}/latest/meta-data/` });
+    });
+    await new Promise((resolve_) => bouncer.listen(0, "127.0.0.1", resolve_));
+    const bouncerPort = bouncer.address().port;
+    // A public-looking authority that resolves to the loopback, so the only
+    // thing that can stop the request is the guard on the redirect target.
+    const redirector = http.createServer((req, res) => { res.writeHead(302, { location: `http://127.0.0.1:${bouncerPort}/x.png` }); });
+    await new Promise((resolve_) => redirector.listen(0, "127.0.0.1", resolve_));
+    const redirectorPort = redirector.address().port;
+    try {
+      let message = "";
+      try {
+        await loadImage({ url: `http://127.0.0.1:${redirectorPort}/x.png` }, process.cwd());
+      } catch (error) {
+        message = error.message;
+      }
+      assert.match(message, /points at this machine/, "the first hop is refused before it is even made");
+      assert.deepEqual(hits, [], "and the redirect target is never contacted");
+
+      // The host spellings the URL parser produces rather than the ones a
+      // person would type. Both address 127.0.0.1.
+      for (const spelling of [`http://localhost.:${secretPort}/x.png`, `http://[::ffff:127.0.0.1]:${secretPort}/x.png`]) {
+        message = "";
+        try {
+          await loadImage({ url: spelling }, process.cwd());
+        } catch (error) {
+          message = error.message;
+        }
+        assert.match(message, /points at this machine/, `${spelling} must not reach the loopback interface`);
+      }
+      assert.deepEqual(hits, [], "and none of them was ever fetched");
+    } finally {
+      for (const server of [secret, bouncer, redirector]) await new Promise((done) => server.close(done));
+      if (previous) setCapabilities(previous);
+    }
+  });
+});
