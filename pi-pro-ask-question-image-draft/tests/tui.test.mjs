@@ -2435,3 +2435,100 @@ describe("an external editor that fails is a message, not a crash", () => {
     }
   });
 });
+
+/**
+ * Three places where the panel's own arithmetic disagreed with what it drew.
+ */
+describe("the panel's arithmetic matches what it draws", () => {
+  it("the stacked layout says so when it cuts the prompt", () => {
+    // The clamp was measured against three rendered lines while the footer
+    // draws one, so a prompt of up to ~3 lines was cut with neither the marker
+    // nor the Ctrl+R hint - the other half of the fix that added them.
+    const stacked = () => new VisualReviewWizard(
+      { requestRender: () => {}, terminal: { rows: 44 } }, theme(),
+      normalizeReview({
+        reviewId: "clamp", images: "off",
+        stages: [{
+          id: "one", header: "Layout", prompt: "Pick carefully here",
+          options: [
+            { id: "a", label: "A", image: { path: fileURLToPath(new URL("./fixtures/tui-smoke.png", import.meta.url)), alt: "Fixture" } },
+            { id: "b", label: "B" },
+          ],
+        }],
+      }),
+      process.cwd(), () => {},
+    );
+    // One line's worth: no marker, no hint, and the whole question is there.
+    const fits = stacked();
+    try {
+      const frame = fits.render(100).join("\n");
+      assert.doesNotMatch(frame, /prompt continues/, "a prompt that fits must not claim it was cut");
+      assert.match(frame, /Pick carefully here/);
+    } finally {
+      fits.dispose();
+    }
+    // Two lines' worth: cut, and it must say so.
+    const long = stacked();
+    try {
+      const review = normalizeReview({
+        reviewId: "clamp2", images: "off",
+        stages: [{
+          id: "one", header: "Layout", prompt: `${"First sentence. ".repeat(8)}${"Second paragraph ".repeat(4)}`,
+          options: [
+            { id: "a", label: "A", image: { path: fileURLToPath(new URL("./fixtures/tui-smoke.png", import.meta.url)), alt: "Fixture" } },
+            { id: "b", label: "B" },
+          ],
+        }],
+      });
+      const wide = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 44 } }, theme(), review, process.cwd(), () => {});
+      const frame = wide.render(100).join("\n");
+      assert.doesNotMatch(frame, /Second paragraph/, "the tail of a long prompt is cut");
+      assert.match(frame, /prompt continues/, "and the panel says it was cut, with the key that undoes it");
+      assert.match(frame, /Ctrl\+R/, "naming the key in the hints as well");
+      wide.dispose();
+    } finally {
+      long.dispose();
+    }
+  });
+
+  it("the scroll window pins every row of the tail it draws", () => {
+    // `tailLines` opens with a blank and closes with a blank before the rule;
+    // `tailRows` counted one blank and the rule, so the pinned window was a row
+    // short and the blank above the controls could scroll into the body.
+    const component = new VisualReviewWizard(
+      { requestRender: () => {}, terminal: { rows: 20 } }, theme(), review(), process.cwd(), () => {},
+    );
+    try {
+      const rows = component.tailRows();
+      const tail = component.tailLines();
+      assert.ok(rows >= tail.length, `tailRows (${rows}) must cover every row tailLines emits (${tail.length})`);
+      assert.equal(rows, tail.length, "and pin exactly the tail, no more");
+    } finally {
+      component.dispose();
+    }
+  });
+
+  it("says which carried answers the revised round dropped", () => {
+    // A carried answer the revised stage no longer accepts is dropped on
+    // purpose - but not silently. `droppedAnswers` existed and was never called,
+    // so the ledger's claim was true of the helper and false of the behaviour.
+    const component = new VisualReviewWizard(
+      { requestRender: () => {}, terminal: { rows: 40 } }, theme(), review(), process.cwd(), () => {}, [], undefined, [], "",
+      undefined, undefined, ["one", "optional"],
+    );
+    try {
+      const frame = component.render(100).join("\n");
+      assert.match(frame, /Reconsidered this round: one, optional/, "the dropped stages are named");
+    } finally {
+      component.dispose();
+    }
+    const none = new VisualReviewWizard(
+      { requestRender: () => {}, terminal: { rows: 40 } }, theme(), review(), process.cwd(), () => {},
+    );
+    try {
+      assert.doesNotMatch(none.render(100).join("\n"), /Reconsidered this round/, "and nothing is said when nothing was dropped");
+    } finally {
+      none.dispose();
+    }
+  });
+});
