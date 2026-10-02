@@ -345,9 +345,11 @@ describe("ledger: harness defects", () => {
     // regression guard for two P0 harness defects could not fail, whatever
     // `validateCorpus` did.
     assert.equal(validateCorpus(corpus), true, "a local-only invalid scenario may carry a reserved label");
-    const crossing = structuredClone(corpus);
-    crossing.scenarios[0].comparisonScope = "cross-session";
-    assert.throws(() => validateCorpus(crossing), /local-only/, "and the same label is still refused when the scenario compares across sessions");
+    const crossing = generateCorpus({ count: 4, seed: 7 });
+    crossing.scenarios[0].canonicalInput.questions[0].options.push({ label: "Other", description: "probes the reserved label" });
+    crossing.scenarios[0].inputValid = false;
+    crossing.scenarios[0].expected = { outcome: "invalid", oracle: "exact", classification: "rejected-before-ui", answers: [] };
+    assert.throws(() => validateCorpus(crossing), /local-only/, "and the same label is still refused when the scenario is not local-only");
   });
 
   it("HARNESS-009: an existing imported corpus is re-validated rather than silently overwritten", async () => {
