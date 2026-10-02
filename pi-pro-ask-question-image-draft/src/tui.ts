@@ -993,12 +993,7 @@ export class VisualReviewWizard implements Component, Focusable {
     // the band is a window onto every option, the window is as tall as the
     // picture can afford, and the options outside it are a scroll away rather
     // than gone.
-    // The picture's floor outranks the list's length. A band too tall for the
-    // panel does not get to shrink the picture to a sliver - it becomes a window
-    // that scrolls, so every option stays reachable *and* the treatment stays
-    // something a person can judge. `room` is what is left for the artwork if the
-    // band stays as long as it is, and the window engages when that falls under
-    // the picture's floor.
+
     //
     // The visible-row count is `windowBand`'s, and it is per *content type*: a
     // stage carrying a picture, a preview or a change list renders different rows,
