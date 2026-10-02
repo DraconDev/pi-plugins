@@ -174,21 +174,23 @@ export function renderMockupText(spec: {
     return parts.join("  ");
   };
   // Rows are admitted while the *lines* they need fit, so a frame of ten rows
-  // that all carry a detail shows fewer rows rather than one row too many.
-  let used = 0;
-  const admitted: Array<(typeof wanted)[number]> = [];
-  for (const entry of wanted) {
-    const cost = 1 + (continuationOf(entry) ? 1 : 0);
-    if (used + cost > Math.max(0, height - chrome)) break;
-    used += cost;
-    admitted.push(entry);
-  }
-  const shown = admitted;
-  const overflows = wanted.length > shown.length;
-  const dropTheRest = () => {
-    const rest = wanted.length - shown.length;
-    lines.push(row(`…and ${rest} more`));
+  // that all carry a detail shows fewer rows rather than one row too many. The
+  // `…and N more` marker is a line of its own and has to come out of the same
+  // budget, so when anything is dropped the admission is redone one line tighter.
+  const admit = (budget: number): Array<(typeof wanted)[number]> => {
+    const out: Array<(typeof wanted)[number]> = [];
+    let used = 0;
+    for (const entry of wanted) {
+      const cost = 1 + (continuationOf(entry) ? 1 : 0);
+      if (used + cost > Math.max(0, budget)) break;
+      used += cost;
+      out.push(entry);
+    }
+    return out;
   };
+  let shown = admit(height - chrome);
+  if (shown.length < wanted.length) shown = admit(height - chrome - 1);
+  const overflows = wanted.length > shown.length;
 
   // The tail is ` bar status`, and the longest status word is four characters,
   // so the tail needs six inner cells before the label is given any. Getting
@@ -213,7 +215,7 @@ export function renderMockupText(spec: {
     if (continuation) lines.push(row(`${left}     ${truncate(continuation, Math.max(1, inner - cells(left) - 5))}`));
   });
   if (overflows) {
-    dropTheRest();
+    lines.push(row(`…and ${wanted.length - shown.length} more`));
   }
 
   lines.push(bottom);
