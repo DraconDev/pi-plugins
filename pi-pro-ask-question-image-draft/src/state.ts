@@ -201,14 +201,6 @@ export function unresolvedStages(
   });
 }
 
-/** Return the first required stage that cannot yet be approved. */
-export function firstMissingRequiredStage(
-  review: NormalizedReview,
-  answers: ReadonlyMap<string, ReviewAnswer> | readonly ReviewAnswer[],
-): NormalizedStage | undefined {
-  return missingRequiredStages(review, answers)[0];
-}
-
 /** Return the first stage that must be answered or explicitly skipped. */
 export function firstUnresolvedStage(
   review: NormalizedReview,
@@ -427,10 +419,6 @@ export function makeReviewState(
   };
 }
 
-export function answersForStage(answers: readonly ReviewAnswer[], stageId: string): ReviewAnswer | undefined {
-  return answers.find((answer) => answer.stageId === stageId);
-}
-
 /**
  * Merge answers by stable stage id. Stage indexes are repaired when a review
  * gains/reorders stages, so a revision does not discard otherwise valid work.
@@ -619,36 +607,4 @@ export function makeReviewResult(
     ...(globalNote ? { globalNote } : {}),
     ...(revision ? { revision: { ...revision } } : {}),
   };
-}
-
-export function resultFromState(state: ReviewState, decision: ReviewDecision, revision?: ReviewRevision): ReviewResult {
-  if (decision === "fallback") {
-    return {
-      version: 1,
-      reviewId: state.reviewId,
-      round: state.round,
-      status: "fallback",
-      decision,
-      cancelled: false,
-      answers: [],
-    };
-  }
-  const review: NormalizedReview = {
-    reviewId: state.reviewId,
-    round: state.round,
-    images: state.images === "on" ? "on" : "off",
-    density: state.density === "compact" ? "compact" : "comfortable",
-    title: state.title,
-    provider: state.provider,
-    model: state.model,
-    imagePrompt: state.imagePrompt,
-    notes: state.notes,
-    generation: state.generation,
-    resetStageIds: state.resetStageIds,
-    stages: state.stages,
-  };
-  const result = makeReviewResult(review, decision, state.answers, revision, state.skippedStageIds, state.globalNote);
-  return state.generatedImages && state.generatedImages.length > 0
-    ? { ...result, generatedImages: state.generatedImages.map((image) => ({ ...image })) }
-    : result;
 }
