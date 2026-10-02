@@ -892,8 +892,13 @@ export function validateReview(review: NormalizedReview): void {
         }
         for (const [index, row] of (option.mockup.rows ?? []).entries()) {
           if (row.label.length > 120) throw new Error(`Mockup row ${index} label for option ${option.id} is too long.`);
-          if (row.value !== undefined && (row.value < 0 || row.value > 1)) {
-            throw new Error(`Mockup row ${index} value for option ${option.id} must be between 0 and 1.`);
+          if (row.value !== undefined && (typeof row.value !== "number" || !Number.isFinite(row.value) || row.value < 0 || row.value > 1)) {
+            // `Number.isFinite`, not just the range: every comparison with NaN is
+            // false, so a NaN passed both halves of the range test. The input
+            // path was hardened by `boundedNumber` in `normalizeMockup`; this
+            // is the path a *restored* state takes, and `state.ts` names
+            // `validateReview` as the only gate it passes through.
+            throw new Error(`Mockup row ${index} value for option ${option.id} must be a number between 0 and 1.`);
           }
         }
       }
