@@ -1309,3 +1309,64 @@ describe("the text mockup's frame is a frame", () => {
     assert.ok(widths[0] <= 40, "and do not overflow the width they were given");
   });
 });
+
+/**
+ * A hostile PNG is a bounded error, not a 4.8 GB allocation.
+ *
+ * A PNG declares its own dimensions and those dimensions decide the size of the
+ * decode buffer, so a 62-byte file claiming 40000x40000 is enough to ask for
+ * gigabytes. The chunk loop had the same problem in miniature: a declared chunk
+ * length was truncated silently rather than reported, which turned a short IHDR
+ * into undefined fields and an over-long one into a loop that ended with no
+ * error at all.
+ */
+describe("a hostile PNG is refused, not attempted", () => {
+  /** A syntactically valid PNG whose IHDR claims whatever we like. */
+  const claiming = async (width, height, colorType = 2) => {
+    const { deflateSync } = await import("node:zlib");
+    const table = [];
+    for (let n = 0; n < 256; n += 1) {
+      let c = n;
+      for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      table[n] = c >>> 0;
+    }
+    const crc = (buffer) => {
+      let c = 0xffffffff;
+      for (const byte of buffer) c = table[(c ^ byte) & 0xff] ^ (c >>> 8);
+      return (c ^ 0xffffffff) >>> 0;
+    };
+    const chunk = (type, body) => {
+      const length = Buffer.alloc(4);
+      length.writeUInt32BE(body.length);
+      const typed = Buffer.concat([Buffer.from(type, "ascii"), body]);
+      const check = Buffer.alloc(4);
+      check.writeUInt32BE(crc(typed));
+      return Buffer.concat([length, typed, check]);
+    };
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(width, 0);
+    ihdr.writeUInt32BE(height, 4);
+    ihdr[8] = 8;
+    ihdr[9] = colorType;
+    const idat = deflateSync(Buffer.alloc(Math.max(1, Math.min(64, width * height * 3))));
+    return Buffer.concat([
+      Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+      chunk("IHDR", ihdr), chunk("IDAT", idat), chunk("IEND", Buffer.alloc(0)),
+    ]);
+  };
+
+  it("refuses dimensions that would allocate gigabytes", async () => {
+    const { decodePng } = await import("../src/png.ts");
+    assert.throws(() => decodePng(claiming(40000, 40000)), /40000x40000|the limit is/);
+    assert.throws(() => decodePng(claiming(0, 100)), /not positive/);
+    assert.ok(decodePng(claiming(8, 8)).length > 0, "an ordinary PNG is unaffected");
+  });
+
+  it("reports a chunk that lies about its length", async () => {
+    const { decodePng } = await import("../src/png.ts");
+    const png = await claiming(4, 4);
+    const at = png.indexOf(Buffer.from("IDAT", "ascii"));
+    png.writeUInt32BE(0xffff, at - 4);
+    assert.throws(() => decodePng(png), /claims 65535 bytes|only/);
+  });
+});
