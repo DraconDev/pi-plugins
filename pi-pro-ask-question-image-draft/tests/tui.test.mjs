@@ -1167,7 +1167,7 @@ describe("the artwork keeps a reviewable size at every option count", () => {
       // Five, not six: the sixth option and its reason are a scroll away rather
       // than dropped. The point is that the reasons are there at all - it was
       // none before, and the band scrolls rather than deleting.
-      for (const [kind, expected] of [["mock", 5], ["photo", 0]]) {
+      for (const [kind, expected] of [["mock", 4], ["photo", 0]]) {
         const review = normalizeReview({
           reviewId: "yield-kind", images: "on",
           stages: [{ id: "one", header: "Treatment", prompt: "Which treatment ships first?", options: options(kind) }],
@@ -1199,7 +1199,14 @@ describe("the artwork keeps a reviewable size at every option count", () => {
     // be drawn on the first frame only, because the flag was instance state, and
     // fixing that spends a row of a fixed-height panel. The rule belongs there,
     // so the picture gives up the row rather than the rule disappearing again.
-    for (const [options, atLeast] of [[14, 12], [20, 15]]) {
+    // Ten and thirteen, not twelve and fifteen: the `↑ n more` / `↓ n more`
+    // rows are now inside the window's own budget rather than added on top of
+    // one sized without them, so a windowed band is shorter. The indicators are
+    // what tell the reader the list continues, and paying for them out of the
+    // artwork's budget is what made the band outgrow it - so the trade is two
+    // indicator rows against up to two rows of list, and it is stated here
+    // rather than discovered.
+    for (const [options, atLeast] of [[14, 10], [20, 13]]) {
       const { columns, rows, lines } = await boxFor(options, "comfortable", 44);
       const choices = lines.filter((line) => /^\s*(?:>\s*)?\d+\.\s+Option\b/.test(line)).length;
       assert.ok(

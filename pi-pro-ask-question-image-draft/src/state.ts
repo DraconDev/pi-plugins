@@ -415,6 +415,23 @@ export function answersForStage(answers: readonly ReviewAnswer[], stageId: strin
  * Merge answers by stable stage id. Stage indexes are repaired when a review
  * gains/reorders stages, so a revision does not discard otherwise valid work.
  */
+/**
+ * Previous answers that the revised review no longer supports.
+ *
+ * An answer is dropped silently when the stage it belonged to has changed
+ * underneath it - an option renamed, a selection no longer valid - and the
+ * reader sees an empty stage with no hint that they had answered it. The drop
+ * is correct; the silence is not. The panel names these so a revised round can
+ * say which stages were reconsidered rather than presenting them as new.
+ */
+export function droppedAnswers(previous: readonly ReviewAnswer[], stages: readonly NormalizedStage[]): ReviewAnswer[] {
+  return previous.filter((answer, offset) => {
+    const stage = stages.find((candidate) => candidate.id === answer.stageId);
+    const index = stage ? stages.indexOf(stage) : offset;
+    return !stage || !answerIsValid(answer, stage, index, true);
+  });
+}
+
 export function mergeAnswers(previous: readonly ReviewAnswer[], stages: readonly NormalizedStage[]): Map<string, ReviewAnswer> {
   const merged = new Map<string, ReviewAnswer>();
   for (const [index, stage] of stages.entries()) {

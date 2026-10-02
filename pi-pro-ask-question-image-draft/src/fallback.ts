@@ -159,7 +159,12 @@ export async function runDialogReview(
     const optionIds = new Set(
       previous?.kind === "multi" ? previous.optionIds?.filter((id) => stage.options.some((option) => option.id === id)) ?? [] : [],
     );
-    let confirmed = !stage.multiSelect && previous !== undefined;
+    // Not auto-confirmed. A stage answered in a previous round used to be
+    // accepted without being shown, so a resumed review could be approved with
+    // stages the user had not seen this round - one fewer dialog than the stage
+    // count, with nothing saying so. Asking again costs a keystroke; skipping a
+    // question the user did not answer costs the answer.
+    let confirmed = false;
     let skipStage = false;
     let customText: string | undefined;
     let revisionFeedback: string | undefined;

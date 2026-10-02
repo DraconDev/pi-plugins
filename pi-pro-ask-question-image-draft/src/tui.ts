@@ -1031,6 +1031,13 @@ export class VisualReviewWizard implements Component, Focusable {
     const bandWindow = stage && hasVisualContent(stage) && footerLines.length > 0 && crowded
       ? this.windowBand(footerLines, Math.max(floor - room(footerLines, tailLines), pastTheCap))
       : null;
+    // A stage's image prompt is the note for the *next* generation pass, and it
+    // was only ever surfaced by the plain-chat fallback - so a model that set one
+    // and got an interactive panel back had no way to see what it had asked for.
+    if (stage?.imagePrompt && footerLines.length > 0) {
+      footerLines.push(this.theme.fg("dim", ` Next image prompt: ${truncateToWidth(stage.imagePrompt, safeWidth - 22)}`));
+    }
+
     // Stacked or side-by-side is decided on the *degraded* band: the band gives
     // up its reasons before the layout gives up the picture or the frame.
     // Stacked is the layout for a stage that has content. The artwork is sized
@@ -1162,16 +1169,15 @@ export class VisualReviewWizard implements Component, Focusable {
             for (const line of mockupTextLines(option.mockup, safeWidth - 2, imageBudget)) {
               detail.push(this.theme.fg("text", line));
             }
-          } else if (option.mockup && imageBudget >= MOCKUP_MIN_ROWS) {
-            // Below the rows it needs to show anything, a mockup is a title and a
-            // count with nothing under them - and the reasons are worth more than
-            // that. So it is not drawn, rather than drawn as an empty box.
-            const mockup = this.mockupLines(option.mockup, safeWidth - 2, imageBudget);
-            if (mockup && mockup.length > 0) {
-              if (art.length > 0) detail.push("");
-              detail.push(...mockup);
-            }
+          } else if (option.mockup) {
+            // A mockup that cannot be given the rows it needs to show anything is
+            // not drawn, and the content area says so. A stage with a long list
+            // yields its artwork floor to zero, so the budget can land below the
+            // six rows a drawing needs - and the reader was left with padding and
+            // no explanation of where their treatment went.
+            detail.push(this.theme.fg("dim", `  ${option.label}: no room in the panel to draw this treatment.`));
           }
+
           // Priority, restored: picture, the change list, the mockup, and the
           // description. In compact the description is the reason the list does
           // not carry, so it is what a reviewer most needs to read there.
@@ -1873,7 +1879,13 @@ export class VisualReviewWizard implements Component, Focusable {
     // The window always contains the cursor, and always fits the budget. Growing
     // greedily in one direction only is what left the cursor on a row that had
     // scrolled out of the window, with no marker anywhere on an option.
-    const budgetRows = Math.max(1, (last - first + 1) - growBy);
+    //
+    // The budget covers the `↑ n more` and `↓ n more` rows too. They were added
+    // on top of a window sized without them, so the band could come back up to
+    // two rows taller than the artwork budget was computed for - which the
+    // artwork absorbed, except when the squeeze had nothing left to give.
+    const INDICATOR_ROWS = 2;
+    const budgetRows = Math.max(1, (last - first + 1) - growBy - INDICATOR_ROWS);
     const fits = (from: number, to: number): boolean => {
       const top = choiceRows[from]!;
       const bottom = to < choiceRows.length ? choiceRows[to]! + (choiceRows[to + 1]! - choiceRows[to]!) - 1 : last;
