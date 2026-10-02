@@ -476,9 +476,10 @@ export class VisualReviewWizard implements Component, Focusable {
     signal?: AbortSignal,
     initialSkippedStageIds: readonly string[] = [],
     initialGlobalNote = "",
-    droppedAnswerStageIds: readonly string[] = [],
     keybindings?: KeybindingsManager,
     editExternal?: (value: string) => Promise<string | undefined>,
+    /** Stages whose carried answer the revised review no longer accepts. */
+    droppedAnswerStageIds: readonly string[] = [],
   ) {
     this.review = review;
     this.theme = theme;
@@ -2154,8 +2155,8 @@ export async function runVisualReviewWizard(
         ctx.signal,
         initialSkippedStageIds,
         initialGlobalNote,
-        droppedAnswerStageIds,
         keybindings,
+        droppedAnswerStageIds,
         async (value) => {
           const command = SettingsManager.create(ctx.cwd, undefined, { projectTrusted: ctx.isProjectTrusted() }).getExternalEditorCommand();
           if (!command) return ctx.ui.editor("Edit custom answer", value);
