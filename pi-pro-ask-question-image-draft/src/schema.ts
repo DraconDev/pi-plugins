@@ -430,6 +430,52 @@ function assertRawOption(value: unknown, stageIndex: number, optionIndex: number
   if (value.generate !== undefined) normalizeImageGeneration(value.generate, `Stage ${stageIndex + 1} option ${optionIndex + 1}`);
 }
 
+/**
+ * The unions the schema *declares* and the normaliser used to *cast* to.
+ *
+ * There is no runtime TypeBox validation in this project, so a `Type.Literal`
+ * union in `MockupSchema` is documentation: nothing checked it, and the renderer
+ * then switched on whatever string arrived. Naming the members here is what
+ * makes the union real, and it is one list rather than three inline arrays.
+ */
+const MOCKUP_LAYOUTS = ["list", "airy", "split", "dense", "rail", "board", "chart", "overlay", "steps", "tiles"] as const;
+const MOCKUP_EMPHASIS = ["dialog", "banner", "toast", "sheet", "highlight"] as const;
+const MOCKUP_STATUS = ["danger", "warn", "ok", "accent", "muted"] as const;
+
+/** Bounds for the geometry the renderer turns straight into pixel dimensions. */
+const MOCKUP_CELL_LIMITS = { min: 1, max: 400 } as const;
+
+/**
+ * A finite number inside a range, or a thrown error naming the field.
+ *
+ * `NaN` is the reason this exists: every comparison with it is false, so a range
+ * check written as `value < min || value > max` passes it, and `NaN` then
+ * reaches the renderer as a bar width or a canvas dimension.
+ */
+const boundedNumber = (value: unknown, field: string, min: number, max: number): number => {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) {
+    throw new Error(`${field} must be a number between ${min} and ${max}.`);
+  }
+  return Math.floor(value);
+};
+
+const oneOf = <T extends string>(value: unknown, allowed: readonly T[], field: string): T | undefined => {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !(allowed as readonly string[]).includes(value)) {
+    throw new Error(`${field} must be one of ${allowed.join(", ")}.`);
+  }
+  return value as T;
+};
+
+/** A string from input, bounded, or undefined - never an arbitrary-length one. */
+const boundedText = (value: unknown, field: string, maxLength: number): string | undefined => {
+  if (value === undefined) return undefined;
+  const text = optionalText(value, field);
+  if (text === undefined) return undefined;
+  if (text.length > maxLength) throw new Error(`${field} is longer than ${maxLength} characters.`);
+  return text;
+};
+
 function normalizeMockup(value: unknown, field: string): MockupSpec {
   if (!isRecord(value)) throw new Error(`${field}.mockup must be an object.`);
   const rows = value.rows;
@@ -441,25 +487,40 @@ function normalizeMockup(value: unknown, field: string): MockupSpec {
     const label = optionalText(row.label, `${field}.mockup.rows[${index}].label`);
     if (!label) throw new Error(`${field}.mockup.rows[${index}].label must be a non-empty string.`);
     if (label.length > 120) throw new Error(`${field}.mockup.rows[${index}].label is too long.`);
-    if (row.value !== undefined && (typeof row.value !== "number" || row.value < 0 || row.value > 1)) {
-      throw new Error(`${field}.mockup.rows[${index}].value must be a number between 0 and 1.`);
+    if (row.value !== undefined) {
+      // Every comparison with NaN is false, so the old `row.value < 0 || row.value > 1`
+      // check waved NaN straight through to the bar renderer.
+      boundedNumber(row.value, `${field}.mockup.rows[${index}].value`, 0, 1);
     }
     return {
-      status: row.status as MockupSpec["rows"][number]["status"],
-      code: optionalText(row.code, `${field}.mockup.rows[${index}].code`),
+      status: oneOf(row.status, MOCKUP_STATUS, `${field}.mockup.rows[${index}].status`),
+      code: boundedText(row.code, `${field}.mockup.rows[${index}].code`, 6),
       label,
       value: row.value as number | undefined,
-      detail: optionalText(row.detail, `${field}.mockup.rows[${index}].detail`),
+      detail: boundedText(row.detail, `${field}.mockup.rows[${index}].detail`, 200),
     };
   });
+  let headers: string[] | undefined;
+  if (value.headers !== undefined) {
+    if (!Array.isArray(value.headers) || value.headers.length > 4) {
+      throw new Error(`${field}.mockup.headers must be an array of at most 4 headers.`);
+    }
+    headers = value.headers.map((header, index) => {
+      const text = String(header);
+      if (text.length > 20) throw new Error(`${field}.mockup.headers[${index}] is longer than 20 characters.`);
+      return text;
+    });
+  }
   return {
-    layout: value.layout as MockupSpec["layout"],
-    title: optionalText(value.title, `${field}.mockup.title`),
-    emphasis: value.emphasis as MockupSpec["emphasis"],
-    headers: Array.isArray(value.headers) ? value.headers.map((header) => String(header)) : undefined,
+    layout: oneOf(value.layout, MOCKUP_LAYOUTS, `${field}.mockup.layout`),
+    title: boundedText(value.title, `${field}.mockup.title`, 120),
+    emphasis: oneOf(value.emphasis, MOCKUP_EMPHASIS, `${field}.mockup.emphasis`),
+    headers,
     rows: normalizedRows,
-    widthCells: typeof value.widthCells === "number" ? value.widthCells : undefined,
-    heightCells: typeof value.heightCells === "number" ? value.heightCells : undefined,
+    // These go straight to `new Canvas(widthCells * 8, heightCells * 16)`, so a
+    // negative one throws an uncaught RangeError and a huge one allocates.
+    widthCells: value.widthCells === undefined ? undefined : boundedNumber(value.widthCells, `${field}.mockup.widthCells`, MOCKUP_CELL_LIMITS.min, MOCKUP_CELL_LIMITS.max),
+    heightCells: value.heightCells === undefined ? undefined : boundedNumber(value.heightCells, `${field}.mockup.heightCells`, MOCKUP_CELL_LIMITS.min, MOCKUP_CELL_LIMITS.max),
   };
 }
 
