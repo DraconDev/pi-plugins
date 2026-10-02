@@ -449,6 +449,8 @@ export class VisualReviewWizard implements Component, Focusable {
   private scrollOffset = 0;
   /** The cursor index the scroll was last anchored on; see `visibleLines`. */
   private anchoredCursor = -1;
+  /** Which stage the scroll was last anchored on; see `visibleLines`. */
+  private anchoredStage = "";
   private disposed = false;
   private finished = false;
 
@@ -877,7 +879,20 @@ export class VisualReviewWizard implements Component, Focusable {
 
       footerLines.push(seam());
       const question = stage.prompt.replace(/\s+/g, " ").trim();
+      // The same clamp the non-stacked path has, and the same key to undo it.
+      // A multi-paragraph prompt used to be cut to one line here with no marker
+      // and no Ctrl+R, because the clamp and the expand key only existed on the
+      // other branch - so on the layout every visual review uses, the question
+      // could be unreadable and nothing said so.
+      this.promptClamped = question.length > Math.max(0, (safeWidth - 4) * 3);
       footerLines.push(this.theme.fg("accent", ` ${truncateToWidth(question, safeWidth - 2)}`));
+      if (this.promptClamped && !this.promptExpanded) {
+        footerLines.push(this.theme.fg("dim", ` …prompt continues — Ctrl+R to read it all`));
+      } else if (this.promptExpanded) {
+        for (const line of wrapTextWithAnsi(this.theme.fg("muted", `   ${question}`), Math.max(1, safeWidth - 3))) {
+          footerLines.push(line);
+        }
+      }
       footerLines.push("");
       // The choices get their own band, and the actions below them get a third.
       // Comfortable spells the reason under every choice; compact lists the
@@ -1430,7 +1445,10 @@ export class VisualReviewWizard implements Component, Focusable {
     const target = Math.max(0, Math.min(lines.length - 1, Math.floor(y)));
     const rowStarts: number[] = [];
     for (let index = 0; index < lines.length; index += 1) {
-      if ((lines[index] ?? "").includes("> ")) rowStarts.push(index);
+      // Anchored at the line, not at the first '> ' inside it: a wrapped
+      // description or a change bullet containing that text used to become a
+      // phantom row start, shifting every click below it by one row.
+      if (/^\s*>\s/.test(lines[index] ?? "")) rowStarts.push(index);
     }
     if (!rowStarts.length) return undefined;
     for (let index = rowStarts.length - 1; index >= 0; index -= 1) {
@@ -1485,7 +1503,9 @@ export class VisualReviewWizard implements Component, Focusable {
     // here is it known how tall the frame ended up: the band can be windowed by
     // the picture's floor, which moves rows without any key.
     let offset = Math.min(Math.max(0, this.scrollOffset), maxOffset);
-    if (this.anchoredCursor !== this.selectedIndex) {
+    const stageToken = `${this.stageIndex}:${this.currentStage()?.id ?? ""}`;
+    if (this.anchoredStage !== stageToken || this.anchoredCursor !== this.selectedIndex) {
+      this.anchoredStage = stageToken;
       this.anchoredCursor = this.selectedIndex;
       const bodyEnd = headerCount + body.length;
       const markedAt = lines.findIndex((line, index) => index >= headerCount && index < bodyEnd && /^\s*>\s/.test(stripPlain(line)));
