@@ -1152,17 +1152,9 @@ export class VisualReviewWizard implements Component, Focusable {
           // review asked for one and the host can draw it), the option's own
           // change list, the option's drawn mockup, and the option's description
           // - which in compact is the reason the list itself does not carry.
-          // Photographs are not drawn. A picture competes with the list for rows
-          // and cannot compete fairly - squeezed to three rows it is not judgeable,
-          // so it holds a floor and the reasons go; a wireframe drawn on the cell
-          // grid needs six rows and yields the rest. So the drawn path is the
-          // only one, and the review keeps its reasons at every option count.
-          //
-          // A reference is still accepted and its alt text is still shown: the
-          // words an author wrote beside the picture are the part that survives
-          // being unable to draw it, and dropping them silently would lose the
-          // content the reference was there to carry.
-          const art: string[] = [];
+          const art = this.imagesEnabled && loaded?.image
+            ? imageLines(loaded.image, this.theme, safeWidth - 2, imageBudget)
+            : [];
           if (art.length > 0) detail.push(...art.map((line) => (isImageLine(line) ? line : ` ${line}`)));
           if (option.changes && option.changes.length > 0) {
             if (art.length > 0) detail.push("");
