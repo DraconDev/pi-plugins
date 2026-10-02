@@ -959,6 +959,34 @@ describe("the documented tool-description size is measured, not claimed", () => 
  * what it omits is an outcome the model cannot reach. The dialog path offers
  * approve and reject on every stage; the script named neither.
  */
+/**
+ * A `false` from the final confirmation is a dismissal, not a rejection. Decided
+ * 2026-10-02: `confirm` has no third channel, so Esc and a deliberate "No" are
+ * the same value, and reading it as a rejection recorded "No implementation
+ * should proceed" off a stray Esc.
+ */
+describe("dismissing the final confirmation stops nothing", () => {
+  it("is a cancellation, while an explicit Reject review is still a rejection", async () => {
+    const review = reviewWith([
+      { id: "single", header: "Single", prompt: "Choose one", options: [{ id: "a", label: "A" }, { id: "b", label: "B" }] },
+    ]);
+    const signal = new AbortController().signal;
+    const dismissed = await runDialogReview(
+      { signal, ui: { select: async () => "A", confirm: async () => false, input: async () => undefined } },
+      review,
+    );
+    assert.equal(dismissed.status, "cancelled", "a dismissed final confirmation must not record a rejection");
+    assert.equal(dismissed.cancelled, true);
+    assert.deepEqual(dismissed.skippedStageIds, [], "and the skips the user made are carried on a cancel");
+
+    const rejected = await runDialogReview(
+      { signal, ui: { select: async () => "Reject review", confirm: async () => true, input: async () => undefined } },
+      review,
+    );
+    assert.equal(rejected.status, "rejected", "an explicit Reject review is still how a review is rejected");
+  });
+});
+
 describe("the plain-chat script offers what the dialog path offers", () => {
   it("names approve and reject, and the data URI an option carries", async () => {
     const review = reviewWith([
