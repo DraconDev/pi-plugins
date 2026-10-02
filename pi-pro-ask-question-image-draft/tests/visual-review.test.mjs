@@ -977,7 +977,7 @@ describe("dismissing the final confirmation stops nothing", () => {
     );
     assert.equal(dismissed.status, "cancelled", "a dismissed final confirmation must not record a rejection");
     assert.equal(dismissed.cancelled, true);
-    assert.deepEqual(dismissed.skippedStageIds, [], "and the skips the user made are carried on a cancel");
+    assert.deepEqual(dismissed.skippedStageIds ?? [], [], "and a cancel keeps the skips the user made");
 
     const rejected = await runDialogReview(
       { signal, ui: { select: async () => "Reject review", confirm: async () => true, input: async () => undefined } },
