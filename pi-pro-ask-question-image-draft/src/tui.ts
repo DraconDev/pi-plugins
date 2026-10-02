@@ -95,7 +95,15 @@ const REJECT_LABEL = "Reject review";
  * a choice nobody had seen.
  */
 function isChoiceRow(line: string): boolean {
-  return /^\s*(?:>\s*)?(?:\d+\.\s+|\[[ x]\]\s+)\S/.test(line);
+  // Stripped, and that is the whole fix. `renderRows` draws the cursor prefix
+  // through `theme.fg` and dims the action rows the same way, so in a terminal
+  // with colour on - which is every real terminal - the drawn line is
+  // " \e[36m> \e[39m8. Row" and the bare `/^\s*>/` cannot match it. The band
+  // window therefore could not see the cursor's own row, and dropped it out of
+  // the frame while `selectedIndex` still pointed at it, so Enter answered an
+  // option nobody had seen. The suite never caught it because
+  // `tests/tui.test.mjs` stubs `fg` to the identity function.
+  return /^\s*(?:>\s*)?(?:\d+\.\s+|\[[ x]\]\s+)\S/.test(stripPlain(line));
 }
 
 /** Does this stage carry anything for the content area - a picture, a change list or a mockup? */
@@ -1460,22 +1468,43 @@ export class VisualReviewWizard implements Component, Focusable {
     return { handled: true, focus: true, render: true };
   }
 
+  /**
+   * Which row a click at `y` landed on.
+   *
+   * Measured as an offset from the cursor rather than counted from the top of
+   * the frame, because a crowded band is a *window*: the first option drawn can
+   * be row 7 of 12. Counting from the top answered with a choice that was not on
+   * screen - clicking the drawn `> 8. Option 7` selected `Option 0` - which is
+   * the one thing the window exists to prevent. The cursor is the only drawn
+   * option whose index is already known, because `selectedIndex` is what it
+   * points at, so every other click is measured against it.
+   *
+   * The click lands on the last option row at or above it, so clicking the
+   * reason line printed under an option selects that option rather than the one
+   * below it. A click above the whole band takes the first.
+   */
   private rowAtY(y: number, rowCount: number, width: number): number | undefined {
     if (rowCount <= 0) return undefined;
     const lines = this.cachedLines ?? this.render(width);
     const target = Math.max(0, Math.min(lines.length - 1, Math.floor(y)));
-    const rowStarts: number[] = [];
+    const optionLines: number[] = [];
+    let cursorAt = -1;
     for (let index = 0; index < lines.length; index += 1) {
       // Anchored at the line, not at the first '> ' inside it: a wrapped
       // description or a change bullet containing that text used to become a
       // phantom row start, shifting every click below it by one row.
-      if (/^\s*>\s/.test(lines[index] ?? "")) rowStarts.push(index);
+      if (!isChoiceRow(lines[index] ?? "")) continue;
+      optionLines.push(index);
+      if (/^\s*>\s/.test(stripPlain(lines[index] ?? ""))) cursorAt = optionLines.length - 1;
     }
-    if (!rowStarts.length) return undefined;
-    for (let index = rowStarts.length - 1; index >= 0; index -= 1) {
-      if (rowStarts[index] <= target) return Math.min(rowCount - 1, index);
+    if (optionLines.length === 0 || cursorAt < 0) return undefined;
+    let clicked = -1;
+    for (let at = 0; at < optionLines.length; at += 1) {
+      if (optionLines[at]! > target) break;
+      clicked = at;
     }
-    return 0;
+    if (clicked < 0) clicked = 0;
+    return Math.max(0, Math.min(rowCount - 1, this.selectedIndex + (clicked - cursorAt)));
   }
 
   /**
@@ -1886,7 +1915,7 @@ export class VisualReviewWizard implements Component, Focusable {
     // the window would fail to follow the cursor past its own start. When no row
     // carries the marker at all - an empty band, or a stage whose first row is
     // an action - the cursor stays where it was rather than jumping.
-    const markedAt = choiceRows.findIndex((index) => /^\s*>\s/.test(band[index]!));
+    const markedAt = choiceRows.findIndex((index) => /^\s*>\s/.test(stripPlain(band[index]!)));
     const cursor = Math.max(0, Math.min(
       markedAt >= 0 ? markedAt : Math.min(this.selectedIndex, choiceRows.length - 1),
       choiceRows.length - 1,
