@@ -1195,7 +1195,11 @@ describe("the artwork keeps a reviewable size at every option count", () => {
     // option review showed ten of its options and a twenty option review showed
     // fourteen; the rest were behind a scroll the person had no reason to
     // suspect was hiding them.
-    for (const [options, atLeast] of [[14, 12], [20, 16]]) {
+    // Fifteen, not sixteen: the rule between the choices and the actions used to
+    // be drawn on the first frame only, because the flag was instance state, and
+    // fixing that spends a row of a fixed-height panel. The rule belongs there,
+    // so the picture gives up the row rather than the rule disappearing again.
+    for (const [options, atLeast] of [[14, 12], [20, 15]]) {
       const { columns, rows, lines } = await boxFor(options, "comfortable", 44);
       const choices = lines.filter((line) => /^\s*(?:>\s*)?\d+\.\s+Option\b/.test(line)).length;
       assert.ok(
