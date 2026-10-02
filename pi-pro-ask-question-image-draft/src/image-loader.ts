@@ -27,6 +27,47 @@ const MAX_IMAGE_BYTES = 24 * 1024 * 1024;
  * path and the directory, because a model that gets this back needs to know
  * where to put the file, not just that it was refused.
  */
+/** Hostnames that address this machine rather than somewhere else. */
+function isLocalHost(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (host === "localhost" || host === "ip6-localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true;
+  if (host === "::1" || host === "::" ) return true;
+  // 127.0.0.0/8, 10/8, 172.16/12, 192.168/16, 169.254/16, and the IPv6
+  // unique-local range. Parsed as numbers rather than by string so 2130706433
+  // and 0177.0.0.1 do not slip past.
+  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (a === 127 || a === 10 || a === 0) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;
+    return false;
+  }
+  const v6 = host.replace(/^::ffff:/i, "");
+  if (/^f[cd][0-9a-f]{2}:/i.test(v6)) return true;
+  return /^fc|^fd/i.test(v6);
+}
+
+/** Refuse a URL that addresses this machine rather than the network. */
+function assertFetchableUrl(reference: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(reference);
+  } catch {
+    throw new Error(`Image URL is not a URL: ${reference}`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`Image URL must be http or https, not ${parsed.protocol}`);
+  }
+  if (isLocalHost(parsed.hostname)) {
+    throw new Error(
+      `Image URL points at this machine: ${parsed.hostname}. `
+      + "A review may not fetch from the loopback interface or a private network; pass a file path inside the review's directory instead.",
+    );
+  }
+}
+
 function assertInsideRoot(target: string, root: string): void {
   const inside = relative(resolve(root), resolve(target));
   if (inside === "" || (!inside.startsWith(`..${sep}`) && inside !== ".." && !isAbsolute(inside))) return;
@@ -143,6 +184,12 @@ export async function loadImage(reference: ImageReference, cwd: string, signal?:
       }
       source = path;
     } else if (/^https?:\/\//i.test(reference.url)) {
+      // Host restriction. A review is a JSON file the model writes, so an
+      // `image.url` is a fetch the model chose: without this, a link to a cloud
+      // metadata endpoint (169.254.169.254) or anything on the loopback
+      // interface is fetched and its response drawn into the panel. The same
+      // confinement the file paths get, applied to the network.
+      assertFetchableUrl(reference.url);
       const downloaded = await fetchRemote(reference.url, signal);
       bytes = downloaded.bytes;
       mimeType = downloaded.mimeType;
