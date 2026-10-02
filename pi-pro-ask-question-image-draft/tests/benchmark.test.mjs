@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import { generateCorpus, validateCorpus } from "../scripts/benchmark/corpus.mjs";
 import { assertNoCredentials, wilsonLowerBound } from "../scripts/benchmark/common.mjs";
 import { buildAggregateReport, verifyAggregateReport } from "../scripts/benchmark/report.mjs";
+import { detectImage, promptHash } from "../scripts/benchmark/images.mjs";
 import { blindLabels } from "../scripts/benchmark/compare.mjs";
 
 function validAggregate() {
