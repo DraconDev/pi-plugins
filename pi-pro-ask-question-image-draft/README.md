@@ -433,10 +433,11 @@ threshold. The properties that matter for an audit:
 - **Shared scope is honest.** RPiV is compared only on legacy question reviews it
   implements, driven through its real RPC dialog protocol. A candidate failure is
   reported separately and never charged to the reference. Envelope *text* differs
-  on 53 of 333 shared cases, and every one of them is now recorded by name -
-  case id, classification, reason and both texts - rather than counted: all 53
-  are `adapter-wording` (52 of them a block one envelope discloses and the other
-  does not), none is a `capability` difference, and only the latter is a gate.
+  on 53 of 333 shared cases. The count is reproducible from
+  `benchmark/evidence/results.json`, which flags each differing case; the
+  *classification* of those 53 is not, because the evidence file does not carry
+  one — `compare.mjs` emits it, but nothing in the tracked evidence records it.
+  Treat the classification as unverified here rather than as a result.
 - **The live gate proves the decisions, not just the happy path.** `smoke:live`
   runs five sessions, one per review, each on its own pseudo-terminal: the happy
   path (inline image, keyboard, stage advance, Ctrl+] collapse/reopen, custom
