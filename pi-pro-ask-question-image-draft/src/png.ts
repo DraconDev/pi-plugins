@@ -75,6 +75,18 @@ export function decodePng(bytes: Buffer): RgbImage {
       throw new Error(`PNG chunk ${type} claims ${length} bytes but only ${bytes.length - offset - 8} remain.`);
     }
     const body = bytes.subarray(offset + 8, offset + 8 + length);
+    // The chunk's CRC is the one integrity field a decoder can check for free,
+    // and it is the field the file format puts there for exactly this. It was
+    // read by `encodePng` and never by `decodePng`: a bit flip in a stored CRC
+    // decoded as if nothing had happened, and the same flip inside the
+    // compressed data surfaced as a zlib error rather than a PNG integrity
+    // error. This decoder feeds the benchmark's *measured* raster, so a
+    // truncated or bit-rotted image was judged as valid input instead of
+    // raising.
+    const declaredCrc = bytes.readUInt32BE(offset + 8 + length);
+    if (crc32(bytes.subarray(offset + 4, offset + 8 + length)) !== declaredCrc) {
+      throw new Error(`PNG chunk ${type} fails its CRC check.`);
+    }
     if (type === "IHDR") {
       if (length < 13) throw new Error(`PNG IHDR is ${length} bytes; the header is 13.`);
       header = {
