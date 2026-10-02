@@ -953,3 +953,34 @@ describe("the documented tool-description size is measured, not claimed", () => 
     assert.doesNotMatch(readme, /preview \(31 x 16 cells on a/, "the benchmark's constant is the harness's, not src/tui.ts's");
   });
 });
+
+/**
+ * The plain-chat script is what a model reads when no panel is available, so
+ * what it omits is an outcome the model cannot reach. The dialog path offers
+ * approve and reject on every stage; the script named neither.
+ */
+describe("the plain-chat script offers what the dialog path offers", () => {
+  it("names approve and reject, and the data URI an option carries", () => {
+    const review = reviewWith([
+      { id: "one", header: "Single", prompt: "Choose one", options: [{ id: "a", label: "A" }, { id: "b", label: "B" }] },
+    ], { notes: undefined });
+    const text = fallbackText(review, "no_ui");
+    assert.match(text, /Approve review/, "approve must be reachable without a panel");
+    assert.match(text, /Reject review/, "and so must rejection, which is the outcome that stops the work");
+    assert.match(text, /approve\/reject\/revision\/cancel/, "and the closing instruction says so");
+
+    const withDataUri = normalizeReview({
+      reviewId: "data-uri", title: "Data URI",
+      stages: [{
+        id: "one", header: "One", prompt: "Choose",
+        options: [
+          { id: "a", label: "Inline", image: { dataUri: "data:image/png;base64,iVBORw0KGgo=" } },
+          { id: "b", label: "Plain" },
+        ],
+      }],
+    });
+    assert.match(fallbackText(withDataUri, "no_ui"), /inline data URI/, "the script already named it");
+    // The dialog path dropped it, so the two paths disagreed about the same option.
+    assert.match(fallbackText(withDataUri, "no_ui"), /Inline — inline data URI/);
+  });
+});
