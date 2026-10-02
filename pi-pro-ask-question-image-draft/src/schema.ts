@@ -662,10 +662,24 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
         id: optionId,
         label: normalizeText(option.label).trim(),
         description: optionalText(option.description),
-        recommended: option.recommended === true ? true : undefined,
+        // `recommended` is checked rather than coerced: `"yes"` used to be
+        // silently dropped, so a model that got the type wrong got no marker and
+        // no complaint.
+        ...(option.recommended !== undefined && option.recommended !== true
+          ? (() => { throw new Error(`Option ${optionId} recommended must be true when present.`); })()
+          : {}),
         // The option's own change list: plain text, in order, blanks dropped.
+        // Bounded, because every entry is rendered into the panel and the
+        // declared limits were never enforced: a model could send ten thousand
+        // lines of arbitrary length and the panel would try to draw them.
         changes: Array.isArray(option.changes)
-          ? option.changes.map((line) => String(line)).filter((line) => line.trim().length > 0)
+          ? option.changes.map((line, lineIndex) => {
+            const text = String(line);
+            if (text.length > 280) {
+              throw new Error(`Option ${optionId} changes[${lineIndex}] is longer than 280 characters.`);
+            }
+            return text;
+          }).filter((line) => line.trim().length > 0).slice(0, 16)
           : undefined,
         value: optionalText(option.value),
         preview: option.preview === undefined ? undefined : normalizeText(option.preview),
