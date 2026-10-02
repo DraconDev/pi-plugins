@@ -2345,3 +2345,47 @@ describe("a coloured theme does not break selection", () => {
     }
   });
 });
+
+/**
+ * The external editor is reached with `void`, and nothing in the host installs
+ * an `unhandledRejection` handler. Both of the editor's reject paths - a spawn
+ * failure and any non-zero exit - therefore became an unhandled rejection and
+ * took the Pi process down mid-review: `:cq` in vim, any editor that exits 1,
+ * or a configured binary that is not on PATH.
+ */
+describe("an external editor that fails is a message, not a crash", () => {
+  for (const [name, rejection] of [
+    ["a non-zero exit", new Error("External editor exited with exit code 1")],
+    ["a binary that is not on PATH", Object.assign(new Error("spawn nvim ENOENT"), { code: "ENOENT" })],
+  ]) {
+    it(`${name} leaves the review on screen and says what happened`, async () => {
+      let unhandled = 0;
+      const onUnhandled = () => { unhandled += 1; };
+      process.on("unhandledRejection", onUnhandled);
+      let result;
+      const component = new VisualReviewWizard(
+        { requestRender: () => {}, terminal: { rows: 40 } }, theme(), review(), process.cwd(),
+        (value) => { result = value; }, [],
+        undefined,
+        undefined,
+        () => Promise.reject(rejection),
+      );
+      try {
+        // Ctrl+G in the "other" input mode is the only way in.
+        component.handleInput("answer text");
+        component.handleInput("\u0007");
+        // The promise chain the detached call runs in: give it a turn.
+        for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
+        await new Promise((done) => setImmediate(done));
+        assert.equal(unhandled, 0, "the rejection must be caught, not left for the process");
+        assert.equal(result, undefined, "a failed editor must not end the review");
+        const frame = component.render(100).join("\n");
+        assert.match(frame, /Editor failed/, "and the panel says the editor failed");
+        assert.match(frame, /exit code 1|ENOENT/, "with the editor's own reason");
+      } finally {
+        process.off("unhandledRejection", onUnhandled);
+        component.dispose();
+      }
+    });
+  }
+});
