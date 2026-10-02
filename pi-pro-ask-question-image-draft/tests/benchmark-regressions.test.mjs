@@ -1765,7 +1765,7 @@ describe("unused-symbol gate", () => {
     const block = tui.slice(open + "import {".length, end);
     const names = block
       .split(",")
-      .map((entry) => entry.replace(/^type\s+/, "").trim())
+      .map((entry) => entry.trim().replace(/^type\s+/, ""))
       .filter(Boolean);
     const body = tui.slice(end + '} from "./state.ts";'.length);
     const dead = names.filter((name) => !new RegExp(`\\b${name}\\b`).test(body));
