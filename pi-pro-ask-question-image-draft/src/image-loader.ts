@@ -169,6 +169,16 @@ function parseDataUri(dataUri: string): { mimeType: string; base64: string } {
 /** How many hops a reference may take before it is treated as a loop. */
 const MAX_REDIRECTS = 5;
 
+/**
+ * A host that accepts the connection and then says nothing.
+ *
+ * The panel fires its loads with `void`, so a reference that never completes
+ * leaves it in its loading state forever and the tool call never returns - the
+ * user waits on a picture that is never going to arrive. A bounded wait turns
+ * that into an ordinary per-option failure the panel can report.
+ */
+const FETCH_TIMEOUT_MS = 15_000;
+
 async function fetchRemote(url: string, signal?: AbortSignal): Promise<{ bytes: Buffer; mimeType?: string; remoteUrl: string }> {
   let current = url;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
@@ -180,7 +190,15 @@ async function fetchRemote(url: string, signal?: AbortSignal): Promise<{ bytes: 
     // the bytes. The hop is followed by hand so each one is checked, and the URL
     // that actually answered is what gets recorded as provenance.
     assertFetchableUrl(current);
-    const response = await fetch(current, { signal, redirect: "manual" });
+    const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+    const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+    let response: Response;
+    try {
+      response = await fetch(current, { signal: combined, redirect: "manual" });
+    } catch (error) {
+      if (timeout.aborted) throw new Error(`Image at ${url} did not answer within ${FETCH_TIMEOUT_MS}ms.`);
+      throw error;
+    }
     const location = response.status >= 300 && response.status < 400
       ? response.headers.get("location")
       : null;
