@@ -1596,3 +1596,71 @@ describe("a reference body is abandoned the moment it passes the limit", () => {
     assert.equal((await readCappedBody(small, 1024, (text) => new Error(text))).length, 16, "a body inside the limit still reads");
   });
 });
+
+/**
+ * A PNG chunk carries its CRC so a decoder can tell a whole file from a
+ * bit-rotted one. This decoder read that field for encoding and never for
+ * decoding, so a flip in a stored CRC produced pixels as if nothing were wrong
+ * — and this decoder produces the benchmark's *measured* raster, which means
+ * corrupted input could be scored as valid.
+ */
+describe("decodePng checks what the format checks", () => {
+  it("refuses a chunk whose CRC has been altered, and still decodes an untouched file", () => {
+    const png = encodePng(4, 3, Buffer.alloc(4 * 3 * 3, 90));
+    assert.doesNotThrow(() => decodePng(png), "an intact PNG decodes");
+    // The stored CRC of the IHDR chunk, not its content: the pixels stay valid
+    // and only the integrity field is wrong.
+    const ihdrLength = png.readUInt32BE(8);
+    const crcAt = 8 + 8 + ihdrLength;
+    const corrupted = Buffer.from(png);
+    corrupted.writeUInt32BE(corrupted.readUInt32BE(crcAt) ^ 1, crcAt);
+    assert.throws(() => decodePng(corrupted), /CRC/, "a corrupted chunk must not decode as if it were fine");
+  });
+
+  it("still refuses a chunk whose declared length overruns the buffer", () => {
+    const png = encodePng(2, 2, Buffer.alloc(2 * 2 * 3, 10));
+    const corrupted = Buffer.from(png);
+    corrupted.writeUInt32BE(9999, 8);
+    assert.throws(() => decodePng(corrupted), /claims 9999 bytes/, "the length guard is independent of the CRC");
+  });
+});
+
+/**
+ * An option can carry both a `mockup` and a `generate`. Composing needs raw
+ * pixels, so a provider that answers with a JPEG — which this module itself
+ * saves as `.jpg` — used to hand that file to a PNG decoder and fail the whole
+ * review over one option's art format.
+ */
+describe("an art format this decoder cannot read costs the art, not the review", () => {
+  it("still produces a composed preview, falling back to the deterministic structure", async () => {
+    const { renderComposedMockup } = await import("../src/image-generator.ts");
+    const { encodePng } = await import("../src/png.ts");
+    const { normalizeReview } = await import("../src/schema.ts");
+    const { mkdtemp, writeFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join, resolve } = await import("node:path");
+    const review = normalizeReview({
+      reviewId: "composed", title: "Composed",
+      stages: [{
+        id: "one", header: "One", prompt: "Choose",
+        options: [{ id: "grid", label: "Grid", generate: { prompt: "a photograph of a grid" }, mockup: { layout: "list", title: "Layout", rows: [{ label: "Columns", value: 0.6 }, { label: "Gutter", value: 0.3 }] } }],
+      }],
+    });
+    const option = review.stages[0].options[0];
+    const cwd = await mkdtemp(join(tmpdir(), "composed-"));
+    const artPath = resolve(cwd, "art.jpg");
+    // A real JPEG header and nothing this decoder can reach.
+    await writeFile(artPath, Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64, 0x42)]));
+    const result = await renderComposedMockup(option, { path: artPath, mimeType: "image/jpeg", provider: "test", prompt: "p", byteCount: 68 }, {
+      cwd,
+      outputDir: resolve(cwd, "out"),
+      now: () => 1,
+      randomId: () => "fixed",
+    });
+    assert.ok(result.byteCount > 0, "a composed preview was still produced");
+    assert.match(result.path, /composed-grid-1-fixed\.png$/);
+    const written = await (await import("node:fs/promises")).readFile(result.path);
+    const decoded = decodePng(written);
+    assert.ok(decoded.width > 0 && decoded.height > 0, "and it is a readable PNG, not a JPEG with a .png name");
+  });
+});
