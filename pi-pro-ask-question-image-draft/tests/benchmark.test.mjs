@@ -5,12 +5,7 @@ import { describe, it } from "node:test";
 import { generateCorpus, validateCorpus } from "../scripts/benchmark/corpus.mjs";
 import { assertNoCredentials, wilsonLowerBound } from "../scripts/benchmark/common.mjs";
 import { buildAggregateReport, verifyAggregateReport } from "../scripts/benchmark/report.mjs";
-import { detectImage, promptHash } from "../scripts/benchmark/images.mjs";
 import { blindLabels } from "../scripts/benchmark/compare.mjs";
-
-function unverified(report) {
-  return { ...report, releaseReady: report.gates && Object.values(report.gates).every(Boolean) };
-}
 
 function validAggregate() {
   return {
@@ -151,7 +146,7 @@ describe("aggregate report verifier", () => {
     const unresolved = await build({ defects: [{ id: "BUG-1", severity: "P0", status: "open" }] });
     const verified = verifyAggregateReport(unresolved);
     assert.deepEqual(verified.unresolvedCritical, ["BUG-1"]);
-    assert.equal(unverified(unresolved).releaseReady, false);
+    assert.equal(verified.releaseReady, false, "an open P0 means the release is not ready, per the shipped verifier");
 
     // An activation claim on a report whose gates failed must never verify.
     const premature = structuredClone(noSmoke);
