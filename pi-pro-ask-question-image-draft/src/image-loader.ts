@@ -111,14 +111,18 @@ function inferMimeType(reference: ImageReference, bytes?: Buffer): string {
     if (bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP") return "image/webp";
     if (bytes.subarray(0, 3).toString("ascii") === "GIF") return "image/gif";
   }
-  // Nothing in the bytes, so a declared type is the best evidence there is -
-  // but a default of image/png for anything unrecognised is how a text file
-  // reaches the graphics protocol, so an unrecognised signature with no
-  // declared type is refused instead of guessed at.
+  // We have the bytes and none of the four signatures matched, so these are not
+  // an image. A declared `image/png` and a `.png` extension are both claims
+  // about a file, and a file whose contents are words is neither - taking either
+  // as evidence is how a text file reached the terminal's graphics protocol.
+  if (bytes) {
+    throw new Error(
+      `Image bytes are not a recognised image format${declared ? ` (declared ${declared})` : ""}. `
+      + "Only PNG, JPEG, WebP and GIF are recognised.",
+    );
+  }
   if (declared) return declared;
-  const byExtension = MIME_BY_EXTENSION[extname(reference.path ?? "").toLowerCase()];
-  if (byExtension) return byExtension;
-  throw new Error("Image bytes are not a recognised image format, and no mimeType was declared.");
+  return MIME_BY_EXTENSION[extname(reference.path ?? "").toLowerCase()] ?? "image/png";
 }
 
 function parseDataUri(dataUri: string): { mimeType: string; base64: string } {

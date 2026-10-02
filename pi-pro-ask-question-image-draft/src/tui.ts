@@ -1031,6 +1031,13 @@ export class VisualReviewWizard implements Component, Focusable {
     const bandWindow = stage && hasVisualContent(stage) && footerLines.length > 0 && crowded
       ? this.windowBand(footerLines, Math.max(floor - room(footerLines, tailLines), pastTheCap))
       : null;
+    // The key hints are built with the tail, which is sized before the clamp is
+    // decided, so the Ctrl+R the stacked layout now offers was missing from the
+    // very line that tells you the prompt is cut. Restated here for the same
+    // reason the density line is.
+    const hintRow = tailLines.findIndex((line) => /↑↓ move/.test(stripPlain(line)));
+    if (hintRow >= 0) tailLines[hintRow] = this.theme.fg("dim", this.keyHints(stage));
+
     // A stage's image prompt is the note for the *next* generation pass, and it
     // was only ever surfaced by the plain-chat fallback - so a model that set one
     // and got an interactive panel back had no way to see what it had asked for.
