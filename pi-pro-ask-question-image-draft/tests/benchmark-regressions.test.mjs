@@ -1740,3 +1740,30 @@ describe("the character-drawn mockup draws what the schema accepts", () => {
     assert.equal(widths.size, 1, `every line should be the same number of terminal columns, got ${[...widths].join(", ")}`);
   });
 });
+
+// AUDIT-LEFTOVER: commit be3be62 removed the `selectedOptions` re-export and the
+// ledger recorded the now-dead import as removed too. It was not: src/tui.ts:41
+// kept importing it until a later audit caught the contradiction, and the gate
+// could not have caught it because tsconfig never enabled the unused checks.
+// These two tests pin the flags themselves, because the real defect is the gate
+// that was blind to the whole class, not the one stray import.
+describe("unused-symbol gate", () => {
+  it("AUDIT-LEFTOVER-1: tsconfig enables noUnusedLocals and noUnusedParameters", async () => {
+    const config = JSON.parse(await readFile(join(import.meta.dirname, "..", "tsconfig.json"), "utf8"));
+    assert.equal(config.compilerOptions.noUnusedLocals, true);
+    assert.equal(config.compilerOptions.noUnusedParameters, true);
+  });
+
+  it("AUDIT-LEFTOVER-2: nothing imports a symbol the source tree no longer exports", async () => {
+    // The specific failure: tui.ts imported `selectedOptions` after the pass that
+    // deleted its only re-export. Reading it as text keeps this test from needing
+    // a compile step of its own.
+    const tui = await readFile(join(import.meta.dirname, "..", "src", "tui.ts"), "utf8");
+    const state = await readFile(join(import.meta.dirname, "..", "src", "state.ts"), "utf8");
+    const imported = [...tui.matchAll(/^\s{2}([A-Za-z_][A-Za-z0-9_]*),?$/gm)]
+      .map((m) => m[1])
+      .filter((name) => new RegExp(`\\b${name}\\b`).test(state));
+    const dead = imported.filter((name) => new RegExp(`export (function|const|class) ${name}\\b`).test(state) === false);
+    assert.deepEqual(dead, [], `tui.ts imports names state.ts no longer exports: ${dead.join(", ")}`);
+  });
+});
