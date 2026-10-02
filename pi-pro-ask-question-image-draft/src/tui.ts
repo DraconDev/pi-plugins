@@ -909,7 +909,11 @@ export class VisualReviewWizard implements Component, Focusable {
       // and no Ctrl+R, because the clamp and the expand key only existed on the
       // other branch - so on the layout every visual review uses, the question
       // could be unreadable and nothing said so.
-      this.promptClamped = question.length > Math.max(0, (safeWidth - 4) * 3);
+      // One line is drawn, so one line is what the clamp is measured against.
+      // It was measured against three, which meant a prompt of up to ~3 lines
+      // was cut with neither the marker nor the Ctrl+R hint - the other half of
+      // the fix that added them.
+      this.promptClamped = question.length > Math.max(0, safeWidth - 2);
       footerLines.push(this.theme.fg("accent", ` ${truncateToWidth(question, safeWidth - 2)}`));
       if (this.promptClamped && !this.promptExpanded) {
         footerLines.push(this.theme.fg("dim", ` …prompt continues — Ctrl+R to read it all`));
@@ -1542,7 +1546,11 @@ export class VisualReviewWizard implements Component, Focusable {
    */
   private tailRows(): number {
     const stage = this.currentStage();
-    const rows = ["", 1]; // the leading blank and the closing rule
+    // Three, not two: `tailLines` opens with a blank and closes with a blank
+    // before the rule, so counting one blank and the rule left the count a row
+    // short of what it emits. The scroll window then pinned one row too few and
+    // the blank above the controls could scroll away into the body.
+    const rows = ["", 1, 1]; // the leading blank, the blank before the rule, and the rule
     if (stage && this.answers.has(stage.id)) rows.push(1);
     if (stage && this.currentNote() && !(stage && this.answers.get(stage.id)?.notes)) rows.push(1);
     rows.push(1); // key hints
