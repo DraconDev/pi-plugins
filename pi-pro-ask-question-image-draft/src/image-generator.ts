@@ -426,12 +426,26 @@ export async function renderComposedMockup(
 ): Promise<GeneratedImage> {
   const spec = option.mockup;
   if (!spec) throw new ImageGenerationError("invalid_request", "Option has no mockup to compose into.");
-  const composed = composePreview({
-    spec: spec as MockupSpec,
-    art: decodeArt(await readFile(art.path)),
-    widthCells: clampCells(spec.widthCells ?? DEFAULT_MOCKUP_CELLS.widthCells),
-    heightCells: clampCells(spec.heightCells ?? DEFAULT_MOCKUP_CELLS.heightCells),
-  });
+  const widthCells = clampCells(spec.widthCells ?? DEFAULT_MOCKUP_CELLS.widthCells);
+  const heightCells = clampCells(spec.heightCells ?? DEFAULT_MOCKUP_CELLS.heightCells);
+  const mockup = { spec: spec as MockupSpec, widthCells, heightCells };
+  let composed: { png: Buffer; width: number; height: number };
+  try {
+    composed = composePreview({ ...mockup, art: decodeArt(await readFile(art.path)) });
+  } catch {
+    // Not a failure. The provider's answer may be a JPEG or a WebP - a normal
+    // `b64_json` payload - and this module saves it as `.jpg` itself, then hands
+    // that file straight to a PNG decoder. The bare `Error` it raised was caught
+    // by the tool's generic handler, which failed the *whole* review and threw
+    // away every other option's image over one option's art format.
+    //
+    // Composing needs raw pixels and a JPEG has none this decoder can reach, so
+    // the art is dropped and the deterministic structure is drawn on its own.
+    // That keeps the invariant this function exists for - a preview is never
+    // less informative than the text - instead of trading one broken option for a
+    // broken review.
+    composed = renderMockup(mockup);
+  }
   const now = options.now ?? Date.now;
   const id = (options.randomId ?? randomUUID)();
   const stem = `composed-${safePart(option.id, "option")}-${now()}-${safePart(id, "composed")}`;
