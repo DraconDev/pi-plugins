@@ -38,7 +38,6 @@ import {
   type ReviewAnswer,
   type ReviewResult,
   type ReviewRevision,
-  selectedOptions,
 } from "./state.ts";
 
 interface LoadedOption {
@@ -405,7 +404,7 @@ export class VisualReviewWizard implements Component, Focusable {
   private readonly requestRender: () => void;
   private readonly tui: TUI;
   private readonly done: (result: ReviewResult) => void;
-  private readonly cwd: string;
+  
   private readonly signal?: AbortSignal;
   private readonly externalEditorConfigured: boolean;
   private readonly answers = new Map<string, ReviewAnswer>();
@@ -432,8 +431,7 @@ export class VisualReviewWizard implements Component, Focusable {
   private reasonsDropped = false;
   /** Whether the frame being built prints a reason under every choice. */
   private reasonsShown = false;
-  /** How many options the band scrolled out of view, above and below. */
-  private bandWindow: { above: number; below: number } | null = null;
+  
   private collapsed = false;
   private _focused = false;
   /** Set when the external editor rejected; drawn, and cleared on the next attempt. */
@@ -488,7 +486,6 @@ export class VisualReviewWizard implements Component, Focusable {
     this.editExternal = editExternal;
     this.externalEditorConfigured = Boolean(editExternal);
     this.tui = tui;
-    this.cwd = cwd;
     this.done = done;
     this.signal = signal;
     this.requestRender = () => tui.requestRender();
@@ -1110,7 +1107,6 @@ export class VisualReviewWizard implements Component, Focusable {
     // Whether the frame actually prints a reason under each choice, which is
     // what the density line reports.
     this.reasonsShown = this.density === "comfortable" && !this.reasonsDropped && stacked;
-    this.bandWindow = bandWindow;
     if (stage) {
       // In the stacked layout the question is already in the footer, so the
       // top block is skipped entirely rather than falling through to the review
@@ -1898,11 +1894,6 @@ export class VisualReviewWizard implements Component, Focusable {
     // budget and scroll the last option out of the frame.
     const first = choiceRows[0]!;
     const last = choiceRows[choiceRows.length - 1]!;
-    const spanOf = (index: number): number => {
-      const at = choiceRows[index]!;
-      const next = index + 1 < choiceRows.length ? choiceRows[index + 1]! : last + 1;
-      return next - at;
-    };
     // The cursor is located by the marker the renderer already drew on this very
     // band, which was rebuilt for this render, so it names the row the person is
     // actually looking at. `selectedIndex` cannot stand in: it indexes rows, and
