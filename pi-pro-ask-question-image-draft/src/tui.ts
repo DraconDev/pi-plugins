@@ -1045,18 +1045,6 @@ export class VisualReviewWizard implements Component, Focusable {
     // what the density line reports.
     this.reasonsShown = this.density === "comfortable" && !this.reasonsDropped && stacked;
     this.bandWindow = bandWindow;
-    // Now that the band has decided, restate the density line in the tail that
-    // was sized before the decision was made. The size never changes - only the
-    // wording does, both ways round the same number of rows - so the panel's
-    // arithmetic is untouched and the footer finally describes this frame.
-    const densityRow = tailLines.findIndex((line) => /density: (comfortable|compact)/.test(stripPlain(line)));
-    if (densityRow >= 0) {
-      tailLines[densityRow] = this.theme.fg(
-        this.density === "compact" ? "success" : "dim",
-        this.densityLine(this.reasonsShown),
-      );
-    }
-
     if (stage) {
       // In the stacked layout the question is already in the footer, so the
       // top block is skipped entirely rather than falling through to the review
@@ -1267,6 +1255,20 @@ export class VisualReviewWizard implements Component, Focusable {
         // information and the answers read as one solid run down to the bottom.
         if (panelTotal > overhead()) {
           detail.unshift(...Array.from({ length: panelTotal - overhead() }, () => ""));
+        }
+        // Restate the density line here, and only here. The tail is sized before
+        // the band decides anything - it cannot be measured any other way - and
+        // the band can still lose its reasons afterwards, in the squeeze loop
+        // below. Restating the line earlier left it describing a frame that had
+        // not finished happening, which is how the footer went on claiming a
+        // reason under every choice while the reasons were gone.
+        this.reasonsShown = this.density === "comfortable" && !this.reasonsDropped && stacked;
+        const densityRow = tailLines.findIndex((line) => /density: (comfortable|compact)/.test(stripPlain(line)));
+        if (densityRow >= 0) {
+          tailLines[densityRow] = this.theme.fg(
+            this.density === "compact" ? "success" : "dim",
+            this.densityLine(this.reasonsShown),
+          );
         }
         const stackedFrame = [...detail, ...footerLines, ...tailLines];
         // The panel is a hard bound, and a band longer than the panel is the one
