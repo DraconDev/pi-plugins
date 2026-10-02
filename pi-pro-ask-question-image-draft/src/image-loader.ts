@@ -42,7 +42,16 @@ function parseDataUri(dataUri: string): { mimeType: string; base64: string } {
 async function fetchRemote(url: string, signal?: AbortSignal): Promise<{ bytes: Buffer; mimeType?: string; remoteUrl: string }> {
   const response = await fetch(url, { signal });
   if (!response.ok) throw new Error(`Unable to download image (HTTP ${response.status})`);
+  // Refuse a body we have already been told is too large, rather than reading
+  // it and finding out. `arrayBuffer` has no cap of its own.
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_IMAGE_BYTES) {
+    throw new Error(`Image at ${url} is ${declared} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
+  }
   const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length > MAX_IMAGE_BYTES) {
+    throw new Error(`Image at ${url} is ${bytes.length} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
+  }
   return { bytes, mimeType: response.headers.get("content-type") ?? undefined, remoteUrl: url };
 }
 
@@ -64,14 +73,28 @@ export async function loadImage(reference: ImageReference, cwd: string, signal?:
     const path = reference.path.startsWith("file:")
       ? fileURLToPath(reference.path)
       : reference.path.startsWith("~")
-        ? resolve(process.env.HOME ?? cwd, reference.path.slice(2))
-        : resolve(cwd, reference.path);
+        // `~` alone means the home directory and `~/x` a path inside it;
+        // slicing two characters off `~name` produced `ame`, which resolved
+        // against the home directory and silently read the wrong file.
+        : resolve(process.env.HOME ?? cwd, reference.path === "~" ? "." : reference.path.slice(1).replace(/^[/\\]/, ""));
+    // Checked before reading, not after: the loader runs for every option at
+    // once, so an unbounded read is held once per option in the same tick.
+    const stat = await stat(path).catch(() => undefined);
+    if (stat?.isFile() && stat.size > MAX_IMAGE_BYTES) {
+      throw new Error(`Image at ${path} is ${stat.size} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
+    }
     bytes = await readFile(path);
+    if (bytes.length > MAX_IMAGE_BYTES) {
+      throw new Error(`Image at ${path} is ${bytes.length} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
+    }
     source = path;
   } else if (reference.url) {
     if (/^file:\/\//i.test(reference.url)) {
       const path = fileURLToPath(reference.url);
       bytes = await readFile(path);
+      if (bytes.length > MAX_IMAGE_BYTES) {
+        throw new Error(`Image at ${path} is ${bytes.length} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
+      }
       source = path;
     } else if (/^https?:\/\//i.test(reference.url)) {
       const downloaded = await fetchRemote(reference.url, signal);
