@@ -1156,7 +1156,7 @@ export class VisualReviewWizard implements Component, Focusable {
               for (const wrapped of wrapTextWithAnsi(this.theme.fg("text", `  • ${line}`), Math.max(1, safeWidth - 4))) detail.push(wrapped);
             }
             if (option.description && detail[detail.length - 1] !== "") detail.push("");
-          } else if (option.mockup && !canRenderImages()) {
+          } else if (option.mockup && !canRenderImages() && imageBudget >= MOCKUP_MIN_ROWS) {
             // A drawn mockup does not need the graphics protocol. Where the host
             // cannot send one, the same spec is drawn with characters instead of
             // rasterised and dropped - which is what used to happen, and it is
