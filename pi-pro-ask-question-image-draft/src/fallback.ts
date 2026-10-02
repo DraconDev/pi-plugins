@@ -90,7 +90,7 @@ function orderedSelected(stage: NormalizedStage, ids: ReadonlySet<string>): Norm
 }
 
 function cancelledResult(review: NormalizedReview, answers: Map<string, ReviewAnswer>, skippedStageIds: ReadonlySet<string> = new Set()): ReviewResult {
-  return makeReviewResult(review, "cancel", answers, undefined, [...skippedStageIds]);
+  return makeReviewResult(review, "cancel", answers, undefined, [...skippedStageIds], initialGlobalNote);
 }
 
 function selectTitle(stage: NormalizedStage, selected: readonly string[]): string {
@@ -112,7 +112,7 @@ function resultWithRevision(
     feedback,
     requestedRound: review.round + 1,
   };
-  return makeReviewResult(review, "revision", answers, revision, [...skippedStageIds]);
+  return makeReviewResult(review, "revision", answers, revision, [...skippedStageIds], initialGlobalNote);
 }
 
 /**
@@ -126,6 +126,16 @@ export async function runDialogReview(
   review: NormalizedReview,
   initialAnswers: readonly ReviewAnswer[] = [],
   initialSkippedStageIds: readonly string[] = [],
+  /**
+   * The note from the previous round.
+   *
+   * The extension read it and passed it only to the interactive wizard, so on a
+   * host that falls back to dialogs the note was absent from the envelope - and
+   * `makeReviewState` only writes the field when it is truthy, so the entry that
+   * held it was overwritten without it. A note typed in round one disappeared in
+   * round two with no error and no warning.
+   */
+  initialGlobalNote = "",
 ): Promise<ReviewResult> {
   const answers = mergeAnswers(initialAnswers, review.stages);
   for (const stageId of initialSkippedStageIds) answers.delete(stageId);
@@ -220,7 +230,7 @@ export async function runDialogReview(
         // unresolved even when the current stage is complete.
         break;
       }
-      if (selected === REJECT_LABEL) return makeReviewResult(review, "reject", answers, undefined, [...skippedStageIds]);
+      if (selected === REJECT_LABEL) return makeReviewResult(review, "reject", answers, undefined, [...skippedStageIds], initialGlobalNote);
 
       const option = findOption(stage, selected);
       if (!option) continue;
@@ -250,6 +260,6 @@ export async function runDialogReview(
   // Every stage has now been processed. Keep the final confirmation explicit
   // so the portable path has the same approval boundary as the TUI.
   const approved = await ctx.ui.confirm("Visual review", "Approve these answers and continue?", { signal: ctx.signal });
-  if (!approved) return makeReviewResult(review, "reject", answers, undefined, [...skippedStageIds]);
-  return makeReviewResult(review, "approve", answers, undefined, [...skippedStageIds]);
+  if (!approved) return makeReviewResult(review, "reject", answers, undefined, [...skippedStageIds], initialGlobalNote);
+  return makeReviewResult(review, "approve", answers, undefined, [...skippedStageIds], initialGlobalNote);
 }
