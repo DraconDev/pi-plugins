@@ -1184,10 +1184,21 @@ export class VisualReviewWizard implements Component, Focusable {
             } else if (this.imagesEnabled && option.image) {
               const reference = option.image.path ?? option.image.url ?? "image";
               const name = String(reference).split("/").pop() ?? String(reference);
-              for (const line of wrapTextWithAnsi(
-                this.theme.fg("dim", `Image: ${name} — pictures are off for this host (tmux 3.6a strips the introducer; run Pi outside tmux).`),
-                Math.max(1, safeWidth - 4),
-              )) detail.push(`  ${line}`);
+              // Three states, three sentences. The old single branch reported an
+              // incapable terminal for a picture that had simply not finished
+              // loading, which told a reader on a perfectly capable host that
+              // their tmux was the problem.
+              if (!loaded) {
+                for (const line of wrapTextWithAnsi(
+                  this.theme.fg("dim", `Image: ${name} — loading…`),
+                  Math.max(1, safeWidth - 4),
+                )) detail.push(`  ${line}`);
+              } else {
+                for (const line of wrapTextWithAnsi(
+                  this.theme.fg("dim", `Image: ${name} — pictures are off for this host (tmux 3.6a strips the introducer; run Pi outside tmux).`),
+                  Math.max(1, safeWidth - 4),
+                )) detail.push(`  ${line}`);
+              }
               if (option.image.alt) {
                 for (const line of wrapTextWithAnsi(this.theme.fg("muted", `Alt: ${option.image.alt}`), Math.max(1, safeWidth - 4))) detail.push(`  ${line}`);
               }
