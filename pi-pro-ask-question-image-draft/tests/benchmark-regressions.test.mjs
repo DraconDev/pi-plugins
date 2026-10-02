@@ -13,7 +13,7 @@ import { describe, it } from "node:test";
 
 import { blindLabels, classifyEnvelopeDifference, compareCorpus, runLocal } from "../scripts/benchmark/compare.mjs";
 import { aggregateSessionEvidence, BEHAVIOUR_SESSIONS, HAPPY_SESSION, NOTE_TEXT, REVISION_FEEDBACK, SESSION_MODES, sessionPlan, verifySessionEvidence } from "../scripts/benchmark/live-sessions.mjs";
-import { DURABLE_CORPUS_PATH, generateCorpus, loadDurableCorpus } from "../scripts/benchmark/corpus.mjs";
+import { DURABLE_CORPUS_PATH, generateCorpus, loadDurableCorpus, validateCorpus } from "../scripts/benchmark/corpus.mjs";
 import { editorCandidates, quitSequenceFor, resolveEditorCommand, whichExecutable } from "../scripts/benchmark/editor.mjs";
 import { optionPrompt, surfaceSubject, treatmentDirective } from "../scripts/benchmark/image-prompt.mjs";
 import { adjudicate, buildCase, judgeSummary, parseJudgeReply, parseStrictJudge } from "../scripts/benchmark/judge.mjs";
