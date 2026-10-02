@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadExtensions } from "/home/dracon/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js";
 
-const pluginPath = resolve(new URL("..", import.meta.url).pathname);
+const pluginPath = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const extensionPath = resolve(pluginPath, "extensions/visual-review.ts");
 const loaded = await loadExtensions([extensionPath], process.cwd());
 assert.equal(loaded.errors.length, 0, JSON.stringify(loaded.errors));

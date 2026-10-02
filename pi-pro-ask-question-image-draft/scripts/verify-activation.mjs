@@ -10,9 +10,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const settingsPath = resolve(process.env.PI_SETTINGS_PATH ?? "/home/dracon/.pi/agent/settings.json");
-const pluginPath = resolve(process.env.PI_PLUGIN_PATH ?? new URL("..", import.meta.url).pathname);
+const pluginPath = resolve(process.env.PI_PLUGIN_PATH ?? fileURLToPath(new URL("..", import.meta.url)));
 const beforePath = resolve(process.env.PI_SETTINGS_BEFORE_PATH ?? "/home/dracon/.pi/agent/settings.before-pi-visual-review.json");
 const expectedPackage = pluginPath;
 const superseded = "npm:@juicesharp/rpiv-ask-user-question";

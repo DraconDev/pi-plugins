@@ -14,12 +14,13 @@
 import assert from "node:assert/strict";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { BenchmarkError, parseArgs, writeJson } from "../scripts/benchmark/common.mjs";
 
 const SETTINGS = resolve(process.env.PI_SETTINGS_PATH ?? "/home/dracon/.pi/agent/settings.json");
 const BACKUP = resolve(process.env.PI_SETTINGS_BEFORE_PATH ?? "/home/dracon/.pi/agent/settings.before-pi-visual-review.json");
-const PACKAGE = resolve(new URL("..", import.meta.url).pathname);
+const PACKAGE = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const SUPERSEDED = "npm:@juicesharp/rpiv-ask-user-question";
 
 async function main() {

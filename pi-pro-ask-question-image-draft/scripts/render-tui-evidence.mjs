@@ -2,11 +2,12 @@
 /** Capture the plain-text intermediate for the checked-in TUI PNG evidence. */
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { resetCapabilitiesCache, setCapabilityOverrides } from "/home/dracon/.npm-global/lib/node_modules/@earendil-works/pi-tui/dist/terminal-image.js";
 import { renderEvidenceText } from "./tui-evidence.mjs";
 
-const root = resolve(new URL("..", import.meta.url).pathname);
+const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const outputPath = resolve(process.argv[2] ?? resolve(root, "tests/fixtures/tui-smoke.txt"));
 
 setCapabilityOverrides({ images: null, trueColor: false, hyperlinks: false, sixel: false, kitty: false });
