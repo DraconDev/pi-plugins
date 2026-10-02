@@ -960,7 +960,7 @@ describe("the documented tool-description size is measured, not claimed", () => 
  * approve and reject on every stage; the script named neither.
  */
 describe("the plain-chat script offers what the dialog path offers", () => {
-  it("names approve and reject, and the data URI an option carries", () => {
+  it("names approve and reject, and the data URI an option carries", async () => {
     const review = reviewWith([
       { id: "one", header: "Single", prompt: "Choose one", options: [{ id: "a", label: "A" }, { id: "b", label: "B" }] },
     ], { notes: undefined });
