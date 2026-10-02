@@ -89,8 +89,13 @@ function orderedSelected(stage: NormalizedStage, ids: ReadonlySet<string>): Norm
   return stage.options.filter((option) => ids.has(option.id));
 }
 
-function cancelledResult(review: NormalizedReview, answers: Map<string, ReviewAnswer>, skippedStageIds: ReadonlySet<string> = new Set()): ReviewResult {
-  return makeReviewResult(review, "cancel", answers, undefined, [...skippedStageIds], initialGlobalNote);
+function cancelledResult(
+  review: NormalizedReview,
+  answers: Map<string, ReviewAnswer>,
+  skippedStageIds: ReadonlySet<string> = new Set(),
+  globalNote = "",
+): ReviewResult {
+  return makeReviewResult(review, "cancel", answers, undefined, [...skippedStageIds], globalNote);
 }
 
 function selectTitle(stage: NormalizedStage, selected: readonly string[]): string {
@@ -105,6 +110,7 @@ function resultWithRevision(
   stageIndex: number,
   feedback: string,
   skippedStageIds: ReadonlySet<string> = new Set(),
+  globalNote = "",
 ): ReviewResult {
   const revision: ReviewRevision = {
     stageId: stage.id,
@@ -112,7 +118,7 @@ function resultWithRevision(
     feedback,
     requestedRound: review.round + 1,
   };
-  return makeReviewResult(review, "revision", answers, revision, [...skippedStageIds], initialGlobalNote);
+  return makeReviewResult(review, "revision", answers, revision, [...skippedStageIds], globalNote);
 }
 
 /**
