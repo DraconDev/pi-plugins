@@ -2172,3 +2172,70 @@ describe("the essential-band fallback leaves the tail alone", () => {
     }
   }
 });
+
+/**
+ * A wireframe does not need the graphics protocol.
+ *
+ * The rasterised mockup is a PNG sent through the terminal's inline-image
+ * escape, so it disappears the moment the protocol does - tmux strips the
+ * introducer, a plain ssh session has none at all. A review under tmux showed the
+ * reader a sentence explaining that pictures were off, where the drawing should
+ * have been: a drawing needs *less* of a terminal than a photograph does, and it
+ * was asking for more.
+ *
+ * This pins the character-drawn form on a host that cannot send a picture, and
+ * pins that the two roads do not overlap: where the protocol works, the PNG is
+ * still what you get.
+ */
+describe("a drawn mockup survives a host with no graphics protocol", () => {
+  const theme = { fg: (_c, t) => t, bg: (_c, t) => t, bold: (t) => t, dim: (t) => t, italic: (t) => t, underline: (t) => t, inverse: (t) => t };
+  const mockupReview = () => normalizeReview({
+    reviewId: "chars", images: "off",
+    stages: [{
+      id: "one", header: "Treatment", prompt: "Which treatment ships first?",
+      options: [
+        { id: "a", label: "Transit airy", description: "Most whitespace.", mockup: { layout: "airy", title: "TRANSIT AIRY", rows: [
+          { label: "On time", value: 0.98, status: "ok" }, { label: "Active", value: 0.71, status: "warn" }, { label: "Delayed", value: 0.33, status: "danger" },
+        ] } },
+        { id: "b", label: "Transit dense", description: "Everything at once.", mockup: { layout: "dense", title: "TRANSIT DENSE", rows: [{ label: "On time", value: 0.98 }] } },
+      ],
+    }],
+  });
+
+  it("draws the wireframe with characters where the host cannot send a picture", async () => {
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const previous = setCapabilities({ images: null, trueColor: true, hyperlinks: false });
+    const previousTmux = process.env.TMUX;
+    delete process.env.TMUX;
+    try {
+      const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 44 } }, theme, mockupReview(), process.cwd(), () => {});
+      const frame = component.render(100).join("\n");
+      component.dispose();
+      assert.doesNotMatch(frame, /pictures are off for this host/, "and not the sentence that used to stand in for the drawing");
+      assert.doesNotMatch(frame, /Image: mockup/, "nor an image the host was told to ignore");
+      assert.match(frame, /\u250c\u2500 TRANSIT AIRY/, "a drawn frame with its title inside the top rule");
+      assert.match(frame, /\u251c/, "and a rule under the header");
+      assert.match(frame, /On time/, "the row labels are on screen");
+      assert.match(frame, /Delayed/, "every row, not just the first");
+      assert.match(frame, /late/, "and the status is spelled out rather than truncated");
+    } finally {
+      if (previousTmux === undefined) delete process.env.TMUX;
+      else process.env.TMUX = previousTmux;
+      if (previous) setCapabilities(previous);
+    }
+  });
+
+  it("still uses the rasterised form where the protocol works", async () => {
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    try {
+      const component = new VisualReviewWizard({ requestRender: () => {}, terminal: { rows: 44 } }, theme, mockupReview(), process.cwd(), () => {});
+      const frame = component.render(100).join("\n");
+      component.dispose();
+      assert.ok(/\u001b_G/.test(frame), "a graphic terminal gets the PNG");
+      assert.doesNotMatch(frame, /\u250c\u2500 TRANSIT AIRY/, "and not the character form as well");
+    } finally {
+      if (previous) setCapabilities(previous);
+    }
+  });
+});
