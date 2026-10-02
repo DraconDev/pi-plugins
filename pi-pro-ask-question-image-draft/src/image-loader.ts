@@ -1,9 +1,22 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { basename, extname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { getImageDimensions, getCapabilities, type ImageDimensions } from "@earendil-works/pi-tui";
 import type { ImageReference } from "./schema.ts";
+
+/**
+ * The largest image this will read, and then base64.
+ *
+ * Every image is base64-encoded on the way to the terminal, so the process ends
+ * up holding the file plus roughly a third more as text - and the loader runs
+ * for every option at once. A reference to a large file, or a URL that serves
+ * one, would otherwise be read whole before anything noticed.
+ *
+ * The generator's own provider path is capped at 32 MB, so this is deliberately
+ * stricter for a reference the model handed us directly.
+ */
+const MAX_IMAGE_BYTES = 24 * 1024 * 1024;
 
 export interface LoadedImage {
   base64: string;
