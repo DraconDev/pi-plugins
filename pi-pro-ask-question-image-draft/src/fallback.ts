@@ -52,12 +52,18 @@ export function fallbackText(review: NormalizedReview, reason: FallbackReason): 
     if (stage.allowOther) lines.push(`  ${OTHER_LABEL} — enter a custom answer`);
     if (!stage.required) lines.push(`  ${SKIP_LABEL} — continue without answering`);
     if (stage.allowRevision) lines.push(`  ${REVISION_LABEL} — describe changes for the next image round`);
+    // The dialog path pushes both on every stage, so the plain-chat script that
+    // stands in for it has to name them too. Without these two lines a rejection
+    // - the one outcome that stops the work - was unreachable unless the model
+    // invented it.
+    lines.push(`  ${APPROVE_LABEL} — approve these answers and continue`);
+    lines.push(`  ${REJECT_LABEL} — reject the proposal; no implementation should proceed`);
   }
 
   if (review.notes) lines.push("", `Notes: ${review.notes}`);
   lines.push(
     "",
-    "Ask the user these questions in plain chat. Return explicit options, custom answers, and revision/cancel decisions when the user responds; do not infer a response from host unavailability.",
+    "Ask the user these questions in plain chat. Return explicit options, custom answers, and approve/reject/revision/cancel decisions when the user responds; do not infer a response from host unavailability.",
   );
   return lines.join("\n");
 }
@@ -76,7 +82,11 @@ export function makeFallbackResult(review: NormalizedReview, reason: FallbackRea
 }
 
 function displayOption(stage: NormalizedStage, option: NormalizedOption): string {
-  const image = option.image?.path ?? option.image?.url;
+  // The data URI is named the way `fallbackText` names it. It used to be dropped,
+  // so an option carrying only a data URI - which the schema allows - rendered as
+  // a bare label on the dialog path while the plain-chat script showed it, and the
+  // reviewer picked blind on the host that had the bytes.
+  const image = option.image?.path ?? option.image?.url ?? (option.image?.dataUri ? "inline data URI" : undefined);
   return image ? `${option.label} — ${image}` : option.label;
 }
 
@@ -217,7 +227,6 @@ export async function runDialogReview(
         skipStage = true;
         continue;
       }
-      if (selected === SKIP_LABEL) continue;
       if (selected === REVISION_LABEL) {
         const feedback = await ctx.ui.input("What should be revised?", "Describe the changes you want", { signal: ctx.signal });
         if (feedback === undefined) return cancelledResult(review, answers, skippedStageIds, initialGlobalNote);
