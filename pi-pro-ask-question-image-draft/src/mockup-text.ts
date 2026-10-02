@@ -176,7 +176,7 @@ export function renderMockupText(spec: {
   // Rows are admitted while the *lines* they need fit, so a frame of ten rows
   // that all carry a detail shows fewer rows rather than one row too many.
   let used = 0;
-  const admitted: typeof wanted = [];
+  const admitted: Array<(typeof wanted)[number]> = [];
   for (const entry of wanted) {
     const cost = 1 + (continuationOf(entry) ? 1 : 0);
     if (used + cost > Math.max(0, height - chrome)) break;
