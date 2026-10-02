@@ -1529,3 +1529,48 @@ describe("a redirect is not a way around the host guard", () => {
     }
   });
 });
+
+/**
+ * The size limit used to be applied after `response.arrayBuffer()`, which is a
+ * check that has already lost: a chunked response with no `content-length`
+ * skips the header guard and is buffered whole first. 64 MB was held in memory
+ * before the refusal arrived.
+ *
+ * Tested directly rather than through `loadImage`, because the host guard
+ * correctly refuses every address this machine can serve an image from - which
+ * is the right behaviour and also makes the streaming path unreachable from the
+ * outside.
+ */
+describe("a reference body is abandoned the moment it passes the limit", () => {
+  it("refuses a chunked body with no content-length, without holding it whole", async () => {
+    const { readCappedBody } = await import("../src/image-loader.ts");
+    const CHUNK = Buffer.alloc(1024 * 1024, 0x41);
+    const streamed = new Response(
+      new ReadableStream({
+        start(controller) {
+          let sent = 0;
+          const pump = () => {
+            while (sent < 64) {
+              controller.enqueue(CHUNK);
+              sent += 1;
+            }
+            controller.close();
+          };
+          pump();
+        },
+      }),
+      { headers: { "content-type": "image/png" } },
+    );
+    assert.equal(streamed.headers.get("content-length"), null, "the response must carry no length header, or the test proves nothing");
+    let message = "";
+    try {
+      await readCappedBody(streamed, 8 * 1024 * 1024, (text) => new Error(text));
+    } catch (error) {
+      message = error.message;
+    }
+    assert.match(message, /more than 8388608 bytes/, `a 64 MB chunked body should be refused at 8 MB, got: ${message}`);
+
+    const small = new Response(CHUNK.subarray(0, 16));
+    assert.equal((await readCappedBody(small, 1024, (text) => new Error(text))).length, 16, "a body inside the limit still reads");
+  });
+});
