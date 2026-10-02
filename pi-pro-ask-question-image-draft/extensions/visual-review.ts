@@ -162,6 +162,7 @@ function cancelledResult(
   review: NormalizedReview,
   answers: readonly ReviewAnswer[],
   generatedImages: readonly GeneratedImageReference[],
+  globalNote = "",
 ): ReviewResult {
   return {
     version: 1,
@@ -170,6 +171,7 @@ function cancelledResult(
     status: "cancelled",
     decision: "cancel",
     cancelled: true,
+    ...(globalNote ? { globalNote } : {}),
     answers: [...answers],
     ...(generatedImages.length > 0 ? { generatedImages: generatedImages.map((image) => ({ ...image })) } : {}),
   };
@@ -341,7 +343,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
             result = await runDialogReview(ctx, review, initialAnswers, initialSkippedStageIds, initialGlobalNote);
           } catch (error) {
             if (isAbortError(error) || signal?.aborted || ctx.signal?.aborted) {
-              result = cancelledResult(review, initialAnswers, generatedImages);
+              result = cancelledResult(review, initialAnswers, generatedImages, initialGlobalNote);
             } else {
               result = makeFallbackResult(review, "rpc");
             }
@@ -352,7 +354,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
             result = wizardResult ?? makeFallbackResult(review, "no_custom_ui");
           } catch (error) {
             if (isAbortError(error) || signal?.aborted || ctx.signal?.aborted) {
-              result = cancelledResult(review, initialAnswers, generatedImages);
+              result = cancelledResult(review, initialAnswers, generatedImages, initialGlobalNote);
             } else if (hasDialogUI(ctx)) {
               try {
                 result = await runDialogReview(ctx, review, initialAnswers, initialSkippedStageIds, initialGlobalNote);
