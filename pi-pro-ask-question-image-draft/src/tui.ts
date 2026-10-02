@@ -1145,6 +1145,11 @@ export class VisualReviewWizard implements Component, Focusable {
       lines.push("");
       for (const line of this.editor.render(Math.max(1, safeWidth - 4))) lines.push(`  ${line}`);
       lines.push("");
+      // The editor failed. It has no other way to say so: the failure used to
+      // reject with nothing catching it, which took the process down rather
+      // than the review, so the message is drawn where the answer is typed.
+      if (this.editorError) lines.push(this.theme.fg("warning", `  Editor failed: ${truncateToWidth(this.editorError, Math.max(1, safeWidth - 18))}`));
+      lines.push("");
       lines.push(this.theme.fg("dim", `Enter to submit • Esc to go back${this.inputMode === "other" && this.externalEditorConfigured ? " • Ctrl+G external editor" : ""}`));
     } else {
       this.editor.focused = false;
