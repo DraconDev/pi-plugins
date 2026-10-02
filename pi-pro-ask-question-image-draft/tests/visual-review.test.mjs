@@ -841,8 +841,9 @@ describe("the envelope says what actually happened", () => {
 describe("what a resumed round reads back is what was written", () => {
   const persisted = (overrides) => {
     const review = baseReview();
-    // "cancelled" rather than "completed": an unresolved stage cannot be persisted as approved.
-    const state = makeReviewState(review, [], "cancelled");
+    // A genuinely completable state: one answer, so every status in the union
+    // is reachable and only the status itself is under test.
+    const state = makeReviewState(review, [answerFor(review, "layout", "grid")], "completed");
     return { ...state, ...overrides };
   };
 
@@ -873,21 +874,23 @@ describe("what a resumed round reads back is what was written", () => {
     // state takes, and the comment in state.ts calls this the only gate it
     // passes through.
     const review = baseReview();
-    const withNaNReview = () => ({
-      reviewId: review.reviewId,
-      title: review.title,
-      round: review.round,
-      stages: [{
-        ...review.stages[0],
-        options: [
-          { id: "grid", label: "Grid", value: "grid", mockup: { layout: "list", title: "T", rows: [{ label: "r", value: Number.NaN }] } },
-          { id: "stack", label: "Stack", value: "stack" },
-        ],
-      }],
-    });
-    assert.throws(() => validateReview(withNaNReview()), /between 0 and 1/, "NaN must not survive validateReview");
+    // Built by normalising first - so the review is a real `NormalizedReview` -
+    // and then poisoning one value, which is exactly what a state written by an
+    // older or different tool carries.
+    const withNaN = baseReview();
+    withNaN.stages[0].options[0].mockup = { layout: "list", title: "T", rows: [{ label: "r", value: Number.NaN }] };
+    assert.throws(() => validateReview(withNaN), /between 0 and 1/, "NaN must not survive validateReview");
     assert.throws(
-      () => normalizeReview(withNaNReview()),
+      () => normalizeReview({
+        ...baseReview(),
+        stages: [{
+          ...baseReview().stages[0],
+          options: [
+            { id: "grid", label: "Grid", value: "grid", mockup: { layout: "list", title: "T", rows: [{ label: "r", value: Number.NaN }] } },
+            { id: "stack", label: "Stack", value: "stack" },
+          ],
+        }],
+      }),
       /must be a number between 0 and 1/,
       "the input path already rejected it",
     );
