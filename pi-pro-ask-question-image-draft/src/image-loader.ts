@@ -202,7 +202,7 @@ async function fetchRemote(url: string, signal?: AbortSignal): Promise<{ bytes: 
   if (Number.isFinite(declared) && declared > MAX_IMAGE_BYTES) {
     throw new Error(`Image at ${url} is ${declared} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
   }
-  const bytes = await readCapped(response, url);
+  const bytes = await readCappedBody(response, MAX_IMAGE_BYTES, (message) => new Error(`Image at ${url} ${message}.`));
   return { bytes, mimeType: response.headers.get("content-type") ?? undefined, remoteUrl: response.url || url };
 }
 
@@ -214,17 +214,29 @@ async function fetchRemote(url: string, signal?: AbortSignal): Promise<{ bytes: 
  * is buffered whole first. 64 MB measured, 242 MB of RSS moved, and the
  * refusal arrived afterwards - a 2 GB body would be held in full before the
  * same line fired. The stream is counted as it arrives and abandoned mid-flight.
+ *
+ * Exported so the cap can be tested directly: the host guard refuses every
+ * address this machine can serve an image from, which is correct and also makes
+ * the streaming path unreachable from a test that goes through `loadImage`.
  */
-async function readCapped(response: Response, url: string): Promise<Buffer> {
+export async function readCappedBody(
+  response: Response,
+  limit: number,
+  describe: (message: string) => Error,
+): Promise<Buffer> {
   const body = response.body;
-  if (!body) return Buffer.from(await response.arrayBuffer());
+  if (!body) {
+    const whole = Buffer.from(await response.arrayBuffer());
+    if (whole.length > limit) throw describe(`body is ${whole.length} bytes; the limit is ${limit}`);
+    return whole;
+  }
   const chunks: Buffer[] = [];
   let total = 0;
   for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {
     total += chunk.byteLength;
-    if (total > MAX_IMAGE_BYTES) {
+    if (total > limit) {
       await body.cancel().catch(() => undefined);
-      throw new Error(`Image at ${url} is more than ${MAX_IMAGE_BYTES} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
+      throw describe(`body is more than ${limit} bytes; the limit is ${limit}`);
     }
     chunks.push(Buffer.from(chunk));
   }
