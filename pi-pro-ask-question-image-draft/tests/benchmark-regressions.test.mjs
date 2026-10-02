@@ -1378,3 +1378,49 @@ describe("a hostile PNG is refused, not attempted", () => {
     assert.throws(() => decodePng(png), /claims 65535 bytes|only/);
   });
 });
+
+/**
+ * A review cannot read the rest of your disk.
+ *
+ * A review is a JSON file the model writes, so an `image.path` in it is a path
+ * the model chose and the loader resolved with nothing in between: `../../.ssh/
+ * id_rsa` and `/etc/shadow` both reached `readFile`, were base64-encoded, and
+ * were drawn into the panel. The size cap that went in beside this stops a big
+ * file being read; only confinement stops the wrong one.
+ */
+describe("an image path stays inside the review's own directory", () => {
+  it("reads what is inside and refuses what is outside, by name", async () => {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const { setCapabilities } = await import("@earendil-works/pi-tui");
+    const { loadImage } = await import("../src/image-loader.ts");
+    const previous = setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+    const root = resolve("/tmp/panel-invariants-review");
+    mkdirSync(root, { recursive: true });
+    writeFileSync(resolve(root, "inside.png"), Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64",
+    ));
+    try {
+      const load = async (path) => {
+        try {
+          await loadImage({ path }, root);
+          return "read";
+        } catch (error) {
+          return error.message;
+        }
+      };
+      assert.equal(await load("inside.png"), "read", "a relative path inside the review's directory");
+      assert.equal(await load("./inside.png"), "read", "and with an explicit ./ prefix");
+      assert.equal(await load(resolve(root, "inside.png")), "read", "and as an absolute path that lands inside");
+      assert.equal(await load("sub/../inside.png"), "read", "and through a directory that does not exist yet");
+      for (const escape of ["../escape.png", "../../.ssh/id_rsa", "/etc/shadow"]) {
+        const message = await load(escape);
+        assert.match(message, /outside the review's directory/, `${escape} is refused, and says so`);
+        assert.match(message, /Only files under/, `${escape} is told where files may come from`);
+      }
+    } finally {
+      if (previous) setCapabilities(previous);
+    }
+  });
+});
