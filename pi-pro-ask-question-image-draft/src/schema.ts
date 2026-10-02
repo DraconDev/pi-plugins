@@ -599,6 +599,11 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
         return stage;
       })
     : undefined;
+  // The declared maximum of four was never enforced, so a review could arrive
+  // with five legacy questions and a header claiming otherwise.
+  if (params.questions !== undefined && (!Array.isArray(params.questions) || params.questions.length > 4)) {
+    throw new Error("questions must be an array of at most 4 questions.");
+  }
   const legacyQuestions = Array.isArray(params.questions)
     ? (params.questions as unknown[]).map((question, index) => assertRawQuestion(question, index))
     : [];
