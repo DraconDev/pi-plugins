@@ -90,7 +90,12 @@ describe("benchmark scoring helpers", () => {
   });
 
   it("uses stable, seeded blind A/B labels", () => {
-    assert.deepEqual(blindLabels(20260925, "ordinary-0001"), blindLabels(20260925, "ordinary-0001"));
+    // Same seed, same id, same labels; a different one, different labels. A
+    // comparison of the expression with itself passed for a blindLabels that
+    // ignored both arguments entirely.
+    assert.deepEqual(blindLabels(20260925, "ordinary-0001"), blindLabels(20260925, "ordinary-0001"), "stable for the same seed and id");
+    assert.notDeepEqual(blindLabels(20260925, "ordinary-0001"), blindLabels(20260926, "ordinary-0001"), "a different seed relabels");
+    assert.notDeepEqual(blindLabels(20260925, "ordinary-0001"), blindLabels(20260925, "ordinary-0002"), "a different id relabels");
     const labels = blindLabels(20260925, "ordinary-0001");
     assert.deepEqual(Object.values(labels).sort(), ["candidate", "reference"]);
   });
