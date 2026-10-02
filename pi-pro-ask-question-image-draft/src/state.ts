@@ -237,13 +237,23 @@ export function isReviewState(value: unknown): value is ReviewState {
       value.status !== "revision" &&
       value.status !== "rejected" &&
       value.status !== "cancelled" &&
-      value.status !== "fallback") ||
+      value.status !== "fallback" &&
+      // `makeReviewState` accepts `failed` and the extension can build one, so
+      // the reader has to know it too. Without this a persisted failure was an
+      // entry that resume silently ignored.
+      value.status !== "failed") ||
     typeof value.updatedAt !== "string" ||
     !isOptionalString(value.title) ||
     !isOptionalString(value.provider) ||
     !isOptionalString(value.model) ||
     !isOptionalString(value.imagePrompt) ||
     !isOptionalString(value.notes) ||
+    // Rejected, not coerced. `images` and `density` go through `oneOf` and are
+    // refused when they are not what they claim; `autoResolve` was turned into
+    // a boolean with `value.autoResolve === true`, so a stale or hand-written
+    // entry saying `autoResolve: "yes"` silently turned Ctrl+A *off* instead of
+    // being refused.
+    (value.autoResolve !== undefined && typeof value.autoResolve !== "boolean") ||
     (value.generation !== undefined && !isRecord(value.generation))
   ) {
     return false;
@@ -256,7 +266,7 @@ export function isReviewState(value: unknown): value is ReviewState {
       ...(value.rounds === undefined ? {} : { rounds: value.rounds as number }),
       images: (value.images as "off" | "on" | undefined) ?? "off",
       density: (value.density as "comfortable" | "compact" | undefined) ?? "comfortable",
-      ...(value.autoResolve === undefined ? {} : { autoResolve: value.autoResolve === true }),
+      ...(value.autoResolve === undefined ? {} : { autoResolve: value.autoResolve as boolean }),
       title: value.title as string | undefined,
       provider: value.provider as string | undefined,
       model: value.model as string | undefined,
@@ -339,8 +349,18 @@ export function carryOverPresentation<T extends { images?: "off" | "on"; density
   // revision round the same way. Carried as a one-way: a round that asks for it
   // explicitly is honoured, and a round that does not inherits it.
   if (next.autoResolve !== true && previous?.autoResolve === true) next = { ...next, autoResolve: true };
-  // The expected total, so a resumed round can still say "round 2 of 3".
-  if (next.rounds === undefined && previous?.rounds !== undefined) next = { ...next, rounds: previous.rounds };
+  // The expected total, so a resumed round can still say "round 2 of 3" - but
+  // only while it still bounds the round being carried. A review whose model
+  // said `rounds: 3` and then asked for round 4 had a total of 3 carried into
+  // it, and `validateReview` then refuses the combination (`rounds cannot be
+  // less than round`). Nothing validated the result: the state was written into
+  // the session and `isReviewState` skipped it on every later read, so that
+  // round's answers, skips, note and generated images disappeared with no
+  // error at all. Better to lose the "of 3" in the header than the round.
+  const round = next.round ?? 1;
+  if (next.rounds === undefined && previous?.rounds !== undefined && previous.rounds >= round) {
+    next = { ...next, rounds: previous.rounds };
+  }
   return next;
 }
 
