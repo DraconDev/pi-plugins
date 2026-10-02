@@ -113,13 +113,21 @@ export function buildResponse(result: ReviewResult, review: NormalizedReview): V
   switch (result.status) {
     case "completed": {
       if (result.answers.length === 0 && !result.globalNote) {
-        text = "Visual review completed with no recorded answers.";
+        text = result.skippedStageIds?.length
+          ? `Visual review completed with no recorded answers. The user skipped: ${result.skippedStageIds.join(", ")}.`
+          : "Visual review completed with no recorded answers.";
       } else {
         const stageById = new Map(review.stages.map((stage) => [stage.id, stage]));
         const formatted = result.answers.map((answer) => {
           const stage = stageById.get(answer.stageId);
           return formatAnswer(answer, stage?.prompt ?? answer.stageId);
         });
+        // A skipped stage is a decision the user made, and the envelope is the
+        // only thing the model reads. Naming only the answered stages made an
+        // explicit skip indistinguishable from a stage nobody was ever shown,
+        // even though approval is gated on it.
+        const skipped = result.skippedStageIds ?? [];
+        if (skipped.length > 0) formatted.push(`skipped by the user: ${skipped.join(", ")}.`);
         if (result.globalNote) formatted.push(`global note: ${result.globalNote}.`);
         text = `${ENVELOPE_PREFIX} ${formatted.join(" ")} ${ENVELOPE_SUFFIX}`;
       }
@@ -172,7 +180,13 @@ export function errorResponse(message: string, review?: NormalizedReview): Visua
       provider: review?.provider,
       model: review?.model,
       answers: [],
-      cancelled: true,
+      // `false`, matching `result.cancelled` on the very payload this sits in.
+      // The prose above says "This is not a user decision"; the flag a level up
+      // was still saying the user declined, and `PROMPT_GUIDELINES` tells the
+      // model to read a cancelled decision as an explicit user cancellation.
+      // `scripts/benchmark/compare.mjs` then filed every errored review under
+      // `cancelled` for good.
+      cancelled: false,
       error: message,
       result,
     },
