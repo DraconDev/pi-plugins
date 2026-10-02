@@ -34,14 +34,49 @@ const FRAME_CHARS = {
 const BAR_FULL = "█";
 const BAR_EMPTY = "░";
 
-const truncate = (value: string, cells: number) => {
-  const characters = [...String(value ?? "")];
-  return characters.length <= cells ? String(value ?? "") : `${characters.slice(0, Math.max(0, cells - 1)).join("")}…`;
+/**
+ * How many terminal columns a string occupies.
+ *
+ * Counting code points is wrong for anything outside ASCII: a CJK ideograph is
+ * two columns, so a label of thirty of them overflows a forty-column frame and
+ * lands the right border in the middle of a character. Model-authored labels are
+ * routinely CJK, so this is not hypothetical.
+ */
+const cells = (value: string): number => {
+  let total = 0;
+  for (const character of String(value ?? "")) {
+    const code = character.codePointAt(0) ?? 0;
+    // Wide ranges: CJK, Hangul, Kana, fullwidth forms, and the emoji blocks.
+    const wide = (code >= 0x1100 && code <= 0x115f)
+      || (code >= 0x2e80 && code <= 0xa4cf)
+      || (code >= 0xac00 && code <= 0xd7a3)
+      || (code >= 0xf900 && code <= 0xfaff)
+      || (code >= 0xfe30 && code <= 0xfe6f)
+      || (code >= 0xff00 && code <= 0xff60)
+      || (code >= 0xffe0 && code <= 0xffe6)
+      || (code >= 0x1f300 && code <= 0x1f9ff);
+    total += wide ? 2 : 1;
+  }
+  return total;
 };
 
-const pad = (value: string, cells: number) => {
-  const text = truncate(value, cells);
-  return text + " ".repeat(Math.max(0, cells - [...text].length));
+const truncate = (value: string, width: number) => {
+  const text = String(value ?? "");
+  if (cells(text) <= width) return text;
+  let out = "";
+  let used = 0;
+  for (const character of text) {
+    const size = cells(character);
+    if (used + size > Math.max(0, width - 1)) break;
+    out += character;
+    used += size;
+  }
+  return `${out}…`;
+};
+
+const pad = (value: string, width: number) => {
+  const text = truncate(value, width);
+  return text + " ".repeat(Math.max(0, width - cells(text)));
 };
 
 /**
@@ -86,7 +121,14 @@ export function renderMockupText(spec: {
   // between the two verticals. Every row is padded to exactly `inner`, so the
   // right-hand edge is a straight line down the frame - the first version built
   // each row from pieces of different widths and the frame came out ragged.
-  const outer = Math.max(28, Math.min(72, options.width));
+  // `Math.min(72, NaN)` is NaN and `Math.max(28, NaN)` is NaN, so an unchecked
+  // width made every `repeat()` below degenerate to an empty string and emitted
+  // a six-cell frame instead of the documented minimum. Clamping a non-finite
+  // input to the default is the difference between "smaller than asked" and
+  // "not a frame at all".
+  const safeWidth = Number.isFinite(options.width) ? options.width : 40;
+  const safeHeight = Number.isFinite(options.height) ? options.height : 12;
+  const outer = Math.max(28, Math.min(72, Math.floor(safeWidth)));
   const inner = outer - 4;
   const layout = spec.layout ?? "list";
   const rail = layout === "rail" || layout === "board" || layout === "overlay";
@@ -95,11 +137,16 @@ export function renderMockupText(spec: {
   // A title lives inside the top rule rather than being hung off it, because a
   // frame whose own border is broken is not a drawing of anything.
   const top = (title: string) => {
-    const text = ` ${truncate(title, inner - 2)} `;
-    return `┌${FRAME_CHARS.horizontal}${text}${FRAME_CHARS.horizontal.repeat(Math.max(0, inner - 1 - text.length))}┐`;
+    const text = ` ${truncate(title, Math.max(1, inner - 2))} `;
+    const used = 1 + cells(text); // the corner, then the title and its spaces
+    return `┌${FRAME_CHARS.horizontal}${text}${FRAME_CHARS.horizontal.repeat(Math.max(0, outer - 1 - used))}┐`;
   };
-  const rule = `├${FRAME_CHARS.horizontal.repeat(inner)}┤`;
-  const bottom = `└${FRAME_CHARS.horizontal.repeat(inner)}┘`;
+  // The rules are as wide as the rows they frame: a row is `│` + space + inner
+  // + space + `│`, which is `outer` columns, so a rule needs `outer - 2`
+  // horizontals between its corners. They used to repeat `inner` and came out
+  // two cells short, so the right edge of every frame was a staircase.
+  const rule = `├${FRAME_CHARS.horizontal.repeat(outer - 2)}┤`;
+  const bottom = `└${FRAME_CHARS.horizontal.repeat(outer - 2)}┘`;
   const row = (text: string) => `${FRAME_CHARS.vertical} ${pad(text, inner)} ${FRAME_CHARS.vertical}`;
 
   const lines: string[] = [top(spec.title ?? "mockup")];
@@ -108,10 +155,14 @@ export function renderMockupText(spec: {
   if (spec.headers?.length) lines.push(row(spec.headers.join(dense ? " " : "   ")));
   lines.push(rule);
 
-  // Content is left out rather than squashed, and says so when it is.
-  const chrome = 2 + (spec.headers?.length ? 1 : 0) + 2; // top, count, rule, bottom
-  const available = Math.max(0, options.height - chrome);
+  // Every line this function emits is counted, including the overflow marker:
+  // it used to count four chrome rows and then append a fifth when the content
+  // did not fit, so the frame came back taller than the budget it was handed.
+  const height = Math.max(5, Math.floor(safeHeight));
+  const chrome = 4 + (spec.headers?.length ? 1 : 0); // top, count, rule, bottom
   const wanted = spec.rows ?? [];
+  const overflows = wanted.length > Math.max(0, height - chrome);
+  const available = Math.max(0, height - chrome - (overflows ? 1 : 0));
   const shown = wanted.slice(0, available);
 
   // The tail is ` bar status`, and the longest status word is four characters,
@@ -132,7 +183,7 @@ export function renderMockupText(spec: {
       : mark ? ` ${mark}` : "";
     lines.push(row(`${left}${label}${tail}`));
   });
-  if (shown.length < wanted.length) {
+  if (overflows) {
     lines.push(row(`…and ${wanted.length - shown.length} more`));
   }
 
