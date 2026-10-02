@@ -813,19 +813,18 @@ describe("the envelope says what actually happened", () => {
 
   it("names the stages the user skipped, on their own and alongside answers", () => {
     const review = reviewWith([
-      { id: "layout", header: "Layout", prompt: "Choose a layout", options: [{ id: "grid", label: "Grid", value: "grid" }, { id: "stack", label: "Stack", value: "stack" }] },
+      { id: "layout", header: "Layout", prompt: "Choose a layout", required: false, options: [{ id: "grid", label: "Grid", value: "grid" }, { id: "stack", label: "Stack", value: "stack" }] },
       { id: "mood", header: "Mood", prompt: "Choose a mood", required: false, options: [{ id: "calm", label: "Calm" }, { id: "loud", label: "Loud" }] },
     ]);
-    const allSkipped = makeReviewResult(review, "approve", [], undefined, ["layout", "mood"]);
-    const skippedOnly = buildResponse(allSkipped, review);
+    // Both skipped is a legitimate outcome: every stage is optional, so
+    // skipping all of them is how the user says "neither, carry on".
+    const skippedOnly = buildResponse(makeReviewResult(review, "approve", [], undefined, ["layout", "mood"]), review);
     assert.match(skippedOnly.content[0].text, /skipped: layout, mood/, "an all-skipped review must still name what was skipped");
 
-    const answered = makeReviewResult(review, "approve", [answerFor(review, "layout", "grid")], undefined, ["mood"]);
-    const mixed = buildResponse(answered, review);
+    const mixed = buildResponse(makeReviewResult(review, "approve", [answerFor(review, "layout", "grid")], undefined, ["mood"]), review);
     assert.match(mixed.content[0].text, /skipped by the user: mood/, "a skip must be named next to the answers");
     assert.match(mixed.content[0].text, /Grid/, "and must not displace them");
 
-    // A review with nothing skipped must not gain the sentence.
     const none = buildResponse(makeReviewResult(review, "approve", [answerFor(review, "layout", "grid")]), review);
     assert.doesNotMatch(none.content[0].text, /skipped/, "no skip means no skip line");
   });
