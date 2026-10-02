@@ -1357,9 +1357,10 @@ describe("a hostile PNG is refused, not attempted", () => {
 
   it("refuses dimensions that would allocate gigabytes", async () => {
     const { decodePng } = await import("../src/png.ts");
-    assert.throws(() => decodePng(claiming(40000, 40000)), /40000x40000|the limit is/);
-    assert.throws(() => decodePng(claiming(0, 100)), /not positive/);
-    assert.ok(decodePng(claiming(8, 8)).length > 0, "an ordinary PNG is unaffected");
+    const huge = await claiming(40000, 40000);
+    assert.throws(() => decodePng(huge), /40000x40000|the limit is/);
+    assert.throws(() => decodePng(await claiming(0, 100)), /not positive/);
+    assert.ok(decodePng(await claiming(8, 8)).length > 0, "an ordinary PNG is unaffected");
   });
 
   it("reports a chunk that lies about its length", async () => {
