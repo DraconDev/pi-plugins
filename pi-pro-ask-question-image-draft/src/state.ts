@@ -61,10 +61,20 @@ export interface ReviewState {
   version: 1;
   reviewId: string;
   round: number;
+  /**
+   * How many rounds were expected, when the model said so.
+   *
+   * It was validated on the way in and then never written here, so a resumed
+   * round could never say "round 2 of 3" - the header silently degraded to
+   * "round 2". Persisted alongside `round` so the two cannot disagree.
+   */
+  rounds?: number;
   /** Whether this review asked for its option images; off unless it said on. */
   images?: "off" | "on";
   /** Row density this review was opened with; comfortable unless it said compact. */
   density?: "comfortable" | "compact";
+  /** Whether Enter resolves to the recommended option; off unless it said on. */
+  autoResolve?: boolean;
   title?: string;
   provider?: string;
   model?: string;
@@ -358,8 +368,12 @@ export function makeReviewState(
     version: 1,
     reviewId: review.reviewId,
     round: review.round,
+    ...(review.rounds === undefined ? {} : { rounds: review.rounds }),
     images: review.images,
     density: review.density,
+    // Ctrl+A is a view choice like density, so a revision round should not
+    // quietly drop it the way it used to.
+    ...(review.autoResolve === undefined ? {} : { autoResolve: review.autoResolve }),
     title: review.title,
     provider: review.provider,
     model: review.model,
