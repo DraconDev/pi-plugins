@@ -476,6 +476,13 @@ const boundedText = (value: unknown, field: string, maxLength: number): string |
   return text;
 };
 
+/** `recommended` is a flag, not a truthy value: anything but true, false or absent is an error. */
+function normalizeRecommended(value: unknown, optionId: string): true | undefined {
+  if (value === undefined || value === false) return undefined;
+  if (value !== true) throw new Error(`Option ${optionId} recommended must be true when present.`);
+  return true;
+}
+
 function normalizeMockup(value: unknown, field: string): MockupSpec {
   if (!isRecord(value)) throw new Error(`${field}.mockup must be an object.`);
   const rows = value.rows;
@@ -669,10 +676,8 @@ export function normalizeReview(params: ReviewParams, now = Date.now()): Normali
         description: optionalText(option.description),
         // `recommended` is checked rather than coerced: `"yes"` used to be
         // silently dropped, so a model that got the type wrong got no marker and
-        // no complaint.
-        ...(option.recommended !== undefined && option.recommended !== true
-          ? (() => { throw new Error(`Option ${optionId} recommended must be true when present.`); })()
-          : {}),
+        // no complaint at all.
+        recommended: normalizeRecommended(option.recommended, optionId),
         // The option's own change list: plain text, in order, blanks dropped.
         // Bounded, because every entry is rendered into the panel and the
         // declared limits were never enforced: a model could send ten thousand
