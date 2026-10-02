@@ -1722,7 +1722,21 @@ describe("the character-drawn mockup draws what the schema accepts", () => {
       { label: "Row A", value: 0.5, status: "ok", code: "HTTP 503", detail: "retry after 30s" },
       { label: "行 A", value: 0.5, status: "warn", detail: "a wide-character row" },
     ]);
-    const widths = new Set(frame.map((line) => [...line].length));
-    assert.equal(widths.size, 1, `every line should be the same width, got ${[...widths].join(", ")}`);
+    // Terminal columns, not code points: the whole point of the wide-character
+    // row is that counting code points is what makes the right border ragged.
+    const columns = (line) => {
+      let total = 0;
+      for (const character of line) {
+        const code = character.codePointAt(0) ?? 0;
+        const wide = (code >= 0x1100 && code <= 0x115f) || (code >= 0x2e80 && code <= 0xa4cf)
+          || (code >= 0xac00 && code <= 0xd7a3) || (code >= 0xf900 && code <= 0xfaff)
+          || (code >= 0xfe30 && code <= 0xfe6f) || (code >= 0xff00 && code <= 0xff60)
+          || (code >= 0xffe0 && code <= 0xffe6) || (code >= 0x1f300 && code <= 0x1f9ff);
+        total += wide ? 2 : 1;
+      }
+      return total;
+    };
+    const widths = new Set(frame.map(columns));
+    assert.equal(widths.size, 1, `every line should be the same number of terminal columns, got ${[...widths].join(", ")}`);
   });
 });
