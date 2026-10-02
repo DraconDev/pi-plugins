@@ -182,7 +182,7 @@ export async function runDialogReview(
       choices.push(APPROVE_LABEL, REJECT_LABEL);
 
       const selected = await ctx.ui.select(selectTitle(stage, selectedLabels), choices, { signal: ctx.signal });
-      if (selected === undefined) return cancelledResult(review, answers, skippedStageIds);
+      if (selected === undefined) return cancelledResult(review, answers, skippedStageIds, initialGlobalNote);
 
       if (stage.multiSelect && selected === DONE_LABEL) {
         if (optionIds.size === 0) {
@@ -190,7 +190,7 @@ export async function runDialogReview(
             const retry = await ctx.ui.confirm("Selection required", "Choose at least one option before continuing. Try again?", {
               signal: ctx.signal,
             });
-            if (retry === false) return cancelledResult(review, answers, skippedStageIds);
+            if (retry === false) return cancelledResult(review, answers, skippedStageIds, initialGlobalNote);
             continue;
           }
           continue;
@@ -202,7 +202,7 @@ export async function runDialogReview(
 
       if (selected === OTHER_LABEL) {
         const text = await ctx.ui.input("Your answer", stage.description, { signal: ctx.signal });
-        if (text === undefined) return cancelledResult(review, answers, skippedStageIds);
+        if (text === undefined) return cancelledResult(review, answers, skippedStageIds, initialGlobalNote);
         const trimmed = text.trim();
         if (!trimmed) continue;
         customText = trimmed;
@@ -215,7 +215,7 @@ export async function runDialogReview(
       if (selected === SKIP_LABEL) continue;
       if (selected === REVISION_LABEL) {
         const feedback = await ctx.ui.input("What should be revised?", "Describe the changes you want", { signal: ctx.signal });
-        if (feedback === undefined) return cancelledResult(review, answers, skippedStageIds);
+        if (feedback === undefined) return cancelledResult(review, answers, skippedStageIds, initialGlobalNote);
         const trimmed = feedback.trim();
         if (!trimmed) continue;
         revisionFeedback = trimmed;
@@ -229,7 +229,7 @@ export async function runDialogReview(
             `Answer or explicitly skip stage “${missingStage.header}” before approving. Continue reviewing?`,
             { signal: ctx.signal },
           );
-          if (retry === false) return cancelledResult(review, answers, skippedStageIds);
+          if (retry === false) return cancelledResult(review, answers, skippedStageIds, initialGlobalNote);
           continue;
         }
         // Do not return from inside a stage loop: later stages may still be
