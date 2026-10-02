@@ -2290,12 +2290,16 @@ describe("a coloured theme does not break selection", () => {
   }
 
   it("a click selects the option drawn under the pointer, whatever colour the theme paints", () => {
-    const component = new VisualReviewWizard(
-      { requestRender: () => {}, terminal: { rows: 40 } }, coloredTheme, crowdedReview(), process.cwd(), () => {},
-    );
-    component.focused = true;
     for (const start of [0, 7, 3]) {
-      component.selectedIndex = start;
+      // Walked with the arrow keys rather than assigned: the panel caches its
+      // frame per width and height, and writing `selectedIndex` behind its back
+      // leaves that cache describing the previous cursor.
+      const component = new VisualReviewWizard(
+        { requestRender: () => {}, terminal: { rows: 40 } }, coloredTheme, crowdedReview(), process.cwd(), () => {},
+      );
+      component.focused = true;
+      for (let step = 0; step < start; step += 1) down(component);
+      assert.equal(activeRow(component), `Option ${start}`);
       // The marker has to be matched either way round: the frame draws the
       // cursor's own row as `> 9. Option 8`, so a pattern that only accepts the
       // unmarked shape silently stops finding the row once it is selected.
@@ -2304,8 +2308,8 @@ describe("a coloured theme does not break selection", () => {
       assert.ok(y >= 0, `the frame should show "9. Option 8" when the cursor is on row ${start}`);
       component.handleMouse({ type: "click", y, x: 1, width: 100 });
       assert.equal(activeRow(component), "Option 8", `clicking Option 8 with the cursor on row ${start}`);
+      component.dispose();
     }
-    component.dispose();
   });
 
   it("a click in a windowed band picks the option that is on screen, not the first row", () => {
@@ -2316,7 +2320,7 @@ describe("a coloured theme does not break selection", () => {
       { requestRender: () => {}, terminal: { rows: 24 } }, coloredTheme, crowdedReview(), process.cwd(), () => {},
     );
     component.focused = true;
-    component.selectedIndex = 7;
+    for (let step = 0; step < 7; step += 1) down(component);
     const drawn = plain(component.render(100)).filter((line) => /^\s*(?:\d+\.|>\s*\d+\.)\s*Option/.test(line));
     assert.equal(drawn.length, 1, "24 rows should leave the band windowed to a single option");
     assert.match(drawn[0], /Option 7/, "and the window should be anchored on the cursor, not on row 0");
@@ -2335,7 +2339,7 @@ describe("a coloured theme does not break selection", () => {
       const component = new VisualReviewWizard(
         { requestRender: () => {}, terminal: { rows } }, coloredTheme, crowdedReview(), process.cwd(), () => {},
       );
-      component.selectedIndex = 7;
+      for (let step = 0; step < 7; step += 1) down(component);
       assert.equal(activeRow(component), "Option 7", `the cursor row must be drawn at ${rows} terminal rows`);
       component.dispose();
     }
