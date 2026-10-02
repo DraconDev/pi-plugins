@@ -705,7 +705,7 @@ describe("declared limits that were not enforced", () => {
   const stage = { id: "one", header: "H", prompt: "P", options: [{ label: "A" }, { label: "B" }] };
   const withMockup = (mockup) => normalizeReview({
     reviewId: "r",
-    stages: [{ id: "one", header: "H", prompt: "P", options: [{ ...stage.options[0], mockup }] }],
+    stages: [{ id: "one", header: "H", prompt: "P", options: [{ ...stage.options[0], mockup }, stage.options[1]] }],
   });
 
   it("rejects a mockup that cannot be drawn or read", async () => {
@@ -731,10 +731,11 @@ describe("declared limits that were not enforced", () => {
 
   it("rejects an unbounded change list or a mistyped recommended flag", async () => {
     const { normalizeReview } = await import("../src/schema.ts");
-    const build = (option) => normalizeReview({ reviewId: "r", stages: [{ ...stage, options: [option] }] });
+    const build = (option) => normalizeReview({ reviewId: "r", stages: [{ ...stage, options: [option, stage.options[1]] }] });
     assert.throws(() => build({ label: "A", changes: ["x".repeat(281)] }), /changes\[0\] is longer than 280/);
     assert.equal(build({ label: "A", changes: ["one", "two"] }).stages[0].options[0].changes.length, 2);
-    assert.throws(() => build({ label: "A", changes: Array.from({ length: 20 }, (_, i) => `c${i}`) }).stages[0].options[0].changes.length === 16 ? () => {} : build.bind(null, { label: "A", changes: Array.from({ length: 20 }, (_, i) => `c${i}`) }), () => {});
+    // Twenty declared, sixteen kept: the list is bounded rather than rejected.
+    assert.equal(build({ label: "A", changes: Array.from({ length: 20 }, (_, i) => `c${i}`) }).stages[0].options[0].changes.length, 16);
     // `recommended: "yes"` used to be silently dropped.
     assert.throws(() => build({ label: "A", recommended: "yes" }), /recommended must be true when present/);
     assert.equal(build({ label: "A", recommended: true }).stages[0].options[0].recommended, true);
