@@ -279,7 +279,14 @@ export async function runDialogReview(
 
   // Every stage has now been processed. Keep the final confirmation explicit
   // so the portable path has the same approval boundary as the TUI.
+  //
+  // A `false` here is a cancellation, not a rejection. `confirm` resolves a
+  // boolean with no third channel, so Esc and a deliberate "No" are the same
+  // value; reading it as a rejection recorded "User rejected the visual review
+  // after round N. No implementation should proceed" off a stray Esc. Decided
+  // 2026-10-02: a dismissal stops nothing and the user can redo it. A real
+  // rejection is still reachable - `REJECT_LABEL` on any stage.
   const approved = await ctx.ui.confirm("Visual review", "Approve these answers and continue?", { signal: ctx.signal });
-  if (!approved) return makeReviewResult(review, "reject", answers, undefined, [...skippedStageIds], initialGlobalNote);
+  if (!approved) return cancelledResult(review, answers, skippedStageIds, initialGlobalNote);
   return makeReviewResult(review, "approve", answers, undefined, [...skippedStageIds], initialGlobalNote);
 }
