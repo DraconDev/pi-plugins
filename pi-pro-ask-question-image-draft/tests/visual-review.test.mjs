@@ -792,3 +792,45 @@ describe("what a resumed round needs to look the same", () => {
     assert.ok(asState(good), "a good state is still found");
   });
 });
+
+/**
+ * The envelope is the model's only view of what happened, and the prompt
+ * guidelines tell it to read a cancelled decision as an explicit user
+ * cancellation. Three places were saying less than the code did.
+ */
+describe("the envelope says what actually happened", () => {
+  it("a failed review is not flagged as a cancellation", () => {
+    // The prose already said "This is not a user decision". The flag a level up
+    // said the user declined, on the same payload, and the benchmark's own
+    // ledger turned that flag into a durable `cancelled` classification.
+    const response = errorResponse("the image provider is unreachable", baseReview());
+    assert.equal(response.details.cancelled, false, "details.cancelled must agree with result.cancelled");
+    assert.equal(response.details.result.status, "failed");
+    assert.equal(response.details.result.cancelled, false);
+    assert.match(response.content[0].text, /could not start/);
+    assert.doesNotMatch(response.details.result.error ?? "", /declin/i);
+  });
+
+  it("names the stages the user skipped, on their own and alongside answers", () => {
+    const review = baseReview();
+    const allSkipped = makeReviewResult(review, "approve", [], undefined, ["grid", "mood"]);
+    const skippedOnly = buildResponse(allSkipped, review);
+    assert.match(skippedOnly.content[0].text, /skipped: grid, mood/, "an all-skipped review must still name what was skipped");
+    assert.doesNotMatch(skippedOnly.content[0].text, /no recorded answers\.?$/, "and must not read as if nothing happened");
+
+    const answered = makeReviewResult(
+      review,
+      "approve",
+      [{ ...answerFor(review, "grid", "grid"), notes: undefined }],
+      undefined,
+      ["mood"],
+    );
+    const mixed = buildResponse(answered, review);
+    assert.match(mixed.content[0].text, /skipped by the user: mood/, "a skip must be named next to the answers");
+    assert.match(mixed.content[0].text, /Grid/, "and must not displace them");
+
+    // A review with nothing skipped must not gain the sentence.
+    const none = buildResponse(makeReviewResult(review, "approve", [answerFor(review, "grid", "grid")]), review);
+    assert.doesNotMatch(none.content[0].text, /skipped/, "no skip means no skip line");
+  });
+});
