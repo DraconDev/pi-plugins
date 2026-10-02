@@ -1252,6 +1252,12 @@ export class VisualReviewWizard implements Component, Focusable {
             if (footerLines.length > essentialFooter.length) {
               footerLines.length = 0;
               footerLines.push(...essentialFooter);
+              // Saying so. This path swaps the band for the essential one -
+              // the choices without their reasons - and without this the footer
+              // went on claiming a reason under every choice while the reasons
+              // were gone. It is the same lie the density line told when it read
+              // the previous frame, reached through the squeeze instead.
+              this.reasonsDropped = true;
               continue;
             }
             break;
