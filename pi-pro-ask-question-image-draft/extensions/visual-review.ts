@@ -175,6 +175,7 @@ function cancelledResult(
   answers: readonly ReviewAnswer[],
   generatedImages: readonly GeneratedImageReference[],
   globalNote = "",
+  skippedStageIds: readonly string[] = [],
 ): ReviewResult {
   return {
     version: 1,
@@ -183,6 +184,11 @@ function cancelledResult(
     status: "cancelled",
     decision: "cancel",
     cancelled: true,
+    // The wizard's own abort path carries the skips; this one did not. A cancel
+    // that arrived as a thrown abort rather than a normal finish lost every skip
+    // the user had made, and the next round re-asked the stages they had
+    // deliberately passed over.
+    ...(skippedStageIds.length > 0 ? { skippedStageIds: [...skippedStageIds] } : {}),
     ...(globalNote ? { globalNote } : {}),
     answers: [...answers],
     ...(generatedImages.length > 0 ? { generatedImages: generatedImages.map((image) => ({ ...image })) } : {}),
@@ -360,7 +366,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
             result = await runDialogReview(ctx, review, initialAnswers, initialSkippedStageIds, initialGlobalNote);
           } catch (error) {
             if (isAbortError(error) || signal?.aborted || ctx.signal?.aborted) {
-              result = cancelledResult(review, initialAnswers, generatedImages, initialGlobalNote);
+              result = cancelledResult(review, initialAnswers, generatedImages, initialGlobalNote, initialSkippedStageIds);
             } else {
               result = makeFallbackResult(review, "rpc");
             }
@@ -371,7 +377,7 @@ export default function registerVisualReview(pi: ExtensionAPI): void {
             result = wizardResult ?? makeFallbackResult(review, "no_custom_ui");
           } catch (error) {
             if (isAbortError(error) || signal?.aborted || ctx.signal?.aborted) {
-              result = cancelledResult(review, initialAnswers, generatedImages, initialGlobalNote);
+              result = cancelledResult(review, initialAnswers, generatedImages, initialGlobalNote, initialSkippedStageIds);
             } else if (hasDialogUI(ctx)) {
               try {
                 result = await runDialogReview(ctx, review, initialAnswers, initialSkippedStageIds, initialGlobalNote);
