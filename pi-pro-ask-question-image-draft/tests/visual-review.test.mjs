@@ -643,7 +643,11 @@ describe("the model is told to draw, not only that it may", () => {
     // nothing it reads mentions it. This is the wiring: the field existed, the
     // renderer existed, and the only description the model sees said nothing.
     assert.match(TOOL_DESCRIPTION, /prefer option\.mockup/i, "the tool description says to prefer a mockup");
-    assert.match(TOOL_DESCRIPTION, /31 x 16 cell grid/i, "and says what it is drawn on");
+    // Says what it is drawn on, and says it truthfully: the panel clamps to
+    // the terminal, so "31 x 16 cell grid" was a claim the code contradicts. It
+    // was written here, corrected in the README, and drifted back in here.
+    assert.match(TOOL_DESCRIPTION, /cell grid that follows the terminal/i, "and says what it is drawn on");
+    assert.doesNotMatch(TOOL_DESCRIPTION, /\b\d+ x \d+ cell grid\b/i, "without claiming a fixed grid the panel does not use");
     assert.match(TOOL_DESCRIPTION, /list, airy, split, dense, rail/i, "and names the layouts it can choose between");
     assert.match(TOOL_DESCRIPTION, /costs no provider quota/i, "and that it is free of provider quota");
     assert.match(
