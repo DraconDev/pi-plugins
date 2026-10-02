@@ -825,7 +825,7 @@ describe("the envelope says what actually happened", () => {
     assert.match(mixed.content[0].text, /skipped by the user: mood/, "a skip must be named next to the answers");
     assert.match(mixed.content[0].text, /Grid/, "and must not displace them");
 
-    const none = buildResponse(makeReviewResult(review, "approve", [answerFor(review, "layout", "grid")]), review);
+    const none = buildResponse(makeReviewResult(review, "approve", [answerFor(review, "layout", "grid"), answerFor(review, "mood", "calm")]), review);
     assert.doesNotMatch(none.content[0].text, /skipped/, "no skip means no skip line");
   });
 });
