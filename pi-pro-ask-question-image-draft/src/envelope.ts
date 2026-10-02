@@ -146,9 +146,12 @@ export function errorResponse(message: string, review?: NormalizedReview): Visua
     version: 1,
     reviewId: review?.reviewId ?? "invalid-review",
     round: review?.round ?? 1,
-    status: "cancelled",
+    // `failed`, not `cancelled`: nothing about a malformed request or an
+    // unreachable image provider is the user declining, and the guidelines tell
+    // the model to read `cancelled` as exactly that.
+    status: "failed",
     decision: "cancel",
-    cancelled: true,
+    cancelled: false,
     answers: [],
     error: message,
   };

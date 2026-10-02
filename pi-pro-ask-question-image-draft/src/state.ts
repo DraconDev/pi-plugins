@@ -1,7 +1,15 @@
 import type { NormalizedGeneration, NormalizedOption, NormalizedReview, NormalizedStage } from "./schema.ts";
 import { validateReview } from "./schema.ts";
 
-export type ReviewStatus = "completed" | "revision" | "rejected" | "cancelled" | "fallback";
+/**
+ * How a review ended, and - the reason `failed` is here - how it failed to start.
+ *
+ * A validation error or a dead image provider used to be reported as
+ * `cancelled`, which the prompt guidelines tell the model to read as "the user
+ * declined to answer". So a typo in the tool call was durably recorded as the
+ * person refusing, and the model would say they had declined when nobody had.
+ */
+export type ReviewStatus = "completed" | "revision" | "rejected" | "cancelled" | "fallback" | "failed";
 export type ReviewDecision = "approve" | "reject" | "revision" | "cancel" | "fallback";
 
 export interface ReviewAnswer {
