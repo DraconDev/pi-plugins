@@ -94,7 +94,7 @@ function isLocalHost(hostname: string): boolean {
 }
 
 /** Refuse a URL that addresses this machine rather than the network. */
-function assertFetchableUrl(reference: string): void {
+export function assertFetchableUrl(reference: string): void {
   let parsed: URL;
   try {
     parsed = new URL(reference);
@@ -341,6 +341,33 @@ export async function loadImage(reference: ImageReference, cwd: string, signal?:
     source,
     remoteUrl,
   };
+}
+
+/**
+ * Fetch a URL, checking the host on every redirect hop rather than only the
+ * first.
+ *
+ * Exported because the generator's provider download carries the same shape of
+ * risk as a reference the model wrote: a URL the provider hands back, fetched by
+ * a client that redirects silently. One implementation, one set of rules.
+ */
+export async function fetchRedirectSafe(
+  url: string,
+  fetcher: (input: string, init?: RequestInit) => Promise<Response>,
+  signal?: AbortSignal,
+): Promise<Response> {
+  let current = url;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+    assertFetchableUrl(current);
+    const response = await fetcher(current, { signal, redirect: "manual" });
+    const location = response.status >= 300 && response.status < 400
+      ? response.headers.get("location")
+      : null;
+    if (!location) return response;
+    if (hop === MAX_REDIRECTS) throw new Error(`Image at ${url} redirects more than ${MAX_REDIRECTS} times.`);
+    current = new URL(location, current).toString();
+  }
+  throw new Error(`Image at ${url} redirects more than ${MAX_REDIRECTS} times.`);
 }
 
 export function canRenderImages(): boolean {
