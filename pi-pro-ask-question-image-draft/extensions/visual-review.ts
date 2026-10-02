@@ -129,7 +129,15 @@ function renderSummary(result: ReviewResult, review: NormalizedReview, theme: Th
           ? theme.fg("accent", "revision requested")
           : result.status === "cancelled"
             ? theme.fg("warning", "cancelled")
-            : theme.fg("muted", "fallback");
+            // `failed` is its own status, not the tail of this chain. It fell
+            // through to the `else` and was printed as `fallback`, which is the
+            // one label PROMPT_GUIDELINES reserves for an incapable host - so a
+            // review that could not start for a malformed request or an
+            // unreachable provider was shown to the user, and re-read by the
+            // model, as the host being unavailable.
+            : result.status === "failed"
+              ? theme.fg("danger", "failed")
+              : theme.fg("muted", "fallback");
   const summary = `${theme.fg("accent", theme.bold(review.title ?? "Visual review"))} ${status}`;
   const answerCount = result.answers.length;
   return new Text(`${summary} (${answerCount} answer${answerCount === 1 ? "" : "s"})`, 0, 0);
