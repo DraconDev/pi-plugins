@@ -1667,3 +1667,62 @@ describe("an art format this decoder cannot read costs the art, not the review",
     assert.ok(decoded.width > 0 && decoded.height > 0, "and it is a readable PNG, not a JPEG with a .png name");
   });
 });
+
+/**
+ * `renderMockupText` accepts `row.code` and `row.detail` and used to draw
+ * neither, while the raster renders both. On every host that cannot send a
+ * picture - tmux, ssh, a log - the character frame silently lost two fields the
+ * schema accepts and bounds. Decided 2026-10-02: draw them when they fit, and
+ * drop rows before the frame grows past the height it was handed.
+ */
+describe("the character-drawn mockup draws what the schema accepts", () => {
+  const render = (rows, options = {}) => renderMockupText({
+    layout: "list",
+    title: "Header",
+    rows,
+  }, { width: 50, height: 10, ...options });
+
+  it("shows code and detail under their own row", () => {
+    const frame = render([
+      { label: "Row A", value: 0.5, status: "ok", code: "HTTP 503", detail: "retry after 30s" },
+      { label: "Row B", value: 0.9, status: "warn" },
+    ]).join("\n");
+    assert.match(frame, /HTTP 503/, "the code is drawn");
+    assert.match(frame, /retry after 30s/, "and so is the detail");
+    // Under its own row, not replacing the row's own cells.
+    assert.match(frame, /Row A/);
+    assert.match(frame, /Row B/);
+    assert.match(frame, /warn/, "and the status mark still renders");
+  });
+
+  it("draws code alone when that is all the row carries", () => {
+    const frame = render([{ label: "Row A", value: 0.5, code: "HTTP 200" }]).join("\n");
+    assert.match(frame, /HTTP 200/);
+  });
+
+  it("never grows past the height it was given, dropping rows instead", () => {
+    const rows = Array.from({ length: 12 }, (_, index) => ({
+      label: `Row ${index}`, value: 0.5, code: `C${index}`, detail: `detail ${index}`,
+    }));
+    for (const height of [5, 6, 7, 8, 10, 12, 16]) {
+      const frame = render(rows, { height });
+      assert.ok(
+        frame.length <= Math.max(5, height),
+        `height ${height} emitted ${frame.length} lines: ${JSON.stringify(frame)}`,
+      );
+    }
+    // At a budget that cannot hold everything, the marker says what was dropped
+    // rather than the frame simply ending.
+    const tight = render(rows, { height: 8 }).join("\n");
+    assert.match(tight, /…and \d+ more/, "a frame that dropped rows says so");
+  });
+
+  it("keeps the frame a frame: every line the same width", () => {
+    const frame = render([
+      { label: "Row A", value: 0.5, status: "ok", code: "HTTP 503", detail: "retry after 30s" },
+      { label: "行 A", value: 0.5, status: "warn", detail: "a wide-character row" },
+    ]);
+    const widths = new Set(frame.map((line) => [...line].length));
+    assert.equal(widths.size, 1, `every line should be the same width, got ${[...widths].join(", ")}`);
+  });
+});
