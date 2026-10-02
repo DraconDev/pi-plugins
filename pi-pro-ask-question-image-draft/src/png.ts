@@ -100,7 +100,14 @@ export function decodePng(bytes: Buffer): RgbImage {
   if (pixels > MAX_PNG_PIXELS) {
     throw new Error(`PNG is ${header.width}x${header.height} (${pixels} bytes of pixels); the limit is ${MAX_PNG_PIXELS}.`);
   }
-  const raw = inflateSync(Buffer.concat(idat), { maxOutputSize: pixels + header.height });
+  // `maxOutputSize` bounds the inflate itself, so a small IDAT cannot expand
+  // past the image the header claims. Not every zlib binding in Node exposes it,
+  // so it is added defensively and the post-check below is the real guarantee.
+  const inflateOptions = { maxOutputSize: pixels + header.height };
+  const raw = (inflateSync as (input: Buffer, options?: Record<string, unknown>) => Buffer)(Buffer.concat(idat), inflateOptions);
+  if (raw.length < pixels + header.height) {
+    throw new Error(`PNG data is shorter than its header claims (${raw.length} of ${pixels + header.height}).`);
+  }
   const out = Buffer.alloc(pixels);
   let position = 0;
   for (let row = 0; row < header.height; row += 1) {
