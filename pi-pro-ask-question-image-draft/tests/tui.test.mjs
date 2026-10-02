@@ -2250,3 +2250,90 @@ describe("a drawn mockup survives a host with no graphics protocol", () => {
     }
   });
 });
+
+/**
+ * The suite stubs `fg` to the identity function, so every assertion above ran
+ * against a frame with no colour in it. That hid a whole class of defect: the
+ * panel draws the cursor marker and dims its action rows *through* `theme.fg`,
+ * so a real terminal's frame is " \e[36m> \e[39m8. Row" and a bare `/^\s*>/`
+ * cannot match it. In a coloured terminal the mouse was dead - no click
+ * resolved to a row at all - and `windowBand` could not see the cursor's own
+ * row, so it cut the cursor out of a crowded frame while `selectedIndex` still
+ * pointed at it.
+ *
+ * These pin both halves against a theme that actually emits SGR, which is what
+ * every terminal in the field runs.
+ */
+describe("a coloured theme does not break selection", () => {
+  const coloredTheme = {
+    fg: (_color, text) => `\u001b[36m${text}\u001b[39m`,
+    bg: (_color, text) => `\u001b[46m${text}\u001b[49m`,
+    bold: (text) => `\u001b[1m${text}\u001b[22m`,
+    dim: (text) => `\u001b[2m${text}\u001b[22m`,
+    italic: (text) => `\u001b[3m${text}\u001b[23m`,
+    underline: (text) => `\u001b[4m${text}\u001b[24m`,
+    inverse: (text) => `\u001b[7m${text}\u001b[27m`,
+  };
+  const plain = (lines) => lines.map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, ""));
+
+  function crowdedReview() {
+    return normalizeReview({
+      reviewId: "coloured", images: "off",
+      stages: [{
+        id: "one", header: "Layout", prompt: "Which layout ships first?",
+        options: Array.from({ length: 12 }, (_, index) => ({
+          id: `o${index}`, label: `Option ${index}`,
+          mockup: { layout: "list", title: "Layout", rows: [{ label: "Row", value: 0.5 }] },
+        })),
+      }],
+    });
+  }
+
+  it("a click selects the option drawn under the pointer, whatever colour the theme paints", () => {
+    const component = new VisualReviewWizard(
+      { requestRender: () => {}, terminal: { rows: 40 } }, coloredTheme, crowdedReview(), process.cwd(), () => {},
+    );
+    component.focused = true;
+    for (const start of [0, 7, 3]) {
+      component.selectedIndex = start;
+      const frame = plain(component.render(100));
+      const y = frame.findIndex((line) => /^\s*9\.\s+Option 8\s*$/.test(line));
+      assert.ok(y >= 0, `the frame should show "9. Option 8" when the cursor is on row ${start}`);
+      component.handleMouse({ type: "click", y, x: 1, width: 100 });
+      assert.equal(activeRow(component), "Option 8", `clicking Option 8 with the cursor on row ${start}`);
+    }
+    component.dispose();
+  });
+
+  it("a click in a windowed band picks the option that is on screen, not the first row", () => {
+    // 24 rows cannot show 12 mockup options, so the band windowed and the
+    // first drawn option is not row 0. Measuring the click from the top of the
+    // frame is what answered with a choice nobody had been shown.
+    const component = new VisualReviewWizard(
+      { requestRender: () => {}, terminal: { rows: 24 } }, coloredTheme, crowdedReview(), process.cwd(), () => {},
+    );
+    component.focused = true;
+    component.selectedIndex = 0;
+    const drawn = plain(component.render(100)).filter((line) => /^\s*(?:\d+\.|>\s*\d+\.)\s*Option/.test(line));
+    assert.equal(drawn.length, 1, "24 rows should leave the band windowed to a single option");
+    const y = plain(component.render(100)).findIndex((line) => /Option/.test(line) && /^\s*(?:\d+\.|>\s*\d+\.)\s*Option/.test(line));
+    component.handleMouse({ type: "click", y, x: 1, width: 100 });
+    assert.equal(activeRow(component), drawn[0].replace(/^\s*(?:>\s*)?\d+\.\s*/, "").trim());
+    assert.notEqual(component.selectedIndex, 0, "a windowed band must not fall back to row 0");
+    component.dispose();
+  });
+
+  it("the cursor's own row survives the band window", () => {
+    // The window could not see a row whose marker was wrapped in colour, so it
+    // cut the cursor out of the frame while `selectedIndex` still pointed at it
+    // - and Enter then answered a choice that had never been drawn.
+    for (const rows of [24, 40]) {
+      const component = new VisualReviewWizard(
+        { requestRender: () => {}, terminal: { rows } }, coloredTheme, crowdedReview(), process.cwd(), () => {},
+      );
+      component.selectedIndex = 7;
+      assert.equal(activeRow(component), "Option 7", `the cursor row must be drawn at ${rows} terminal rows`);
+      component.dispose();
+    }
+  });
+});
