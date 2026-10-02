@@ -180,44 +180,30 @@ const MAX_REDIRECTS = 5;
 const FETCH_TIMEOUT_MS = 15_000;
 
 async function fetchRemote(url: string, signal?: AbortSignal): Promise<{ bytes: Buffer; mimeType?: string; remoteUrl: string }> {
-  let current = url;
-  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-    // Every hop is checked, not only the first. `fetch` follows redirects by
-    // default, so the host guard ran on the URL the model wrote and any
-    // permitted public address could 302 into 169.254.169.254 or anything on
-    // the LAN. Two throwaway loopback servers showed it end to end: the first
-    // answered 302, the second - a target the guard would have refused - served
-    // the bytes. The hop is followed by hand so each one is checked, and the URL
-    // that actually answered is what gets recorded as provenance.
-    assertFetchableUrl(current);
-    const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
-    const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
-    let response: Response;
-    try {
-      response = await fetch(current, { signal: combined, redirect: "manual" });
-    } catch (error) {
-      if (timeout.aborted) throw new Error(`Image at ${url} did not answer within ${FETCH_TIMEOUT_MS}ms.`);
-      throw error;
-    }
-    const location = response.status >= 300 && response.status < 400
-      ? response.headers.get("location")
-      : null;
-    if (location) {
-      if (hop === MAX_REDIRECTS) throw new Error(`Image at ${url} redirects more than ${MAX_REDIRECTS} times.`);
-      current = new URL(location, current).toString();
-      continue;
-    }
-    if (!response.ok) throw new Error(`Unable to download image (HTTP ${response.status})`);
-    // Refuse a body we have already been told is too large, rather than reading
-    // it and finding out. `arrayBuffer` has no cap of its own.
-    const declared = Number(response.headers.get("content-length"));
-    if (Number.isFinite(declared) && declared > MAX_IMAGE_BYTES) {
-      throw new Error(`Image at ${url} is ${declared} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
-    }
-    const bytes = await readCapped(response, url);
-    return { bytes, mimeType: response.headers.get("content-type") ?? undefined, remoteUrl: response.url || current };
+  // The host guard has to run on every hop, not only on the URL the model
+  // wrote: `fetch` follows redirects by default, so a perfectly permitted
+  // public address could 302 into 169.254.169.254 or anything on the LAN. Two
+  // throwaway loopback servers showed it end to end - the first answered 302, the
+  // second, a target the guard would have refused, served the bytes - and the
+  // provenance recorded was the URL asked for rather than the host that answered.
+  const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+  const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+  let response: Response;
+  try {
+    response = await fetchRedirectSafe(url, (input, init) => fetch(input, init ?? {}), combined);
+  } catch (error) {
+    if (timeout.aborted) throw new Error(`Image at ${url} did not answer within ${FETCH_TIMEOUT_MS}ms.`);
+    throw error;
   }
-  throw new Error(`Image at ${url} redirects more than ${MAX_REDIRECTS} times.`);
+  if (!response.ok) throw new Error(`Unable to download image (HTTP ${response.status})`);
+  // Refuse a body we have already been told is too large, rather than reading
+  // it and finding out. `arrayBuffer` has no cap of its own.
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_IMAGE_BYTES) {
+    throw new Error(`Image at ${url} is ${declared} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
+  }
+  const bytes = await readCapped(response, url);
+  return { bytes, mimeType: response.headers.get("content-type") ?? undefined, remoteUrl: response.url || url };
 }
 
 /**
