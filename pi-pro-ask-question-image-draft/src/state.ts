@@ -245,8 +245,10 @@ export function isReviewState(value: unknown): value is ReviewState {
     validateReview({
       reviewId: value.reviewId,
       round: value.round as number,
+      ...(value.rounds === undefined ? {} : { rounds: value.rounds as number }),
       images: (value.images as "off" | "on" | undefined) ?? "off",
       density: (value.density as "comfortable" | "compact" | undefined) ?? "comfortable",
+      ...(value.autoResolve === undefined ? {} : { autoResolve: value.autoResolve === true }),
       title: value.title as string | undefined,
       provider: value.provider as string | undefined,
       model: value.model as string | undefined,
