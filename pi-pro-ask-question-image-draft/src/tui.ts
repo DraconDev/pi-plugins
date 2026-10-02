@@ -1820,26 +1820,6 @@ export class VisualReviewWizard implements Component, Focusable {
     return Math.max(0, usable - footerHeight);
   }
 
-  /**
-   * The part of the frame below the option list: the current answer, the note,
-   * the key hints, the auto-resolve state and the closing border.
-   *
-   * It is rendered before the artwork so the artwork's budget is the remainder
-   * of the terminal, not an estimate of it.
-   */
-  /**
-   * A deterministic mockup, drawn at the size the content area actually has.
-   *
-   * `option.mockup` is the option's own content rendered by the package rather
-   * than generated, and it was accepted by the schema and then never drawn: a
-   * review built out of mockups showed its questions and nothing else. The
-   * content area is exactly where it belongs, and it now fills it.
-   */
-  /** The same spec, drawn with characters, for hosts that cannot send a picture. */
-  private mockupTextRows(spec: MockupSpec, width: number, height: number): string[] {
-    return renderMockupText(spec, { width, height: Math.max(6, height) });
-  }
-
   private mockupLines(spec: MockupSpec, width: number, height: number): string[] | null {
     const widthCells = Math.max(20, Math.min(80, width));
     // Six, not four. A mockup spends two cells on its own chrome - a title and
@@ -1858,34 +1838,6 @@ export class VisualReviewWizard implements Component, Focusable {
       // A spec the renderer cannot draw is not a reason to lose the question.
       return null;
     }
-  }
-
-  /**
-   * Why there is no picture, in two lines instead of five.
-   *
-   * The full fallback prints the path as a markdown link *and* again as a
-   * `file://` URL, then wraps the reason over three lines - in a panel whose
-   * top half exists to hold a picture, that is a wall of path for nothing. The
-   * name, the size and the reason are what a reader needs here; the full link
-   * stays on the stage's own preview.
-   */
-  private compactFallback(option: NormalizedOption, loaded: LoadedOption | undefined, width: number): string[] {
-    const lines: string[] = [];
-    if (loaded?.error) {
-      lines.push(...wrapTextWithAnsi(this.theme.fg("error", `Image unavailable: ${loaded.error}`), Math.max(1, width)));
-      return lines;
-    }
-    const reference = option.image?.path ?? option.image?.url ?? option.image?.dataUri ?? "image";
-    const name = reference.split("/").pop() ?? reference;
-    lines.push(...wrapTextWithAnsi(this.theme.fg("muted", `Image: ${name}`), Math.max(1, width)));
-    if (!canRenderImages()) {
-      const cause = process.env.TMUX
-        ? "a multiplexer is in the way: measured here, tmux 3.6a delivers no usable graphics introducer"
-        : "this terminal did not report an image protocol";
-      lines.push(...wrapTextWithAnsi(this.theme.fg("dim", `Inline images are off here (detected ${getCapabilities().images ?? "none"}): ${cause}. Run Pi outside tmux for pictures; PI_IMAGE_PROTOCOL=kitty overrides the detection where that is enough.`), Math.max(1, width)));
-    }
-    if (option.image?.alt) lines.push(...wrapTextWithAnsi(this.theme.fg("muted", `Alt: ${option.image.alt}`), Math.max(1, width)));
-    return lines;
   }
 
   /**
@@ -2192,4 +2144,3 @@ export async function runVisualReviewWizard(
   }
 }
 
-export { selectedOptions };
