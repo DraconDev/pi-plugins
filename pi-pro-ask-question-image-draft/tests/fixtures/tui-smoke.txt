@@ -1,29 +1,17 @@
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 TUI evidence  (round 1)
 
-  □ Layout  
+  □ Layout   □ Review  
 
- Choose a layout
 
- > Grid
-   Stack
-      A vertical alternative
+ > 1. Grid
+   ↓ 1 more
+ 
+   Add note
    Type something.
-      Enter a custom response
    Request revision
-      Describe changes, then return to the model for regeneration
-   Approve review
-      Approve the review and continue
-   Reject review
-      Reject this proposal without changing it
-
-  Preview: Grid
-  
-  Image:
-  [tests/fixtures/tiny.png](file://<repo>/tes
-  ts/fixtures/tiny.png)
-  Alt: Tiny checked-in fixture
-
-↑↓ move • Enter select • Tab/←→ stages • Esc cancel
+↑↓ move • Enter select • n note • Tab/←→ stages • Ctrl+D density • Ctrl+] hide • Esc cancel
+auto-resolve: off — Ctrl+A answers with the recommended option
+density: comfortable — reasons dropped to fit the list (Ctrl+D for compact)
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────
