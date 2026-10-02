@@ -500,10 +500,14 @@ node scripts/verify-tui.mjs
 node scripts/verify-activation.mjs
 ```
 
-`npm run check` runs hermetic source/tests/smokes. Activation is a separate machine-state gate; run `PI_VERIFY_ACTIVATION=1 npm run check` when the authorized local settings change is expected to be present. In this workspace, the equivalent interim TypeScript check is:
+`npm run check` runs hermetic source/tests/smokes, and it typechecks first with
+the `typescript` devDependency - there is no machine-specific path to point at,
+and `TSC=/path/to/tsc` overrides it. Activation is a separate machine-state gate;
+run `PI_VERIFY_ACTIVATION=1 npm run check` when the authorized local settings
+change is expected to be present. To typecheck on its own:
 
 ```sh
-/home/dracon/Dev/pi-plugins/pi-goal-list-loop-audit/node_modules/typescript/bin/tsc --noEmit
+npx tsc --noEmit
 ```
 
 The activation verifier requires a backup of the pre-activation settings file and checks that only the superseded package entry is replaced. It is intentionally not part of the default hermetic check because global settings are machine state, not package source. Keep the old package out of `packages`; the package intentionally owns the global `ask_user_question` name and Pi must load one registration for that name.
