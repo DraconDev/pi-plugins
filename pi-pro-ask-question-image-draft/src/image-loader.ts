@@ -166,20 +166,65 @@ function parseDataUri(dataUri: string): { mimeType: string; base64: string } {
   return { mimeType: match[1].toLowerCase(), base64: match[2].replace(/\s+/g, "") };
 }
 
+/** How many hops a reference may take before it is treated as a loop. */
+const MAX_REDIRECTS = 5;
+
 async function fetchRemote(url: string, signal?: AbortSignal): Promise<{ bytes: Buffer; mimeType?: string; remoteUrl: string }> {
-  const response = await fetch(url, { signal });
-  if (!response.ok) throw new Error(`Unable to download image (HTTP ${response.status})`);
-  // Refuse a body we have already been told is too large, rather than reading
-  // it and finding out. `arrayBuffer` has no cap of its own.
-  const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_IMAGE_BYTES) {
-    throw new Error(`Image at ${url} is ${declared} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
+  let current = url;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+    // Every hop is checked, not only the first. `fetch` follows redirects by
+    // default, so the host guard ran on the URL the model wrote and any
+    // permitted public address could 302 into 169.254.169.254 or anything on
+    // the LAN. Two throwaway loopback servers showed it end to end: the first
+    // answered 302, the second - a target the guard would have refused - served
+    // the bytes. The hop is followed by hand so each one is checked, and the URL
+    // that actually answered is what gets recorded as provenance.
+    assertFetchableUrl(current);
+    const response = await fetch(current, { signal, redirect: "manual" });
+    const location = response.status >= 300 && response.status < 400
+      ? response.headers.get("location")
+      : null;
+    if (location) {
+      if (hop === MAX_REDIRECTS) throw new Error(`Image at ${url} redirects more than ${MAX_REDIRECTS} times.`);
+      current = new URL(location, current).toString();
+      continue;
+    }
+    if (!response.ok) throw new Error(`Unable to download image (HTTP ${response.status})`);
+    // Refuse a body we have already been told is too large, rather than reading
+    // it and finding out. `arrayBuffer` has no cap of its own.
+    const declared = Number(response.headers.get("content-length"));
+    if (Number.isFinite(declared) && declared > MAX_IMAGE_BYTES) {
+      throw new Error(`Image at ${url} is ${declared} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
+    }
+    const bytes = await readCapped(response, url);
+    return { bytes, mimeType: response.headers.get("content-type") ?? undefined, remoteUrl: response.url || current };
   }
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.length > MAX_IMAGE_BYTES) {
-    throw new Error(`Image at ${url} is ${bytes.length} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
+  throw new Error(`Image at ${url} redirects more than ${MAX_REDIRECTS} times.`);
+}
+
+/**
+ * Read a body, refusing it the moment it passes the limit.
+ *
+ * Checking `bytes.length` after `arrayBuffer()` is a check that has already
+ * lost: a chunked response with no `content-length` skips the header guard and
+ * is buffered whole first. 64 MB measured, 242 MB of RSS moved, and the
+ * refusal arrived afterwards - a 2 GB body would be held in full before the
+ * same line fired. The stream is counted as it arrives and abandoned mid-flight.
+ */
+async function readCapped(response: Response, url: string): Promise<Buffer> {
+  const body = response.body;
+  if (!body) return Buffer.from(await response.arrayBuffer());
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {
+    total += chunk.byteLength;
+    if (total > MAX_IMAGE_BYTES) {
+      await body.cancel().catch(() => undefined);
+      throw new Error(`Image at ${url} is more than ${MAX_IMAGE_BYTES} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
+    }
+    chunks.push(Buffer.from(chunk));
   }
-  return { bytes, mimeType: response.headers.get("content-type") ?? undefined, remoteUrl: url };
+  return Buffer.concat(chunks);
 }
 
 export async function loadImage(reference: ImageReference, cwd: string, signal?: AbortSignal): Promise<LoadedImage> {
@@ -219,7 +264,7 @@ export async function loadImage(reference: ImageReference, cwd: string, signal?:
     // and were both base64-encoded into the panel. An absolute path is allowed
     // when it lands inside the directory, because that is the same thing written
     // the long way round.
-    assertInsideRoot(path, cwd);
+    await assertInsideRoot(path, cwd);
     const info = await stat(path).catch(() => undefined);
     if (info?.isFile() && info.size > MAX_IMAGE_BYTES) {
       throw new Error(`Image at ${path} is ${info.size} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
@@ -232,7 +277,7 @@ export async function loadImage(reference: ImageReference, cwd: string, signal?:
   } else if (reference.url) {
     if (/^file:\/\//i.test(reference.url)) {
       const path = fileURLToPath(reference.url);
-      assertInsideRoot(path, cwd);
+      await assertInsideRoot(path, cwd);
       bytes = await readFile(path);
       if (bytes.length > MAX_IMAGE_BYTES) {
         throw new Error(`Image at ${path} is ${bytes.length} bytes; the limit is ${MAX_IMAGE_BYTES}.`);
