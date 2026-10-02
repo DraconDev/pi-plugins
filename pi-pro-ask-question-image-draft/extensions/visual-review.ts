@@ -108,22 +108,6 @@ function mergeGeneratedImages(
   return [...merged.values()];
 }
 
-function resultDetails(result: ReviewResult, review: NormalizedReview): VisualReviewResultDetails {
-  return {
-    version: 1,
-    kind: "visual-review",
-    reviewId: result.reviewId,
-    round: result.round,
-    title: review.title,
-    provider: review.provider,
-    model: review.model,
-    answers: [],
-    cancelled: result.cancelled,
-    ...(result.globalNote ? { globalNote: result.globalNote } : {}),
-    ...(result.error ? { error: result.error } : {}),
-    result,
-  };
-}
 
 function textResult(result: ReviewResult, review: NormalizedReview): AgentToolResult<VisualReviewResultDetails> {
   return buildResponse(result, review) as AgentToolResult<VisualReviewResultDetails>;
