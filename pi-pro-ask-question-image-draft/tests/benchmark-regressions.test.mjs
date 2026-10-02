@@ -22,7 +22,6 @@ import { buildAggregateReport, verifyAggregateReport, verifyDefectLedger, verify
 import { resolveSmokeImage } from "../scripts/benchmark/smoke-live.mjs";
 import { verifyEvidence } from "../scripts/benchmark/publish.mjs";
 import { compositionsFor } from "../scripts/benchmark/composition.mjs";
-import { runComposition } from "../scripts/benchmark/compose.mjs";
 import { renderMockup } from "../src/mockup-renderer.ts";
 import { composePreview, cropToFill } from "../src/preview-composer.ts";
 import { decodePng, encodePng } from "../src/png.ts";
