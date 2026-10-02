@@ -11,6 +11,7 @@ import {
   validateReview,
 } from "../src/schema.ts";
 import {
+  carryOverPresentation,
   findReviewState,
   isReviewState,
   makeReviewResult,
@@ -827,5 +828,75 @@ describe("the envelope says what actually happened", () => {
 
     const none = buildResponse(makeReviewResult(review, "approve", [answerFor(review, "layout", "grid"), answerFor(review, "mood", "calm")]), review);
     assert.doesNotMatch(none.content[0].text, /skipped/, "no skip means no skip line");
+  });
+});
+
+/**
+ * `state.ts` is the second gate: `isReviewState` is the only check a persisted
+ * entry passes on resume, and it re-runs `validateReview`. So every rule
+ * `normalizeReview` enforces but `validateReview` does not is a hole on the
+ * resume path, and anything written that the reader rejects is work the user's
+ * round silently loses.
+ */
+describe("what a resumed round reads back is what was written", () => {
+  const persisted = (overrides) => {
+    const review = baseReview();
+    const state = makeReviewState(review, [], "completed");
+    return { ...state, ...overrides };
+  };
+
+  it("a carried total that no longer bounds the round is not written into the state", () => {
+    // The extension validates the review, *then* carries the presentation
+    // forward, and nothing validates the combination afterwards. A total of 3
+    // carried into round 4 produces a state `isReviewState` refuses on every
+    // later read, so round 4's answers, skips, note and generated images
+    // disappear with no error.
+    assert.throws(
+      () => validateReview({ ...baseReview(), round: 4, rounds: 3 }),
+      /cannot be less than round/,
+      "the combination is refused by the reader, which is the problem",
+    );
+    const carried = carryOverPresentation({ round: 4 }, { rounds: 3 });
+    assert.equal(carried.rounds, undefined, "so a total that cannot bound the round must not be carried");
+    assert.doesNotThrow(() => validateReview({ ...baseReview(), ...carried }), "and what is carried still validates");
+
+    // The ordinary case still carries, which is the whole point of it.
+    assert.equal(carryOverPresentation({ round: 2 }, { rounds: 3 }).rounds, 3, "a total that still bounds the round is carried");
+    assert.equal(carryOverPresentation({ round: 3 }, { rounds: 3 }).rounds, 3, "including a round equal to the total");
+    assert.equal(carryOverPresentation({ round: 2, rounds: 5 }, { rounds: 3 }).rounds, 5, "and an explicit total wins");
+  });
+
+  it("a mockup row value of NaN is refused on the restore path, as it is on the input path", () => {
+    // Every comparison with NaN is false, so the range test passed it. The
+    // input path was hardened by `boundedNumber`; this is the path a restored
+    // state takes, and the comment in state.ts calls this the only gate it
+    // passes through.
+    const review = baseReview();
+    const withMockup = (value) => ({
+      ...review,
+      stages: [{
+        ...review.stages[0],
+        options: [{ id: "grid", label: "Grid", value: "grid", mockup: { layout: "list", title: "T", rows: [{ label: "r", value }] } }],
+      }],
+    });
+    assert.throws(() => validateReview(withMockup(Number.NaN)), /between 0 and 1/, "NaN must not survive validateReview");
+    assert.equal(normalizeReview({ ...review, stages: [{ ...review.stages[0], options: [{ id: "grid", label: "Grid", value: "grid", mockup: { layout: "list", title: "T", rows: [{ label: "r", value: Number.NaN }] } }] }] }), undefined, "normalizeReview rejects it too");
+  });
+
+  it("refuses a persisted autoResolve that is not a boolean, rather than coercing it", () => {
+    assert.equal(isReviewState(persisted({ autoResolve: true })), true, "a real boolean is fine");
+    assert.equal(isReviewState(persisted({ autoResolve: false })), true, "including false");
+    assert.equal(isReviewState(persisted({ autoResolve: "yes" })), false, "a string is refused");
+    assert.equal(isReviewState(persisted({ autoResolve: 1 })), false, "and so is a number");
+    // The coercion turned `autoResolve: "yes"` into false, silently switching
+    // Ctrl+A off in a resumed review rather than refusing the entry.
+    assert.equal(isReviewState(persisted({ images: "bogus" })), false, "the same rule the sibling fields already follow");
+    assert.equal(isReviewState(persisted({ density: "huge" })), false);
+  });
+
+  it("a persisted status the reader does not know is a trap, so the two lists agree", () => {
+    for (const status of ["completed", "revision", "rejected", "cancelled", "fallback", "failed"]) {
+      assert.equal(isReviewState(persisted({ status })), true, `a persisted ${status} must be readable back`);
+    }
   });
 });
