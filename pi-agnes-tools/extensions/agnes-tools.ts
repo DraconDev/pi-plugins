@@ -192,12 +192,12 @@ async function requestVideo(baseUrl, apiKey, opts) {
   if (opts.frame_rate) body.frame_rate = opts.frame_rate;
   const images = opts.images || [];
   // agnes-video-2.5-flash requires a top-level `mode` field for BOTH text- and
-  // image-to-video; the API rejects requests without it. We pick the right
-  // mode by image count: "t2v" with no images, "i2v" with one image,
-  // "keyframes" is handled separately below for the multi-image path.
+  // image-to-video; the API rejects requests without it. The valid modes are
+  // "t2v" (text-only), "keyframe" (single image as first frame), and
+  // "keyframes" (multi-image as start/end keyframes).
   if (opts.model === "agnes-video-2.5-flash") {
     if (images.length === 0) body.mode = "t2v";
-    if (images.length === 1) body.mode = "i2v";
+    if (images.length === 1) body.mode = "keyframe";
   }
   if (images.length === 1) body.image = images[0];
   if (images.length > 1) body.extra_body = { image: images, mode: "keyframes" };
