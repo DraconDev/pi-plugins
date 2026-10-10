@@ -40,14 +40,14 @@ describe("agnes tool schemas", () => {
     assert.ok(props.size, "size property present");
     assert.ok(props.ratio, "ratio property present");
     // size: 1K/2K/3K/4K -> Type.Union of Type.Literal -> { anyOf: [{const: ...}, ...] }
-    const sizeConsts = (props.size.anyOf || []).map((s) => s.const).sort();
-    assert.deepEqual(sizeConsts, ["1K", "2K", "3K", "4K"]);
-    // ratio: 1:1, 3:4, 4:3, 2:3, 3:2, 9:16, 16:9, 21:9
-    const ratioConsts = (props.ratio.anyOf || []).map((s) => s.const).sort();
-    assert.deepEqual(
-      ratioConsts,
-      ["1:1", "16:9", "2:3", "21:9", "3:2", "3:4", "4:3", "9:16"]
-    );
+    const sizeSet = new Set((props.size.anyOf || []).map((s) => s.const));
+    assert.deepEqual([...sizeSet].sort(), ["1K", "2K", "3K", "4K"]);
+    // ratio: 1:1, 3:4, 4:3, 2:3, 3:2, 9:16, 16:9, 21:9 (use set compare to avoid
+    // lex-vs-numeric sort surprises with '16:9' vs '1:1' etc.)
+    const ratioSet = new Set((props.ratio.anyOf || []).map((s) => s.const));
+    const expectedRatios = new Set(["1:1", "16:9", "2:3", "21:9", "3:2", "3:4", "4:3", "9:16"]);
+    assert.equal(ratioSet.size, expectedRatios.size, "ratio has 8 options");
+    for (const r of expectedRatios) assert.ok(ratioSet.has(r), "ratio has " + r);
     // and they are still optional (not in `required`)
     assert.ok(!image.parameters.required.includes("size"), "size optional");
     assert.ok(!image.parameters.required.includes("ratio"), "ratio optional");
