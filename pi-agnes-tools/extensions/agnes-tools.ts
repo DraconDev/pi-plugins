@@ -133,6 +133,8 @@ async function requestImage(baseUrl, apiKey, opts) {
   const body = { model: opts.model, prompt: opts.prompt };
   if (opts.response_format) body.response_format = opts.response_format;
   if (opts.images && opts.images.length > 0) body.image = opts.images;
+  if (opts.size) body.size = opts.size;
+  if (opts.ratio) body.ratio = opts.ratio;
   const response = await fetch(baseUrl + "/images/generations", {
     method: "POST",
     headers: { Authorization: "Bearer " + apiKey, "Content-Type": "application/json" },
@@ -259,6 +261,34 @@ const imageParams = Type.Object({
       description: "API response format. Default: b64_json.",
     }),
   ),
+  size: Type.Optional(
+    Type.Union([Type.Literal("1K"), Type.Literal("2K"), Type.Literal("3K"), Type.Literal("4K")], {
+      description:
+        "Output size tier. The Agnes API pairs this with `ratio` to pick a concrete pixel dimension. " +
+        "Default is 1K. See https://www.agnes-ai.com/en/docs/tokenplan for the supported size/ratio matrix. " +
+        "The `prompt`-level 'widescreen' / '16:9' phrasing does NOT change output dimensions — use this pair instead.",
+    }),
+  ),
+  ratio: Type.Optional(
+    Type.Union(
+      [
+        Type.Literal("1:1"),
+        Type.Literal("3:4"),
+        Type.Literal("4:3"),
+        Type.Literal("2:3"),
+        Type.Literal("3:2"),
+        Type.Literal("9:16"),
+        Type.Literal("16:9"),
+        Type.Literal("21:9"),
+      ],
+      {
+        description:
+          "Output aspect ratio. Pairs with `size` to pick a concrete pixel dimension. " +
+          "Examples: size=2K ratio=16:9 -> 2624x1472, size=1K ratio=9:16 -> 736x1312. " +
+          "Default (no ratio) is 1:1 -> 1024x1024. See https://www.agnes-ai.com/en/docs/tokenplan.",
+      },
+    ),
+  ),
 });
 
 async function executeImage(_toolCallId, params) {
@@ -273,6 +303,8 @@ async function executeImage(_toolCallId, params) {
     prompt,
     images: params.images || [],
     response_format: params.response_format || "b64_json",
+    size: params.size,
+    ratio: params.ratio,
   });
 
   const text = saved.remoteUrl
@@ -565,7 +597,9 @@ export default function (pi) {
       "Generate an image via the Agnes AI API (no model switch needed). " +
       "Saves a local copy under .pi/generated-images/ and returns the saved path plus the (possibly expiring) remote URL. " +
       "endpoint: agnes = international (apihub.agnes-ai.com, default), agnes-cn = China (api.agnes-ai.cn). " +
-      "Auth: AGNES_API_KEY or AGNES_CN_API_KEY env, else the /login-stored Agnes key.",
+      "Auth: AGNES_API_KEY or AGNES_CN_API_KEY env, else the /login-stored Agnes key. " +
+      "Pass `size` and `ratio` (e.g. size: \"2K\", ratio: \"16:9\") to set native pixel dimensions; " +
+      "without them the output is 1024x1024.",
     parameters: imageParams,
     executionMode: "parallel",
     execute: executeImage,
