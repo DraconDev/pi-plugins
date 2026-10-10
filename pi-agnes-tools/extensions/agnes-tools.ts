@@ -372,7 +372,20 @@ function makeRefreshModels(baseUrl, apiKeyEnv, providerId) {
   return async ({ signal, stored, publish, allowNetwork, credential }) => {
     const cached = stored && Array.isArray(stored.models) ? stored.models : undefined;
     if (!allowNetwork || (signal && signal.aborted)) return cached;
-    const apiKey = credential && credential.type === "api_key" ? credential.key : process.env[apiKeyEnv];
+    // Credential first, then env, then the /login-stored key (same order the
+    // tools use via resolveApiKey). Without the auth.json fallback, /login
+    // users without env vars fail discovery here and sit on a stale cache.
+    let apiKey = credential && credential.type === "api_key" ? credential.key : process.env[apiKeyEnv];
+    if (!apiKey) {
+      try {
+        const authPath = join(homedir(), ".pi", "agent", "auth.json");
+        const auth = JSON.parse(readFileSync(authPath, "utf8"));
+        const entry = auth[providerId] || auth["agnes"];
+        if (entry && entry.key) apiKey = entry.key;
+      } catch {
+        // ignore read/parse failures; fetch below throws without a key
+      }
+    }
     let models;
     try {
       models = await fetchStandaloneModels(baseUrl, apiKey, signal);
