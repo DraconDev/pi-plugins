@@ -375,7 +375,14 @@ function makeRefreshModels(baseUrl, apiKeyEnv, providerId) {
     // (pi treats an undefined refresh result as "no models", not as
     // "fall back to the registered seed".)
     const seed = AGNES_SEED.map((id) => toModelConfig(id));
-    if (!allowNetwork || (signal && signal.aborted)) return cached ?? seed;
+    // Merge cached + seed (cached wins on id conflicts). A stale cache on
+    // disk must never hide seed models again: whatever a previous persist
+    // wrote, the refresh heals in-memory back to at least the seed. The
+    // next successful network discovery replaces this with live truth.
+    const healed = cached
+      ? [...cached, ...seed.filter((s) => !cached.some((m) => m.id === s.id))]
+      : seed;
+    if (!allowNetwork || (signal && signal.aborted)) return healed;
     // Credential first, then env, then the /login-stored key (same order the
     // tools use via resolveApiKey). Without the auth.json fallback, /login
     // users without env vars fail discovery here and sit on a stale cache.
@@ -402,7 +409,7 @@ function makeRefreshModels(baseUrl, apiKeyEnv, providerId) {
       await publish({ persist: { provider: providerId, models } });
       return models;
     }
-    return cached ?? seed;
+    return healed;
   };
 }
 
