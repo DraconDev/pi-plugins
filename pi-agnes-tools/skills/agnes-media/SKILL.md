@@ -19,6 +19,15 @@ directly — do NOT switch to an Agnes model.
 | `endpoint` | `agnes` (international, default) or `agnes-cn` (China) |
 | `images` | optional base64 data URIs for reference/conditioning |
 | `response_format` | `b64_json` (default) or `url` |
+| `size` | optional — output size tier: `1K` (default), `2K`, `3K`, `4K`. Pairs with `ratio` to set native pixel dimensions. |
+| `ratio` | optional — output aspect ratio: `1:1`, `3:4`, `4:3`, `2:3`, `3:2`, `9:16`, `16:9`, `21:9`. Default without `ratio` is `1:1` (1024x1024). |
+
+**Use `size` + `ratio` for native widescreen.** The Agnes API pairs these to a
+concrete pixel grid (e.g. `size: "2K", ratio: "16:9"` -> 2624x1472,
+`size: "1K", ratio: "9:16"` -> 736x1312). Putting "16:9 widescreen" in the
+prompt does **not** change the output dimensions — it actively degrades
+composition (drives letterbox-bars failures). Pass it as a param instead.
+Full matrix: https://www.agnes-ai.com/en/docs/tokenplan
 
 ### `agnes_video` — text-to-video / image-to-video / keyframes
 
