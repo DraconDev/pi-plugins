@@ -191,6 +191,11 @@ async function requestVideo(baseUrl, apiKey, opts) {
   if (opts.num_frames) body.num_frames = opts.num_frames;
   if (opts.frame_rate) body.frame_rate = opts.frame_rate;
   const images = opts.images || [];
+  // agnes-video-2.5-flash requires a top-level `mode` field for text-to-video;
+  // image-to-video is implicit when `image` is present, so only attach mode for
+  // the no-image path. Sending `mode: "keyframes"` is handled separately below
+  // for the multi-image path.
+  if (opts.model === "agnes-video-2.5-flash" && images.length === 0) body.mode = "t2v";
   if (images.length === 1) body.image = images[0];
   if (images.length > 1) body.extra_body = { image: images, mode: "keyframes" };
 
