@@ -12,7 +12,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { register } from "node:module";
-import { pathToFileURL } from "node:url";
 import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -29,7 +28,7 @@ if (!agnesKey) {
 
 async function loadTool() {
   const tools = [];
-  const ext = (await import(pathToFileURL("../extensions/agnes-tools.ts").href)).default;
+  const ext = (await import("../extensions/agnes-tools.ts")).default;
   ext({
     registerTool: (t) => tools.push(t),
     registerProvider: () => {},
