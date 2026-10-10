@@ -39,14 +39,17 @@ describe("agnes tool schemas", () => {
     const props = image.parameters.properties;
     assert.ok(props.size, "size property present");
     assert.ok(props.ratio, "ratio property present");
-    // size: 1K/2K/3K/4K
-    const sizeEnum = props.size.anyOf?.[0]?.enum ?? props.size.enum;
-    assert.deepEqual(sizeEnum.sort(), ["1K", "2K", "3K", "4K"]);
+    // size: 1K/2K/3K/4K -> Type.Union of Type.Literal -> { anyOf: [{const: ...}, ...] }
+    const sizeConsts = (props.size.anyOf || []).map((s) => s.const).sort();
+    assert.deepEqual(sizeConsts, ["1K", "2K", "3K", "4K"]);
     // ratio: 1:1, 3:4, 4:3, 2:3, 3:2, 9:16, 16:9, 21:9
-    const ratioEnum = props.ratio.anyOf?.[0]?.enum ?? props.ratio.enum;
+    const ratioConsts = (props.ratio.anyOf || []).map((s) => s.const).sort();
     assert.deepEqual(
-      ratioEnum.sort(),
+      ratioConsts,
       ["1:1", "16:9", "2:3", "21:9", "3:2", "3:4", "4:3", "9:16"]
     );
+    // and they are still optional (not in `required`)
+    assert.ok(!image.parameters.required.includes("size"), "size optional");
+    assert.ok(!image.parameters.required.includes("ratio"), "ratio optional");
   });
 });
