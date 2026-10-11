@@ -18,13 +18,30 @@ import { join } from "node:path";
 
 register("./hooks.mjs", import.meta.url);
 
-const authPath = join(homedir(), ".pi", "agent", "auth.json");
-const auth = JSON.parse(readFileSync(authPath, "utf8"));
-const agnesKey = auth.agnes && auth.agnes.key;
-if (!agnesKey) {
-  console.log("SKIP: no agnes key in " + authPath);
-  process.exit(0);
+// This file makes live Agnes API calls (~40s, 3 generations). It runs only
+// when a key is available — env AGNES_API_KEY or the /login-stored key in
+// ~/.pi/agent/auth.json. Without either, every test in this file is
+// .skip()ped so the published package installs cleanly under `node --test`
+// in CI / fresh environments.
+function resolveKey() {
+  if (process.env.AGNES_API_KEY) return process.env.AGNES_API_KEY;
+  try {
+    const p = join(homedir(), ".pi", "agent", "auth.json");
+    const auth = JSON.parse(readFileSync(p, "utf8"));
+    return (auth.agnes && auth.agnes.key) || (auth["agnes-cn"] && auth["agnes-cn"].key) || null;
+  } catch {
+    return null;
+  }
 }
+const agnesKey = resolveKey();
+const gate = (name, fn) =>
+  agnesKey
+    ? it(name, fn)
+    : it(
+        name,
+        { skip: "no AGNES_API_KEY / auth.json key — runtime test skipped" },
+        fn
+      );
 
 async function loadTool() {
   const tools = [];
@@ -45,7 +62,7 @@ function readPngDims(filePath) {
 }
 
 describe("agnes_image runtime — size/ratio patch", () => {
-  it("2K + 16:9 returns 2624x1472", async () => {
+  gate("2K + 16:9 returns 2624x1472", async () => {
     const t = await loadTool();
     const r = await t.execute("c1", {
       prompt: "lone girl under a streetlight in rain, anime, dark moody, cinematic, 16:9 composition",
@@ -59,7 +76,7 @@ describe("agnes_image runtime — size/ratio patch", () => {
     assert.equal(h, 1472, "height 1472");
   });
 
-  it("1K + 9:16 returns 736x1312", async () => {
+  gate("1K + 9:16 returns 736x1312", async () => {
     const t = await loadTool();
     const r = await t.execute("c2", {
       prompt: "tall anime girl portrait, dark moody, vertical composition",
@@ -73,7 +90,7 @@ describe("agnes_image runtime — size/ratio patch", () => {
     assert.equal(h, 1312, "height 1312");
   });
 
-  it("no size/ratio still returns 1024x1024 (default regression guard)", async () => {
+  gate("no size/ratio still returns 1024x1024 (default regression guard)", async () => {
     const t = await loadTool();
     const r = await t.execute("c3", {
       prompt: "small default test, anime girl",
