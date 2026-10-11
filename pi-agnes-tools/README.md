@@ -63,8 +63,30 @@ Output: `.pi/generated-images/`, `.pi/generated-videos/` (project-relative).
 
 | Tool | Key params |
 |---|---|
-| `agnes_image` | `prompt`, `model`, `endpoint`, `images` (base64 data URIs), `response_format` |
+| `agnes_image` | `prompt`, `model`, `endpoint`, `images` (base64 data URIs), `response_format`, **`size`**, **`ratio`** |
 | `agnes_video` | `prompt`, `model`, `endpoint`, `images` (1 = img2vid, >1 = keyframes), `num_frames`, `frame_rate` |
+
+### Native aspect ratios (image)
+
+`agnes_image` takes `size` + `ratio` as **request-body fields** (not as
+prompt text) to pick a concrete pixel grid. Without them the default is
+1024×1024. Supported matrix (from the [official docs](https://www.agnes-ai.com/en/docs/tokenplan)):
+
+| ratio | 1K | 2K | 3K | 4K |
+|---|---|---|---|---|
+| 1:1 | 1024×1024 | 2048×2048 | 3072×3072 | 4096×4096 |
+| 16:9 | 1312×736 | **2624×1472** | 3936×2208 | 5248×2944 |
+| 9:16 | 736×1312 | 1472×2624 | 2208×3936 | 2944×5248 |
+| 21:9 | 1568×672 | 3136×1344 | 4704×2016 | 6272×2688 |
+| 2:3 / 3:2 / 3:4 / 4:3 | … | … | … | … |
+
+For exact display canvases (1920×1080, 2560×1440 …) request the nearest
+tier + ratio and crop/resize downstream.
+
+> **Do not put “16:9 widescreen” in the prompt.** Prompt-level aspect
+> language has no effect on output dimensions and measurably degrades
+> composition (verified: ~18% of prompt-only widescreen requests return
+> letterboxed bars; 0% via `size`+`ratio`). Pass the pair instead.
 
 ## Install sources
 
