@@ -27,6 +27,10 @@ pi --model agnes/agnes-2.5-flash "hello"
 # Image / video: just ask in any pi session — the agnes-media skill teaches
 # the model to call the agnes_image / agnes_video tools.
 pi "Generate a 2-second video of a red apple falling off a wooden table, photorealistic"
+
+# For a specific aspect ratio, set size + ratio — not prompt text:
+pi "Generate a moody anime city at night"   # agnes_image { size: "2K", ratio: "16:9" }
+# -> native 2624x1472. 16:9 in the prompt does NOT resize; it letterboxes.
 ```
 
 Or run `/login` once and pi stores the key in `~/.pi/agent/auth.json` for you.
