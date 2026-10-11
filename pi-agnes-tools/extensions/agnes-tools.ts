@@ -371,6 +371,29 @@ async function executeVideo(_toolCallId, params, signal) {
 // so /model selection works out of the box without pi-agnes.
 // ---------------------------------------------------------------------------
 
+function agnesThinkingLevelMap(id) {
+  if (id.startsWith("agnes-3")) {
+    return {
+      off: "none",
+      minimal: "minimal",
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: "xhigh",
+      max: "max",
+    };
+  }
+  return {
+    off: "none",
+    minimal: "low",
+    low: "low",
+    medium: "medium",
+    high: "high",
+    xhigh: "high",
+    max: "max",
+  };
+}
+
 function toModelConfig(id) {
   const limits =
     id.startsWith("agnes-2.5") || id.startsWith("agnes-3")
@@ -381,27 +404,21 @@ function toModelConfig(id) {
   return {
     id,
     name: id,
-    // All Agnes text models are reasoning models. The API documents
-    // `reasoning_effort` as exactly: none|minimal|low|medium|high|xhigh|max
-    // (anything else is a 400), and returns `reasoning_content` (verified
-    // live against agnes-3.0-flash and agnes-2.5-flash). Without
-    // `reasoning: true` pi hides the thinking-level selector entirely
-    // (Shift+Tab reports "does not support thinking"). The map must list
-    // EVERY level explicitly: pi-ai only offers `xhigh`/`max` when mapped,
-    // and other api wrappers default unmapped levels (e.g. to "high"),
-    // which would silently run the wrong effort. `off` maps to the
-    // documented disable value "none" so level-off sends an explicit
-    // disable instead of relying on the endpoint default.
+    // All Agnes text models are reasoning models: without `reasoning: true`
+    // pi hides the thinking-level selector entirely (Shift+Tab reports "does
+    // not support thinking").
+    //
+    // The accepted `reasoning_effort` values are PER-MODEL (live-probed,
+    // anything else is a 400):
+    //   agnes-3.x : none|minimal|low|medium|high|xhigh|max (full set)
+    //   agnes-2.x : none|low|medium|high|max (`minimal` and `xhigh` 400;
+    //               verified on 2.5-flash, assumed for the rest)
+    // Unsupported pi levels are folded to the nearest valid effort (never
+    // nulled: pi-ai only offers `xhigh`/`max` when mapped, and some api
+    // wrappers default unmapped levels, which would silently run the wrong
+    // effort). `off` maps to the documented disable value "none".
     reasoning: true,
-    thinkingLevelMap: {
-      off: "none",
-      minimal: "minimal",
-      low: "low",
-      medium: "medium",
-      high: "high",
-      xhigh: "xhigh",
-      max: "max",
-    },
+    thinkingLevelMap: agnesThinkingLevelMap(id),
     input: ["text", "image"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     ...limits,
