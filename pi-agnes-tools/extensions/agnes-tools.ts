@@ -381,17 +381,27 @@ function toModelConfig(id) {
   return {
     id,
     name: id,
-    // All Agnes text models are reasoning models: the API accepts OpenAI-style
-    // `reasoning_effort` (minimal..max) and OpenRouter-style
-    // `reasoning: { effort }`, returning `reasoning_content` (verified live
-    // against agnes-3.0-flash). Without `reasoning: true` pi hides the
-    // thinking-level selector entirely (Shift+Tab reports "does not support
-    // thinking"). pi-ai only offers `xhigh`/`max` when the map has explicit
-    // entries for them, so include both — the values pass through as the
-    // effort strings the API already accepts. No `off` entry: an absent `off`
-    // keeps level-off requests param-free instead of sending effort "off".
+    // All Agnes text models are reasoning models. The API documents
+    // `reasoning_effort` as exactly: none|minimal|low|medium|high|xhigh|max
+    // (anything else is a 400), and returns `reasoning_content` (verified
+    // live against agnes-3.0-flash and agnes-2.5-flash). Without
+    // `reasoning: true` pi hides the thinking-level selector entirely
+    // (Shift+Tab reports "does not support thinking"). The map must list
+    // EVERY level explicitly: pi-ai only offers `xhigh`/`max` when mapped,
+    // and other api wrappers default unmapped levels (e.g. to "high"),
+    // which would silently run the wrong effort. `off` maps to the
+    // documented disable value "none" so level-off sends an explicit
+    // disable instead of relying on the endpoint default.
     reasoning: true,
-    thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+    thinkingLevelMap: {
+      off: "none",
+      minimal: "minimal",
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: "xhigh",
+      max: "max",
+    },
     input: ["text", "image"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     ...limits,
