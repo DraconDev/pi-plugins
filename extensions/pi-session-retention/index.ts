@@ -45,6 +45,8 @@ export interface RetentionPolicy {
 	tinyAfterDays: number;
 	/** Quarantine runs older than this are permanently purged. */
 	quarantineDays: number;
+	/** Delete matching sessions outright instead of moving them into quarantine. */
+	deleteMode: boolean;
 	dryRun: boolean;
 }
 
@@ -56,8 +58,27 @@ export const DEFAULT_POLICY: RetentionPolicy = {
 	tinyBytes: 16 * 1024,
 	tinyAfterDays: 7,
 	quarantineDays: 14,
+	deleteMode: false,
 	dryRun: false,
 };
+
+/** File that holds the policy, next to the session store. */
+export const CONFIG_FILE_NAME = "session-retention.json";
+
+export interface RetentionConfig {
+	maxAgeDays?: number;
+	keepPerProject?: number;
+	capAfterDays?: number;
+	protectRecentDays?: number;
+	tinyBytes?: number;
+	tinyAfterDays?: number;
+	quarantineDays?: number;
+	/** Delete matching sessions outright instead of quarantining them. */
+	delete?: boolean;
+	dryRun?: boolean;
+	/** Extra path/project fragments that are always protected. */
+	protect?: string[];
+}
 
 export type CleanupReason = "max-age" | "project-cap" | "tiny";
 
@@ -67,6 +88,10 @@ export interface SessionRecord {
 	cwd: string | undefined;
 	parentSessionPath: string | undefined;
 	name: string | undefined;
+	/** True when the name was explicitly chosen by the user, so it is kept forever. */
+	explicitName: boolean;
+	/** True for sessions living in a nested artifact directory (forks/, run-N/, ...). */
+	nested: boolean;
 	modifiedMs: number;
 	size: number;
 	ageDays: number;
