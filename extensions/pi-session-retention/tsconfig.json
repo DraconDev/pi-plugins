@@ -10,7 +10,17 @@
 		"allowImportingTsExtensions": true,
 		"noEmit": true,
 		"isolatedModules": true,
-		"types": ["node"]
+		"types": [
+			"node"
+		],
+		"baseUrl": ".",
+		"paths": {
+			"@earendil-works/pi-coding-agent": [
+				"../../../../node_modules/@oh-my-pi/pi-coding-agent/dist/types/index.d.ts"
+			]
+		}
 	},
-	"include": ["index.ts"]
+	"include": [
+		"index.ts"
+	]
 }

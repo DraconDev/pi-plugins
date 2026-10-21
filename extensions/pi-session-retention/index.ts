@@ -11,6 +11,7 @@ import {
 	stat,
 	writeFile,
 } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
@@ -838,7 +839,7 @@ export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupS
 		if (!policy.dryRun) summary.purgedRuns = await purgeQuarantine(quarantineRoot, policy.quarantineDays);
 		const sessions = await discoverSessions(sessionRoot);
 		summary.scanned = sessions.length;
-		const protectedFragments = options.protectedFragments ?? protectedFragments(agentDir);
+		const protectedPathFragments = options.protectedFragments ?? protectedFragments(agentDir);
 		const protectedSessionFiles = await readActiveSessionFiles(agentDir);
 		if (options.currentSessionFile) protectedSessionFiles.add(resolve(options.currentSessionFile));
 		for (const sessionFile of options.protectedSessionFiles ?? []) {
@@ -848,7 +849,7 @@ export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupS
 			sessions,
 			policy,
 			options.currentSessionFile,
-			protectedFragments,
+			protectedPathFragments,
 			new Set(),
 			protectedSessionFiles,
 		);
@@ -862,7 +863,7 @@ export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupS
 			sessions,
 			policy,
 			options.currentSessionFile,
-			protectedFragments,
+			protectedPathFragments,
 			protectedParentPaths,
 			protectedSessionFiles,
 		);
