@@ -310,6 +310,19 @@ interface NameSignals {
 	subagent: boolean;
 }
 
+/**
+ * Detect the subagent marker without parsing the (potentially very large)
+ * system message entry. Only the first message entry is inspected, and only
+ * the first few kilobytes of it, so user text can never trigger a match.
+ */
+function detectSubagentMarker(text: string): boolean {
+	const entryStart = text.indexOf('{"type":"message"');
+	if (entryStart === -1) return false;
+	const roleIdx = text.indexOf('"role":"system"', entryStart);
+	if (roleIdx === -1) return false;
+	return text.slice(roleIdx, roleIdx + 4096).includes(SUBAGENT_SYSTEM_MARKER);
+}
+
 function collectNameSignals(text: string, signals: NameSignals): void {
 	for (const line of text.split(/\r?\n/)) {
 		const entry = parseJsonLine(line);
@@ -326,22 +339,7 @@ function collectNameSignals(text: string, signals: NameSignals): void {
 			if (source === "user") signals.explicit = value.trim();
 			else if (source === "auto") signals.auto = value.trim();
 			else signals.legacy = value.trim();
-			continue;
 		}
-		if (entry.type !== "message" || signals.subagent) continue;
-		const message = entry.message as { role?: unknown; content?: unknown } | undefined;
-		if (!message || message.role !== "system") continue;
-		let content = "";
-		if (typeof message.content === "string") content = message.content;
-		else if (Array.isArray(message.content)) {
-			content = message.content
-				.map((part) => {
-					const text = (part as { text?: unknown } | undefined)?.text;
-					return typeof text === "string" ? text : "";
-				})
-				.join("\n");
-		}
-		if (content.includes(SUBAGENT_SYSTEM_MARKER)) signals.subagent = true;
 	}
 }
 
@@ -359,7 +357,7 @@ export function analyzeSessionName(prefix: string, tail: string): SessionNameInf
 	const auto = tailSignals.auto ?? head.auto;
 	const legacy = tailSignals.legacy ?? head.legacy;
 	const name = explicit ?? auto ?? legacy;
-	const subagent = head.subagent || tailSignals.subagent;
+	const subagent = detectSubagentMarker(prefix) || detectSubagentMarker(tail);
 
 	// A subagent marker outranks everything else: the name was set by the
 	// launcher, not by the user.
@@ -418,8 +416,48 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, worker:
 	return results;
 }
 
-async function sessionFiles(sessionRoot: string): Promise<Array<{ file: string; projectDir: string }>> {
-	const files: Array<{ file: string; projectDir: string }> = [];
+const MAX_NESTED_DEPTH = 5;
+const MAX_FILES_PER_PROJECT = 20000;
+
+interface SessionFileEntry {
+	file: string;
+	projectDir: string;
+	/** True for files inside a nested artifact directory (forks/, run-N/, ...). */
+	nested: boolean;
+}
+
+async function collectNestedSessionFiles(
+	dir: string,
+	projectDir: string,
+	depth: number,
+	out: SessionFileEntry[],
+): Promise<void> {
+	if (depth > MAX_NESTED_DEPTH || out.length >= MAX_FILES_PER_PROJECT) return;
+	let entries: Dirent[];
+	try {
+		entries = await readdir(dir, { withFileTypes: true });
+	} catch {
+		return;
+	}
+	for (const entry of entries) {
+		if (out.length >= MAX_FILES_PER_PROJECT) return;
+		const path = join(dir, entry.name);
+		if (entry.isDirectory()) {
+			await collectNestedSessionFiles(path, projectDir, depth + 1, out);
+			continue;
+		}
+		if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
+		out.push({ file: path, projectDir, nested: true });
+	}
+}
+
+/**
+ * Collect every session transcript under the store: the top-level project
+ * files that `/resume` lists, plus the nested artifacts (fork branches,
+ * subagent runs, transcripts) that live inside a session directory.
+ */
+async function sessionFiles(sessionRoot: string): Promise<SessionFileEntry[]> {
+	const files: SessionFileEntry[] = [];
 	let projectEntries: Dirent[];
 	try {
 		projectEntries = await readdir(sessionRoot, { withFileTypes: true });
@@ -430,21 +468,30 @@ async function sessionFiles(sessionRoot: string): Promise<Array<{ file: string; 
 	const projects = projectEntries.filter((entry) => entry.isDirectory());
 	const perProject = await mapWithConcurrency(projects, SCAN_CONCURRENCY, async (project) => {
 		const projectPath = join(sessionRoot, project.name);
+		const result: SessionFileEntry[] = [];
+		let entries: Dirent[];
 		try {
-			const entries = await readdir(projectPath, { withFileTypes: true });
-			return entries
-				.filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
-				.map((entry) => ({ file: join(projectPath, entry.name), projectDir: project.name }));
+			entries = await readdir(projectPath, { withFileTypes: true });
 		} catch {
-			return [];
+			return result;
 		}
+		for (const entry of entries) {
+			if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+				result.push({ file: join(projectPath, entry.name), projectDir: project.name, nested: false });
+			}
+		}
+		for (const entry of entries) {
+			if (!entry.isDirectory()) continue;
+			await collectNestedSessionFiles(join(projectPath, entry.name), project.name, 1, result);
+		}
+		return result;
 	});
 	return perProject.flat();
 }
 
 export async function discoverSessions(sessionRoot: string, nowMs = Date.now()): Promise<SessionRecord[]> {
 	const files = await sessionFiles(sessionRoot);
-	const discovered = await mapWithConcurrency(files, SCAN_CONCURRENCY, async ({ file, projectDir }) => {
+	const discovered = await mapWithConcurrency(files, SCAN_CONCURRENCY, async ({ file, projectDir, nested }) => {
 		try {
 			const fileStat = await stat(file);
 			const parsed = await readPrefix(file);
@@ -453,12 +500,15 @@ export async function discoverSessions(sessionRoot: string, nowMs = Date.now()):
 			const cwd = typeof header.cwd === "string" ? header.cwd : undefined;
 			const parentSessionPath =
 				typeof header.parentSession === "string" ? header.parentSession : undefined;
+			const nameInfo = analyzeSessionName(parsed.prefix, "");
 			return {
 				file,
 				projectDir,
 				cwd,
 				parentSessionPath,
-				name: extractNameFromText(parsed.prefix),
+				name: nameInfo.name,
+				explicitName: nameInfo.explicit,
+				nested,
 				modifiedMs: fileStat.mtimeMs,
 				size: fileStat.size,
 				ageDays: Math.max(0, (nowMs - fileStat.mtimeMs) / 86_400_000),
@@ -479,9 +529,13 @@ export async function discoverSessions(sessionRoot: string, nowMs = Date.now()):
 	}
 	for (const group of grouped.values()) {
 		group.sort((a, b) => b.modifiedMs - a.modifiedMs || a.file.localeCompare(b.file));
-		group.forEach((session, index) => {
-			session.projectRank = index;
-		});
+		// Only the top-level project files compete for the per-project keep
+		// slots, exactly like Pi's own session browser lists them. Nested
+		// artifacts are governed by age alone.
+		let rank = 0;
+		for (const session of group) {
+			session.projectRank = session.nested ? Number.MAX_SAFE_INTEGER : rank++;
+		}
 	}
 	return valid;
 }
@@ -580,13 +634,19 @@ export function planCandidates(
 		if (current && resolve(session.file) === current) continue;
 		if (protectedSessionFiles.has(resolve(session.file))) continue;
 		if (policy.protectRecentDays > 0 && session.ageDays < policy.protectRecentDays) continue;
-		if (session.name) continue;
+		// Only a name the user picked explicitly protects a session forever.
+		// Machine-generated subagent labels must not exempt anything.
+		if (session.explicitName) continue;
 		if (matchesProtectedFragment(session, protectedFragments)) continue;
 		if (protectedParentPaths.has(resolve(session.file))) continue;
 
 		let reason: CleanupReason | undefined;
 		if (session.ageDays >= policy.maxAgeDays) reason = "max-age";
-		else if (session.projectRank >= policy.keepPerProject && session.ageDays >= policy.capAfterDays) {
+		else if (
+			!session.nested &&
+			session.projectRank >= policy.keepPerProject &&
+			session.ageDays >= policy.capAfterDays
+		) {
 			reason = "project-cap";
 		} else if (session.size <= policy.tinyBytes && session.ageDays >= policy.tinyAfterDays) {
 			reason = "tiny";
@@ -598,10 +658,12 @@ export function planCandidates(
 
 async function enrichCandidateNames(candidates: CleanupCandidate[]): Promise<void> {
 	await mapWithConcurrency(candidates, SCAN_CONCURRENCY, async (candidate) => {
-		if (candidate.name) return;
 		const tail = await readTail(candidate.file, candidate.size);
-		const tailName = extractNameFromText(tail);
-		if (tailName) candidate.name = tailName;
+		const info = analyzeSessionName("", tail);
+		if (info.name) candidate.name = info.name;
+		// A name found in the tail slice can still be an explicit user name, in
+		// which case the session must be kept.
+		if (info.explicit) candidate.explicitName = true;
 	});
 }
 
@@ -699,7 +761,7 @@ export async function purgeExpiredQuarantine(
 	options: { agentDir?: string; quarantineDays?: number } = {},
 ): Promise<PurgeSummary> {
 	const agentDir = resolve(options.agentDir || resolveAgentDir());
-	const quarantineDays = readPolicy({ quarantineDays: options.quarantineDays }).quarantineDays;
+	const quarantineDays = readPolicy({ quarantineDays: options.quarantineDays }, agentDir).quarantineDays;
 	const quarantineRoot = join(agentDir, QUARANTINE_ROOT_NAME);
 	const release = await acquireLock(agentDir);
 	if (!release) return { purgedRuns: 0, locked: true, quarantineRoot, quarantineDays };
@@ -734,11 +796,37 @@ function emptySummary(quarantineRoot: string, dryRun: boolean): CleanupSummary {
 	};
 }
 
+/**
+ * Remove directories that became empty after a deletion pass. Only directories
+ * inside the session store are considered, and the store root is never removed.
+ */
+async function pruneEmptyDirs(dirs: ReadonlySet<string>, sessionRoot: string): Promise<void> {
+	const root = resolve(sessionRoot);
+	for (const dir of dirs) {
+		let current = resolve(dir);
+		while (current !== root && isPathInside(current, root)) {
+			let entries: Dirent[];
+			try {
+				entries = await readdir(current, { withFileTypes: true });
+			} catch {
+				break;
+			}
+			if (entries.length > 0) break;
+			try {
+				await rm(current, { recursive: false, force: true });
+			} catch {
+				break;
+			}
+			current = dirname(current);
+		}
+	}
+}
+
 export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupSummary> {
 	const agentDir = resolve(options.agentDir || resolveAgentDir());
 	const sessionRoot = resolve(options.sessionRoot || join(agentDir, SESSION_ROOT_NAME));
 	const quarantineRoot = join(agentDir, QUARANTINE_ROOT_NAME);
-	const policy = readPolicy(options.policy);
+	const policy = readPolicy(options.policy, agentDir);
 	const summary = emptySummary(quarantineRoot, policy.dryRun);
 	const release = await acquireLock(agentDir);
 	if (!release) {
@@ -750,7 +838,7 @@ export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupS
 		if (!policy.dryRun) summary.purgedRuns = await purgeQuarantine(quarantineRoot, policy.quarantineDays);
 		const sessions = await discoverSessions(sessionRoot);
 		summary.scanned = sessions.length;
-		const protectedFragments = options.protectedFragments ?? envProtectedFragments();
+		const protectedFragments = options.protectedFragments ?? protectedFragments(agentDir);
 		const protectedSessionFiles = await readActiveSessionFiles(agentDir);
 		if (options.currentSessionFile) protectedSessionFiles.add(resolve(options.currentSessionFile));
 		for (const sessionFile of options.protectedSessionFiles ?? []) {
@@ -765,9 +853,11 @@ export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupS
 			protectedSessionFiles,
 		);
 		await enrichCandidateNames(preliminary);
-		const preliminaryPaths = new Set(preliminary.filter((candidate) => !candidate.name).map((candidate) => candidate.file));
+		const preliminaryPaths = new Set(
+			preliminary.filter((candidate) => !candidate.explicitName).map((candidate) => candidate.file),
+		);
 		const protectedParentPaths = parentPathsOfRetainedSessions(sessions, preliminaryPaths, sessionRoot);
-		const candidatesBeforeParentProtection = preliminary.filter((candidate) => !candidate.name);
+		const candidatesBeforeParentProtection = preliminary.filter((candidate) => !candidate.explicitName);
 		const candidates = planCandidates(
 			sessions,
 			policy,
@@ -779,9 +869,15 @@ export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupS
 		// Keep the names discovered during the bounded prefix/tail scan so a
 		// named candidate is never moved merely because its name was near a slice.
 		const names = new Map(preliminary.map((candidate) => [resolve(candidate.file), candidate.name]));
-		for (const candidate of candidates) candidate.name ||= names.get(resolve(candidate.file));
-		const finalCandidates = candidates.filter((candidate) => !candidate.name);
-		summary.protectedByName = preliminary.filter((candidate) => candidate.name).length;
+		const explicit = new Map(
+			preliminary.map((candidate) => [resolve(candidate.file), candidate.explicitName]),
+		);
+		for (const candidate of candidates) {
+			candidate.name ||= names.get(resolve(candidate.file));
+			candidate.explicitName ||= explicit.get(resolve(candidate.file)) ?? false;
+		}
+		const finalCandidates = candidates.filter((candidate) => !candidate.explicitName);
+		summary.protectedByName = preliminary.filter((candidate) => candidate.explicitName).length;
 		summary.protectedByParent = candidatesBeforeParentProtection.filter((candidate) =>
 			protectedParentPaths.has(resolve(candidate.file)),
 		).length;
@@ -789,6 +885,24 @@ export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupS
 		summary.bytes = finalCandidates.reduce((total, candidate) => total + candidate.size, 0);
 		summary.candidates = finalCandidates;
 		if (policy.dryRun || finalCandidates.length === 0) return summary;
+
+		if (policy.deleteMode) {
+			// Hard delete: no quarantine run, no manifest, no recovery window.
+			const touchedDirs = new Set<string>();
+			await mapWithConcurrency(finalCandidates, MOVE_CONCURRENCY, async (candidate) => {
+				try {
+					await rm(candidate.file, { force: true });
+					summary.moved++;
+					summary.quarantinedBytes += candidate.size;
+					touchedDirs.add(dirname(candidate.file));
+				} catch (error) {
+					summary.failed++;
+					summary.errors.push(`${candidate.file}: ${error instanceof Error ? error.message : String(error)}`);
+				}
+			});
+			await pruneEmptyDirs(touchedDirs, sessionRoot);
+			return summary;
+		}
 
 		const quarantineRun = join(quarantineRoot, runId());
 		await mkdir(quarantineRun, { recursive: true });
@@ -888,15 +1002,15 @@ function formatBytes(bytes: number): string {
 
 function formatSummary(summary: CleanupSummary, policy: RetentionPolicy): string {
 	if (summary.locked) return "Session retention skipped: another cleanup is already running.";
-	const action = summary.dryRun ? "would quarantine" : "quarantined";
+	const verb = policy.deleteMode ? (summary.dryRun ? "would delete" : "deleted") : summary.dryRun ? "would quarantine" : "quarantined";
 	const suffix = summary.failed > 0 ? `; ${summary.failed} failed` : "";
-	return `${summary.scanned} sessions scanned; ${action} ${summary.planned} (${formatBytes(summary.bytes)})${suffix}. ` +
+	return `${summary.scanned} sessions scanned; ${verb} ${summary.planned} (${formatBytes(summary.bytes)})${suffix}. ` +
 		`Keeps newest ${policy.keepPerProject}/project, protects ${policy.protectRecentDays}d, max age ${policy.maxAgeDays}d.`;
 }
 
 async function statusText(options: CleanupOptions): Promise<string> {
-	const policy = readPolicy(options.policy);
 	const agentDir = resolve(options.agentDir || resolveAgentDir());
+	const policy = readPolicy(options.policy, agentDir);
 	const sessionRoot = resolve(options.sessionRoot || join(agentDir, SESSION_ROOT_NAME));
 	const sessions = await discoverSessions(sessionRoot);
 	const protectedSessionFiles = await readActiveSessionFiles(agentDir);
@@ -908,16 +1022,17 @@ async function statusText(options: CleanupOptions): Promise<string> {
 		sessions,
 		policy,
 		options.currentSessionFile,
-		options.protectedFragments ?? envProtectedFragments(),
+		options.protectedFragments ?? protectedFragments(agentDir),
 		new Set(),
 		protectedSessionFiles,
 	);
 	await enrichCandidateNames(candidates);
-	const pending = candidates.filter((candidate) => !candidate.name);
+	const pending = candidates.filter((candidate) => !candidate.explicitName);
 	const totalBytes = sessions.reduce((total, session) => total + session.size, 0);
-	return `${sessions.length} loadable sessions (${formatBytes(totalBytes)}); ${pending.length} currently match cleanup (${formatBytes(
+	const mode = policy.deleteMode ? "delete" : "quarantine";
+	return `${sessions.length} session files (${formatBytes(totalBytes)}); ${pending.length} currently match cleanup (${formatBytes(
 		pending.reduce((total, candidate) => total + candidate.size, 0),
-	)}).\nQuarantine: ${resolve(options.agentDir || resolveAgentDir(), QUARANTINE_ROOT_NAME)}`;
+	)}); mode=${mode}.\nQuarantine: ${join(agentDir, QUARANTINE_ROOT_NAME)}`;
 }
 
 function commandTokens(args: string): string[] {
