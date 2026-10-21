@@ -13,7 +13,6 @@
 		"types": [
 			"node"
 		],
-		"baseUrl": ".",
 		"paths": {
 			"@earendil-works/pi-coding-agent": [
 				"../../../../node_modules/@oh-my-pi/pi-coding-agent/dist/types/index.d.ts"
