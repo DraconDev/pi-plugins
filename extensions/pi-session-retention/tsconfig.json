@@ -15,7 +15,7 @@
 		],
 		"paths": {
 			"@earendil-works/pi-coding-agent": [
-				"../../../../node_modules/@oh-my-pi/pi-coding-agent/dist/types/index.d.ts"
+				"../../../../.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/dist/index.d.ts"
 			]
 		}
 	},

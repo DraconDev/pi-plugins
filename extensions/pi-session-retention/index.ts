@@ -76,6 +76,8 @@ export interface RetentionConfig {
 	quarantineDays?: number;
 	/** Delete matching sessions outright instead of quarantining them. */
 	delete?: boolean;
+	/** Alias for `delete`. */
+	deleteMode?: boolean;
 	dryRun?: boolean;
 	/** Extra path/project fragments that are always protected. */
 	protect?: string[];
@@ -240,7 +242,12 @@ export function readConfigFile(agentDir: string): RetentionConfig {
 		return {};
 	}
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-	return parsed as RetentionConfig;
+	const config = parsed as RetentionConfig;
+	// Accept both spellings of the hard-delete switch.
+	if (config.delete !== undefined && config.deleteMode === undefined) {
+		config.deleteMode = config.delete;
+	}
+	return config;
 }
 
 function configProtectedFragments(config: RetentionConfig): string[] {
