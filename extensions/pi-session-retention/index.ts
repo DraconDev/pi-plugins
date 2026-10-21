@@ -872,7 +872,9 @@ async function pruneEmptyDirs(dirs: ReadonlySet<string>, sessionRoot: string): P
 		if (removedThisPass === 0) break;
 	}
 	return removed;
-}export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupSummary> {
+}
+
+export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupSummary> {
 	const agentDir = resolve(options.agentDir || resolveAgentDir());
 	const sessionRoot = resolve(options.sessionRoot || join(agentDir, SESSION_ROOT_NAME));
 	const quarantineRoot = join(agentDir, QUARANTINE_ROOT_NAME);
@@ -1066,7 +1068,7 @@ function formatSummary(summary: CleanupSummary, policy: RetentionPolicy): string
 		`Keeps newest ${policy.keepPerProject}/project, protects ${policy.protectRecentDays}d, max age ${policy.maxAgeDays}d.`;
 }
 
-async function statusText(options: CleanupOptions): Promise<string> {
+export async function statusText(options: CleanupOptions): Promise<string> {
 	const agentDir = resolve(options.agentDir || resolveAgentDir());
 	const policy = readPolicy(options.policy, agentDir);
 	const sessionRoot = resolve(options.sessionRoot || join(agentDir, SESSION_ROOT_NAME));
