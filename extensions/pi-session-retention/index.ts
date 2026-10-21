@@ -595,7 +595,7 @@ async function removeActiveSessionMarker(agentDir: string): Promise<void> {
 	await rm(join(agentDir, ACTIVE_DIRECTORY_NAME, `${process.pid}.json`), { force: true }).catch(() => undefined);
 }
 
-async function readActiveSessionFiles(agentDir: string): Promise<Set<string>> {
+export async function readActiveSessionFiles(agentDir: string): Promise<Set<string>> {
 	const activeFiles = new Set<string>();
 	const activeDir = join(agentDir, ACTIVE_DIRECTORY_NAME);
 	let entries: Dirent[];
