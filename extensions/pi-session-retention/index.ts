@@ -170,45 +170,36 @@ function parseBooleanEnv(name: string, fallback: boolean): boolean {
 	return fallback;
 }
 
-export function readPolicy(overrides: Partial<RetentionPolicy> = {}): RetentionPolicy {
-	const nonNegative = (value: number, fallback: number): number =>
-		Number.isFinite(value) && value >= 0 ? value : fallback;
-	const maxAgeDays = nonNegative(
-		overrides.maxAgeDays ?? parseNumberEnv("PI_SESSION_RETENTION_MAX_AGE_DAYS", DEFAULT_POLICY.maxAgeDays),
-		DEFAULT_POLICY.maxAgeDays,
-	);
+export function readPolicy(overrides: Partial<RetentionPolicy> = {}, agentDir?: string): RetentionPolicy {
+	const config = readConfigFile(agentDir ?? resolveAgentDir());
+	const pickNumber = (key: string, envName: string, fallback: number): number => {
+		const override = (overrides as Record<string, unknown>)[key];
+		if (typeof override === "number" && Number.isFinite(override) && override >= 0) return override;
+		const fromConfig = (config as Record<string, unknown>)[key];
+		if (typeof fromConfig === "number" && Number.isFinite(fromConfig) && fromConfig >= 0) return fromConfig;
+		return parseNumberEnv(envName, fallback);
+	};
+	const pickBoolean = (key: string, envName: string, fallback: boolean): boolean => {
+		const override = (overrides as Record<string, unknown>)[key];
+		if (typeof override === "boolean") return override;
+		const fromConfig = (config as Record<string, unknown>)[key];
+		if (typeof fromConfig === "boolean") return fromConfig;
+		return parseBooleanEnv(envName, fallback);
+	};
+	const maxAgeDays = pickNumber("maxAgeDays", "PI_SESSION_RETENTION_MAX_AGE_DAYS", DEFAULT_POLICY.maxAgeDays);
 	const keepPerProject = Math.floor(
-		nonNegative(
-			overrides.keepPerProject ??
-				parseNumberEnv("PI_SESSION_RETENTION_KEEP_PER_PROJECT", DEFAULT_POLICY.keepPerProject),
-			DEFAULT_POLICY.keepPerProject,
-		),
+		pickNumber("keepPerProject", "PI_SESSION_RETENTION_KEEP_PER_PROJECT", DEFAULT_POLICY.keepPerProject),
 	);
-	const capAfterDays = nonNegative(
-		overrides.capAfterDays ?? parseNumberEnv("PI_SESSION_RETENTION_CAP_AFTER_DAYS", DEFAULT_POLICY.capAfterDays),
-		DEFAULT_POLICY.capAfterDays,
-	);
-	const protectRecentDays = nonNegative(
-		overrides.protectRecentDays ??
-			parseNumberEnv("PI_SESSION_RETENTION_PROTECT_RECENT_DAYS", DEFAULT_POLICY.protectRecentDays),
+	const capAfterDays = pickNumber("capAfterDays", "PI_SESSION_RETENTION_CAP_AFTER_DAYS", DEFAULT_POLICY.capAfterDays);
+	const protectRecentDays = pickNumber(
+		"protectRecentDays",
+		"PI_SESSION_RETENTION_PROTECT_RECENT_DAYS",
 		DEFAULT_POLICY.protectRecentDays,
 	);
-	const tinyBytes = Math.floor(
-		nonNegative(
-			overrides.tinyBytes ?? parseNumberEnv("PI_SESSION_RETENTION_TINY_BYTES", DEFAULT_POLICY.tinyBytes),
-			DEFAULT_POLICY.tinyBytes,
-		),
-	);
-	const tinyAfterDays = nonNegative(
-		overrides.tinyAfterDays ??
-			parseNumberEnv("PI_SESSION_RETENTION_TINY_AFTER_DAYS", DEFAULT_POLICY.tinyAfterDays),
-		DEFAULT_POLICY.tinyAfterDays,
-	);
-	const quarantineDays = nonNegative(
-		overrides.quarantineDays ??
-			parseNumberEnv("PI_SESSION_RETENTION_QUARANTINE_DAYS", DEFAULT_POLICY.quarantineDays),
-		DEFAULT_POLICY.quarantineDays,
-	);
+	const tinyBytes = Math.floor(pickNumber("tinyBytes", "PI_SESSION_RETENTION_TINY_BYTES", DEFAULT_POLICY.tinyBytes));
+	const tinyAfterDays = pickNumber("tinyAfterDays", "PI_SESSION_RETENTION_TINY_AFTER_DAYS", DEFAULT_POLICY.tinyAfterDays);
+	const quarantineDays = pickNumber("quarantineDays", "PI_SESSION_RETENTION_QUARANTINE_DAYS", DEFAULT_POLICY.quarantineDays);
+	const deleteMode = pickBoolean("deleteMode", "PI_SESSION_RETENTION_DELETE", DEFAULT_POLICY.deleteMode);
 	return {
 		maxAgeDays,
 		keepPerProject,
@@ -217,7 +208,8 @@ export function readPolicy(overrides: Partial<RetentionPolicy> = {}): RetentionP
 		tinyBytes,
 		tinyAfterDays,
 		quarantineDays,
-		dryRun: overrides.dryRun ?? parseBooleanEnv("PI_SESSION_RETENTION_DRY_RUN", DEFAULT_POLICY.dryRun),
+		deleteMode,
+		dryRun: pickBoolean("dryRun", "PI_SESSION_RETENTION_DRY_RUN", DEFAULT_POLICY.dryRun),
 	};
 }
 
@@ -226,6 +218,42 @@ function envProtectedFragments(): string[] {
 		.split(",")
 		.map((value) => value.trim().toLowerCase())
 		.filter(Boolean);
+}
+
+/**
+ * Read the policy file that sits next to the session store. It is the only
+ * configuration channel that survives every launch path (terminal, systemd
+ * timer, IDE), so it takes precedence over the environment variables.
+ */
+export function readConfigFile(agentDir: string): RetentionConfig {
+	let raw: string;
+	try {
+		raw = readFileSync(join(agentDir, CONFIG_FILE_NAME), "utf8");
+	} catch {
+		return {};
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		return {};
+	}
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+	return parsed as RetentionConfig;
+}
+
+function configProtectedFragments(config: RetentionConfig): string[] {
+	if (!Array.isArray(config.protect)) return [];
+	return config.protect
+		.filter((value): value is string => typeof value === "string")
+		.map((value) => value.trim().toLowerCase())
+		.filter(Boolean);
+}
+
+/** Protected fragments from both the environment and the policy file. */
+export function protectedFragments(agentDir: string): string[] {
+	const config = readConfigFile(agentDir);
+	return [...new Set([...envProtectedFragments(), ...configProtectedFragments(config)])];
 }
 
 function isPathInside(child: string, parent: string): boolean {
@@ -247,16 +275,101 @@ function parseJsonLine(line: string): Record<string, unknown> | undefined {
 	}
 }
 
-function extractNameFromText(text: string): string | undefined {
-	let latest: string | undefined;
+/**
+ * Marker that pi-subagents injects into the system prompt of every child
+ * session. It is the only reliable marker that separates a machine-generated
+ * subagent run from a session the user started themselves.
+ */
+const SUBAGENT_SYSTEM_MARKER = "<active_agent name=";
+
+/**
+ * Auto-generated session names that pi-subagents has used over time. They look
+ * like user-chosen names but are machine-made, so they must not exempt a
+ * session from cleanup forever.
+ */
+const AUTO_NAME_PATTERNS: RegExp[] = [
+	// legacy child sessions: "Explore#288df251", "general-purpose#36442bff"
+	/^[A-Za-z][A-Za-z0-9._-]*#[0-9a-f]{6,10}$/,
+	// legacy child runs: "subagent-scout-88e98f95-cf4f-4b93-9789-259e5479f13b-1"
+	/^subagent-[a-z0-9][a-z0-9-]*-[0-9a-f-]{8,36}-\d+$/i,
+];
+
+export interface SessionNameInfo {
+	/** Display name, when the session carries one. */
+	name?: string;
+	/** True when the name was explicitly chosen by the user; such sessions are kept. */
+	explicit: boolean;
+	/** True when the session is a machine-generated subagent run. */
+	auto: boolean;
+}
+
+interface NameSignals {
+	legacy?: string;
+	explicit?: string;
+	auto?: string;
+	subagent: boolean;
+}
+
+function collectNameSignals(text: string, signals: NameSignals): void {
 	for (const line of text.split(/\r?\n/)) {
 		const entry = parseJsonLine(line);
 		if (!entry) continue;
-		if (entry.type !== "session_info" && entry.type !== "title") continue;
-		const value = entry.name ?? entry.title;
-		latest = typeof value === "string" && value.trim() ? value.trim() : undefined;
+		if (entry.type === "session_info") {
+			const value = entry.name;
+			if (typeof value === "string" && value.trim()) signals.legacy = value.trim();
+			continue;
+		}
+		if (entry.type === "title" || entry.type === "title_change") {
+			const value = entry.title;
+			if (typeof value !== "string" || !value.trim()) continue;
+			const source = entry.source;
+			if (source === "user") signals.explicit = value.trim();
+			else if (source === "auto") signals.auto = value.trim();
+			else signals.legacy = value.trim();
+			continue;
+		}
+		if (entry.type !== "message" || signals.subagent) continue;
+		const message = entry.message as { role?: unknown; content?: unknown } | undefined;
+		if (!message || message.role !== "system") continue;
+		let content = "";
+		if (typeof message.content === "string") content = message.content;
+		else if (Array.isArray(message.content)) {
+			content = message.content
+				.map((part) => {
+					const text = (part as { text?: unknown } | undefined)?.text;
+					return typeof text === "string" ? text : "";
+				})
+				.join("\n");
+		}
+		if (content.includes(SUBAGENT_SYSTEM_MARKER)) signals.subagent = true;
 	}
-	return latest;
+}
+
+/**
+ * Decide whether a session name was chosen by the user or generated by the
+ * tooling. Only an explicit user choice protects a session from cleanup.
+ */
+export function analyzeSessionName(prefix: string, tail: string): SessionNameInfo {
+	const head: NameSignals = { subagent: false };
+	const tailSignals: NameSignals = { subagent: false };
+	collectNameSignals(prefix, head);
+	collectNameSignals(tail, tailSignals);
+
+	const explicit = tailSignals.explicit ?? head.explicit;
+	const auto = tailSignals.auto ?? head.auto;
+	const legacy = tailSignals.legacy ?? head.legacy;
+	const name = explicit ?? auto ?? legacy;
+	const subagent = head.subagent || tailSignals.subagent;
+
+	// A subagent marker outranks everything else: the name was set by the
+	// launcher, not by the user.
+	if (subagent) return { name, explicit: false, auto: true };
+	if (explicit) return { name: explicit, explicit: true, auto: false };
+	if (auto) return { name: auto, explicit: false, auto: true };
+	if (legacy && !AUTO_NAME_PATTERNS.some((pattern) => pattern.test(legacy))) {
+		return { name: legacy, explicit: true, auto: false };
+	}
+	return { name: legacy, explicit: false, auto: Boolean(legacy) };
 }
 
 async function readSlice(file: string, position: number, length: number): Promise<string> {
