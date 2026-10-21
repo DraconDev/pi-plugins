@@ -804,33 +804,75 @@ function emptySummary(quarantineRoot: string, dryRun: boolean): CleanupSummary {
 	};
 }
 
+/** Only sweep directories that have been empty for a while, so an in-flight session is never removed. */
+const EMPTY_DIR_MIN_AGE_MS = 60 * 60 * 1000;
+
 /**
- * Remove directories that became empty after a deletion pass. Only directories
- * inside the session store are considered, and the store root is never removed.
+ * Remove directories that became empty after a deletion pass. Empty artifact
+ * directories (fork branches, subagent run dirs) otherwise pile up forever and
+ * slow every later scan. Only directories inside the session store are
+ * considered, the store root is never removed, and a directory must have been
+ * empty for at least an hour so a session that is being created right now is
+ * never caught.
  */
-async function pruneEmptyDirs(dirs: ReadonlySet<string>, sessionRoot: string): Promise<void> {
+async function pruneEmptyDirs(dirs: ReadonlySet<string>, sessionRoot: string): Promise<number> {
 	const root = resolve(sessionRoot);
+	const candidates = new Set<string>();
 	for (const dir of dirs) {
 		let current = resolve(dir);
 		while (current !== root && isPathInside(current, root)) {
-			let entries: Dirent[];
-			try {
-				entries = await readdir(current, { withFileTypes: true });
-			} catch {
-				break;
-			}
-			if (entries.length > 0) break;
-			try {
-				await rm(current, { recursive: false, force: true });
-			} catch {
-				break;
-			}
+			candidates.add(current);
 			current = dirname(current);
 		}
 	}
-}
 
-export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupSummary> {
+	// Sweep the whole store as well: earlier cleanups may have left empty
+	// directories behind that no candidate touches.
+	const collect = async (dir: string, depth: number): Promise<void> => {
+		if (depth > 8) return;
+		let entries: Dirent[];
+		try {
+			entries = await readdir(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		await mapWithConcurrency(
+			entries.filter((entry) => entry.isDirectory()),
+			SCAN_CONCURRENCY,
+			async (entry) => {
+				const child = join(dir, entry.name);
+				candidates.add(child);
+				await collect(child, depth + 1);
+			},
+		);
+	};
+	await collect(root, 0);
+
+	// Deepest directories first so a parent can be removed in the same pass.
+	// A parent that only held now-empty children needs another pass, so repeat
+	// until the tree stops shrinking.
+	let removed = 0;
+	for (let pass = 0; pass < 8; pass++) {
+		const ordered = [...candidates].sort((a, b) => b.split(sep).length - a.split(sep).length);
+		let removedThisPass = 0;
+		await mapWithConcurrency(ordered, MOVE_CONCURRENCY, async (dir) => {
+			if (dir === root || !isPathInside(dir, root)) return;
+			try {
+				const dirStat = await stat(dir);
+				if (Date.now() - dirStat.mtimeMs < EMPTY_DIR_MIN_AGE_MS) return;
+				const remaining = await readdir(dir);
+				if (remaining.length > 0) return;
+				await rm(dir, { recursive: true, force: true });
+				removedThisPass++;
+			} catch {
+				// A non-empty or concurrently removed directory is harmless.
+			}
+		});
+		removed += removedThisPass;
+		if (removedThisPass === 0) break;
+	}
+	return removed;
+}export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupSummary> {
 	const agentDir = resolve(options.agentDir || resolveAgentDir());
 	const sessionRoot = resolve(options.sessionRoot || join(agentDir, SESSION_ROOT_NAME));
 	const quarantineRoot = join(agentDir, QUARANTINE_ROOT_NAME);
@@ -892,7 +934,14 @@ export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupS
 		summary.planned = finalCandidates.length;
 		summary.bytes = finalCandidates.reduce((total, candidate) => total + candidate.size, 0);
 		summary.candidates = finalCandidates;
-		if (policy.dryRun || finalCandidates.length === 0) return summary;
+		if (policy.dryRun) return summary;
+
+		if (finalCandidates.length === 0) {
+			// Nothing to remove, but stale empty directories from earlier
+			// cleanups still slow every later scan.
+			await pruneEmptyDirs(new Set(), sessionRoot);
+			return summary;
+		}
 
 		if (policy.deleteMode) {
 			// Hard delete: no quarantine run, no manifest, no recovery window.
@@ -947,6 +996,7 @@ export async function runCleanup(options: CleanupOptions = {}): Promise<CleanupS
 				summary.errors.push(`${candidate.file}: ${error instanceof Error ? error.message : String(error)}`);
 			}
 		});
+		await pruneEmptyDirs(new Set(), sessionRoot);
 		return summary;
 	} finally {
 		await release();
