@@ -79,6 +79,20 @@ test('unowned plain files stay usable but outside symlink/hardlink aliases canno
   await assert.rejects(f.write({ path: alias, content: 'must not publish' }), /unsupported/);
   assert.equal(await fs.readFile(target, 'utf8'), 'preserve\n');
 });
+test('cold metadata creation honors native restrictive umask rather than widening permissions', async t => {
+  const f = await fixture(t), sdk = await import(process.env.PI_CANONICAL_TEST_SDK);
+  const native = sdk.createWriteToolDefinition(f.cwd), saved = process.umask();
+  try {
+    for (const [mask, name] of [[0o077, '.gitignore'], [0o027, '.gitattributes']]) {
+      process.umask(mask);
+      const baseline = join(f.cwd, 'native-' + mask), metadata = join(f.cwd, name);
+      await native.execute('native-cold', { path: baseline, content: 'policy\n' }, undefined, undefined, { cwd: f.cwd });
+      await f.write({ path: metadata, content: 'policy\n' });
+      assert.equal((await fs.stat(metadata)).mode & 0o777, (await fs.stat(baseline)).mode & 0o777);
+      assert.equal(await fs.readFile(metadata, 'utf8'), 'policy\n');
+    }
+  } finally { process.umask(saved); }
+});
 test('atomic metadata writes and edits respect native file-access refusal rather than bypassing readonly permissions', async t => {
   const f = await fixture(t), sdk = await import(process.env.PI_CANONICAL_TEST_SDK);
   const ordinary = join(f.cwd, 'native-readonly'), metadata = join(f.cwd, '.gitignore');
