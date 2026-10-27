@@ -1,0 +1,11 @@
+{
+  "name": "pi-canonical-write-fence",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cooperative pre-open fencing for Pi canonical metadata mutations",
+  "keywords": ["pi-package"],
+  "pi": { "extensions": ["./index.js"] },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "*" },
+  "scripts": { "test": "node --test test/*.test.mjs" }
+}
