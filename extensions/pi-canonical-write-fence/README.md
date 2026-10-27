@@ -41,10 +41,11 @@ PI_CANONICAL_TEST_SDK=file:///path/to/pi-coding-agent/dist/index.js \
 node --test test/*.test.mjs
 ```
 
-Eighteen controls pass with zero failures/skips. Added real-loader controls cover
+Nineteen controls pass with zero failures/skips. Added real-loader controls cover
 same-repo metadata alias write/edit, alias preservation, cross-repo refusal,
 ordinary file inode/mode fidelity, outside-repo plain files and link refusals,
-and refusal on broken repository ownership metadata. They include actual Pi loader
+refusal on broken repository ownership metadata, plus ordinary in-place abort
+settling to full new bytes with the same inode/mode and fence release. They include actual Pi loader
 registration, native schemas/legacy-edit preparation/dynamic-cwd execution and
 real SDK transactions in disposable Git repositories. An actual cancellation
 schedule pauses the writing family after scratch fsync but before rename:
@@ -58,7 +59,8 @@ This does not fill the host disk or establish the cause of historical leaks. The
 namespace cleanup regression first reproduced deletion of a foreign substituted
 entry; the original failure is retained, not relabelled as a successful run.
 Exact source/native identities and raw outcomes are in utilities:
-`dracon-sync/docs/design/canonical-writer-fence-2026-10-27/pi-alias-controls.json`.
+`dracon-sync/docs/design/canonical-writer-fence-2026-10-27/pi-ordinary-cancel-controls.json`.
+Earlier alias/cancellation/ENOSPC receipts remain retained.
 The receipt hashes the prototype, native fault fixture, qualified Warden binary
 and compiled host SDK before/after execution.
 
@@ -69,11 +71,14 @@ and compiled host SDK before/after execution.
 - Scope is typed worktree edit/write, including existing same-repo metadata
   aliases. Cross-repo/unowned/dangling links and hardlinked mutations refuse.
   Shell/native-Git mutations, external editors and detached writers remain open.
-- **Deployment prerequisite:** qualify cancellation/forced-kill after an ordinary
-  (non-metadata) in-place write has begun. The current child worker plus forced
-  group kill must not silently weaken the original tool's settle-before-abort
-  semantics or leave truncated ordinary content. Metadata atomic controls do
-  NOT prove that property. Fix any demonstrated failure before enabling.
+- Ordinary abort parity is now qualified: a disposable gate pauses the first
+  native ordinary write after open/truncate; client abort lets that write settle
+  inside the TERM->KILL grace, reports cancelled/aborted, leaves full new bytes
+  (not truncated partial, not silent original) with the same inode/mode, and
+  releases the fence. This matches the host SDK settle-before-release contract
+  where an abort after write still leaves the completed write. SIGKILL mid-write,
+  timeout kills after run deadlines, parent-death and other forced-kill schedules
+  remain unqualified and are still a deployment blocker.
 - Worktree requests have the existing prototype's 16-MiB transport bound;
   general large-input compatibility has not been established.
 - No all-producer canonical-preservation claim. Unknown/uncooperative writers
