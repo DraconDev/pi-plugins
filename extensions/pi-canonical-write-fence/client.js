@@ -1,5 +1,5 @@
 import { spawn, execFile } from 'node:child_process';
-import { stat, realpath } from 'node:fs/promises';
+import { stat, lstat, realpath } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -8,12 +8,26 @@ export const metadataNames = new Set(['.gitignore', '.gitattributes']);
 export function gitEnvironment() {
   return Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
 }
-export async function owningRepo(target) {
+async function existingParent(target) {
   let dir = dirname(target);
   for (;;) {
     try { if ((await stat(dir)).isDirectory()) break; } catch (error) { if (error.code !== 'ENOENT') throw error; }
     const next = dirname(dir); if (next === dir) throw Error('metadata writer requires an existing owning repository'); dir = next;
   }
+  return realpath(dir);
+}
+// Inspect parent directories/Git markers only, never the target leaf. A broken
+// or unreadable repository is an error, NOT permission for an unfenced fallback.
+export async function findOwningRepo(target) {
+  let dir = await existingParent(target);
+  for (;;) {
+    try { await lstat(join(dir, '.git')); return owningRepo(target); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    const next = dirname(dir); if (next === dir) return null; dir = next;
+  }
+}
+export async function owningRepo(target) {
+  const dir = await existingParent(target);
   const { stdout } = await exec('git', ['-C', dir, 'rev-parse', '--show-toplevel'],
     { env: gitEnvironment(), timeout: 3000, maxBuffer: 8192 });
   const value = stdout.replace(/\n$/, '');
@@ -22,9 +36,9 @@ export async function owningRepo(target) {
 }
 
 // Metadata payloads travel over stdin, never command-line arguments or logs.
-export async function runFencedMutation({ tool, params, cwd, target, sdkUrl, warden = 'dracon-warden', signal }) {
+export async function runFencedMutation({ tool, params, cwd, target, sdkUrl, repo: requestedRepo, warden = 'dracon-warden', signal }) {
   if (signal?.aborted) throw Error('metadata mutation aborted before acquisition');
-  const repo = await owningRepo(target);
+  const repo = requestedRepo ?? await owningRepo(target);
   const worker = fileURLToPath(new URL('./worker.js', import.meta.url));
   return new Promise((resolve, reject) => {
     const child = spawn(warden, ['write-fence', '--repo', repo, '--wait-secs', '30', '--run-secs', '60', '--',
