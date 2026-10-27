@@ -47,6 +47,16 @@ test('cross-repo metadata alias refuses instead of mutating under the wrong repo
   await assert.rejects(f.write({ path: 'cross-link', content: 'must not publish' }), /cross-repository/);
   assert.equal(await fs.readFile(target, 'utf8'), 'preserve\n'); assert.equal(await fs.readlink(alias), target);
 });
+test('loaded in-process metadata transaction preserves BOM, CRLF, Unicode, diff and ambiguous-edit refusal', async t => {
+  const f = await fixture(t), path = join(f.cwd, '.gitignore');
+  await f.write({ path, content: '\ufeff# λ\r\ncache/\r\n' });
+  const result = await f.edit({ path, edits: [{ oldText: 'cache/', newText: 'assets/' }] });
+  assert.equal(await fs.readFile(path, 'utf8'), '\ufeff# λ\r\nassets/\r\n');
+  assert.match(result.details.patch, /assets\//);
+  await f.write({ path, content: 'same\nsame\n' });
+  await assert.rejects(f.edit({ path, edits: [{ oldText: 'same', newText: 'replacement' }] }));
+  assert.equal(await fs.readFile(path, 'utf8'), 'same\nsame\n');
+});
 test('ordinary regular worktree writes/edits preserve inode and mode rather than metadata replacement semantics', async t => {
   const f = await fixture(t), path = join(f.cwd, 'note.txt');
   await fs.writeFile(path, 'old\n', { mode: 0o640 }); const before = await fs.stat(path);
