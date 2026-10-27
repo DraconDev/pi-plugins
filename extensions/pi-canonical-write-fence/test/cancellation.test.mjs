@@ -1,0 +1,60 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import * as fs from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { setTimeout as delay } from 'node:timers/promises';
+import { runFencedMutation, gitEnvironment } from '../client.js';
+const exec = promisify(execFile);
+test('actual cancellation before rename preserves canonical bytes, reaps owned writer and permits independent repo progress', { timeout: 20000 }, async t => {
+  const warden = process.env.PI_CANONICAL_TEST_WARDEN, sdkUrl = process.env.PI_CANONICAL_TEST_SDK;
+  assert.ok(warden && sdkUrl, 'qualified artifacts required');
+  const root = await fs.mkdtemp(join(tmpdir(), 'canonical-cancel-test-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const a = join(root, 'a'), b = join(root, 'b');
+  for (const repo of [a, b]) await exec('git', ['init', '-q', '--template=', repo], { env: gitEnvironment() });
+  const target = join(a, '.gitignore'); await fs.writeFile(target, 'original\n');
+  const original = await fs.stat(target, { bigint: true });
+  const { stdout } = await exec('which', ['git']); const realGit = stdout.trim();
+  const shimdir = join(root, 'bin'); await fs.mkdir(shimdir);
+  const count = join(root, 'count'), ready = join(root, 'ready');
+  // The fifth lookup is the worker's beforePublish authority check: scratch
+  // has already been written, synced and closed, canonical rename has not run.
+  const script = `#!/usr/bin/env python3\nimport os,sys,pathlib,time\ncount=pathlib.Path(${JSON.stringify(count)})\nif 'rev-parse' in sys.argv:\n n=int(count.read_text())+1 if count.exists() else 1\n count.write_text(str(n))\n if n==5:\n  pathlib.Path(${JSON.stringify(ready)}).write_text(str(os.getpid()))\n  while True: time.sleep(1)\nos.execv(${JSON.stringify(realGit)},[${JSON.stringify(realGit)},*sys.argv[1:]])\n`;
+  await fs.writeFile(join(shimdir, 'git'), script, { mode: 0o700 });
+  const oldPath = process.env.PATH; process.env.PATH = shimdir + ':' + oldPath;
+  t.after(() => { process.env.PATH = oldPath; });
+  const controller = new AbortController(); t.after(() => controller.abort());
+  const run = runFencedMutation({ tool: 'write', params: { path: target, content: 'candidate\n' }, cwd: a, target, sdkUrl, warden, signal: controller.signal });
+  // Attach immediately: an early producer error is evidence, not an unhandled
+  // rejection hidden by the synchronization wait.
+  const result = run.then(value => ({ value }), error => ({ error }));
+  let pid;
+  for (let i = 0; i < 400; i++) {
+    try { pid = Number(await fs.readFile(ready, 'utf8')); break; }
+    catch (e) { if (e.code !== 'ENOENT') throw e; }
+    await delay(20);
+  }
+  assert.ok(pid, 'actual writer must reach the instrumented pre-publication boundary');
+  const scratch = join(a, '.git/dracon-canonical-writes-v1');
+  const entries = await fs.readdir(scratch); assert.equal(entries.length, 1);
+  assert.equal(await fs.readFile(join(scratch, entries[0]), 'utf8'), 'candidate\n');
+  assert.equal(await fs.readFile(target, 'utf8'), 'original\n');
+  // Independent repository must publish while A still owns its fence.
+  const other = join(b, '.gitignore');
+  const independent = await runFencedMutation({ tool: 'write', params: { path: other, content: 'independent\n' }, cwd: b, target: other, sdkUrl, warden, signal: AbortSignal.timeout(5000) });
+  assert.match(independent.content[0].text, /Successfully wrote/);
+  assert.equal(await fs.readFile(other, 'utf8'), 'independent\n');
+  controller.abort();
+  const outcome = await result; assert.ok(outcome.error); assert.match(outcome.error.message, /cancelled/);
+  const after = await fs.stat(target, { bigint: true });
+  assert.equal(after.ino, original.ino); assert.equal(after.size, original.size);
+  assert.equal(await fs.readFile(target, 'utf8'), 'original\n');
+  assert.deepEqual(await fs.readdir(scratch), []);
+  assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+  // A new actual native participant acquiring the same fence proves the
+  // cancelled worker did not retain its inherited OFD after client settlement.
+  await exec(warden, ['write-fence', '--repo', a, '--wait-secs', '1', '--run-secs', '1', '--', 'true'], { timeout: 3000, env: gitEnvironment() });
+});
