@@ -1,11 +1,11 @@
 // Private worker: reuse the host SDK's complete edit/write transaction and
 // mutation queue, but publish regular metadata atomically inside the fence.
 import * as fs from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { atomicWrite, observe } from './atomic.js';
-import { gitEnvironment, metadataNames, owningRepo } from './client.js';
+import { gitEnvironment, metadataNames, owningRepo, findOwningRepo } from './client.js';
 const exec = promisify(execFile);
 const abort = new AbortController();
 process.on('SIGTERM', () => abort.abort());
@@ -18,7 +18,7 @@ try {
     chunks.push(chunk);
   }
   const { tool, params, cwd, target, repo } = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-  if (!['edit', 'write'].includes(tool) || !metadataNames.has(basename(target))) throw Error('unsupported canonical mutation');
+  if (!['edit', 'write'].includes(tool)) throw Error('unsupported canonical mutation');
   const { stdout } = await exec('git', ['-C', repo, 'rev-parse', '--absolute-git-dir'], { env: gitEnvironment(), timeout: 3000, maxBuffer: 8192 });
   const gitdir = stdout.replace(/\n$/, '');
   if (!gitdir || gitdir.includes('\n')) throw Error('ambiguous canonical Git directory');
@@ -37,21 +37,39 @@ try {
   const sdk = await import(sdkUrl.href);
   const { resolveToCwd } = await import(new URL('./core/tools/path-utils.js', sdkUrl).href);
   if (resolveToCwd(params.path, cwd) !== target) throw Error('canonical target mismatch');
+  async function resolveTarget(path) {
+    const leaf = await fs.lstat(path).catch(e => { if (e.code !== 'ENOENT') throw e; return null; });
+    if (metadataNames.has(basename(path)) && leaf?.isSymbolicLink()) throw Error('canonical metadata leaf symlink is unsupported');
+    let physical;
+    if (leaf) physical = await fs.realpath(path);
+    else physical = join(await fs.realpath(dirname(path)), basename(path));
+    if (await findOwningRepo(physical) !== repo) throw Error('cross-repository or unowned alias is unsupported');
+    return { path: physical, metadata: metadataNames.has(basename(path)) || metadataNames.has(basename(physical)), before: await observe(physical) };
+  }
   let baseline;
   const operations = {
     access: path => fs.access(path),
     mkdir: path => fs.mkdir(path, { recursive: true }).then(() => {}),
     readFile: async path => {
-      baseline = await observe(path);
-      const data = await fs.readFile(path);
-      if ((await observe(path))?.stamp !== baseline?.stamp) throw Error('canonical file changed during read');
+      baseline = await resolveTarget(path);
+      const data = await fs.readFile(baseline.path);
+      if ((await observe(baseline.path))?.stamp !== baseline.before?.stamp) throw Error('canonical file changed during read');
       return data;
     },
     writeFile: async (path, content) => {
-      if (await owningRepo(path) !== repo) throw Error('canonical repository changed');
-      const before = tool === 'edit' ? baseline : await observe(path);
-      await atomicWrite(path, content, { gitdir, before, signal: abort.signal,
-        beforePublish: async () => { if (await owningRepo(path) !== repo) throw Error('canonical repository changed'); } });
+      const current = await resolveTarget(path);
+      if (tool === 'edit' && (current.path !== baseline.path || current.before?.stamp !== baseline.before?.stamp)) throw Error('canonical file or alias changed after read');
+      if (current.metadata) {
+        await atomicWrite(current.path, content, { gitdir, before: current.before, signal: abort.signal,
+          beforePublish: async () => {
+            if ((await resolveTarget(path)).path !== current.path) throw Error('canonical alias changed before publication');
+          } });
+      } else {
+        // Ordinary worktree files retain in-place SDK write semantics (including
+        // inode/mode/ACL fidelity), but their complete operation holds the fence.
+        if (abort.signal.aborted) throw Error('canonical mutation aborted');
+        await fs.writeFile(current.path, content, 'utf8');
+      }
     },
   };
   const definition = tool === 'edit' ? sdk.createEditToolDefinition(cwd, { operations }) : sdk.createWriteToolDefinition(cwd, { operations });
