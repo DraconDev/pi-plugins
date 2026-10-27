@@ -11,13 +11,13 @@ const abort = new AbortController();
 process.on('SIGTERM', () => abort.abort());
 process.on('SIGINT', () => abort.abort());
 try {
-  let input = '', bytes = 0;
+  const chunks = []; let bytes = 0;
   for await (const chunk of process.stdin) {
     bytes += chunk.length;
     if (bytes > 16 * 1024 * 1024) throw Error('canonical request exceeds bound');
-    input += chunk.toString('utf8');
+    chunks.push(chunk);
   }
-  const { tool, params, cwd, target, repo } = JSON.parse(input);
+  const { tool, params, cwd, target, repo } = JSON.parse(Buffer.concat(chunks).toString('utf8'));
   if (!['edit', 'write'].includes(tool) || !metadataNames.has(basename(target))) throw Error('unsupported canonical mutation');
   const { stdout } = await exec('git', ['-C', repo, 'rev-parse', '--absolute-git-dir'], { env: gitEnvironment(), timeout: 3000, maxBuffer: 8192 });
   const gitdir = stdout.replace(/\n$/, '');
