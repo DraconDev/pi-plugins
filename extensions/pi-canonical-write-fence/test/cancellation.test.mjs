@@ -19,10 +19,11 @@ test('actual cancellation before rename preserves canonical bytes, reaps owned w
   const original = await fs.stat(target, { bigint: true });
   const { stdout } = await exec('which', ['git']); const realGit = stdout.trim();
   const shimdir = join(root, 'bin'); await fs.mkdir(shimdir);
-  const count = join(root, 'count'), ready = join(root, 'ready');
-  // The fifth lookup is the worker's beforePublish authority check: scratch
-  // has already been written, synced and closed, canonical rename has not run.
-  const script = `#!/usr/bin/env python3\nimport os,sys,pathlib,time\ncount=pathlib.Path(${JSON.stringify(count)})\nif 'rev-parse' in sys.argv:\n n=int(count.read_text())+1 if count.exists() else 1\n count.write_text(str(n))\n if n==5:\n  pathlib.Path(${JSON.stringify(ready)}).write_text(str(os.getpid()))\n  while True: time.sleep(1)\nos.execv(${JSON.stringify(realGit)},[${JSON.stringify(realGit)},*sys.argv[1:]])\n`;
+  const ready = join(root, 'ready');
+  // Synchronize on the real beforePublish authority lookup AFTER scratch
+  // exists, rather than a brittle ordinal count of discovery subprocesses.
+  const scratch = join(a, '.git/dracon-canonical-writes-v1');
+  const script = `#!/usr/bin/env python3\nimport os,sys,pathlib,time,json\nready=pathlib.Path(${JSON.stringify(ready)})\nscratch=pathlib.Path(${JSON.stringify(scratch)})\nif 'rev-parse' in sys.argv and scratch.exists() and any(scratch.iterdir()) and not ready.exists():\n temp=ready.with_suffix('.new')\n temp.write_text(json.dumps({'pid':os.getpid(),'writer':os.getppid()}))\n temp.replace(ready)\n while True: time.sleep(1)\nos.execv(${JSON.stringify(realGit)},[${JSON.stringify(realGit)},*sys.argv[1:]])\n`;
   await fs.writeFile(join(shimdir, 'git'), script, { mode: 0o700 });
   const oldPath = process.env.PATH; process.env.PATH = shimdir + ':' + oldPath;
   t.after(() => { process.env.PATH = oldPath; });
@@ -31,15 +32,18 @@ test('actual cancellation before rename preserves canonical bytes, reaps owned w
   // Attach immediately: an early producer error is evidence, not an unhandled
   // rejection hidden by the synchronization wait.
   const result = run.then(value => ({ value }), error => ({ error }));
-  let pid;
+  let state;
   for (let i = 0; i < 400; i++) {
-    try { pid = Number(await fs.readFile(ready, 'utf8')); break; }
+    try { state = JSON.parse(await fs.readFile(ready, 'utf8')); break; }
     catch (e) { if (e.code !== 'ENOENT') throw e; }
     await delay(20);
   }
-  assert.ok(pid, 'actual writer must reach the instrumented pre-publication boundary');
-  const scratch = join(a, '.git/dracon-canonical-writes-v1');
+  assert.ok(state?.pid, 'actual writer must reach the instrumented pre-publication boundary');
+  const pid = state.pid;
   const entries = await fs.readdir(scratch); assert.equal(entries.length, 1);
+  const handles = await fs.readdir(`/proc/${state.writer}/fd`);
+  const destinations = await Promise.all(handles.map(fd => fs.readlink(`/proc/${state.writer}/fd/${fd}`).catch(e => { if (e.code !== 'ENOENT') throw e; return ''; })));
+  assert.ok(!destinations.some(path => path.endsWith('/' + entries[0])), 'scratch file must already be closed before the publication boundary');
   assert.equal(await fs.readFile(join(scratch, entries[0]), 'utf8'), 'candidate\n');
   assert.equal(await fs.readFile(target, 'utf8'), 'original\n');
   // Independent repository must publish while A still owns its fence.
