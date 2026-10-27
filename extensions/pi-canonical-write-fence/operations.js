@@ -4,7 +4,7 @@ import { constants } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { atomicWrite, observe } from './atomic.js';
 import { metadataNames, findOwningRepo } from './client.js';
-export function fencedOperations({ tool, repo, gitdir, verify, signal }) {
+export function fencedOperations({ tool, repo, gitdir, verify, signal, allowInPlace = true }) {
   async function resolveTarget(path) {
     await verify();
     const leaf = await fs.lstat(path).catch(e => { if (e.code !== 'ENOENT') throw e; return null; });
@@ -34,6 +34,7 @@ export function fencedOperations({ tool, repo, gitdir, verify, signal }) {
             if ((await resolveTarget(path)).path !== current.path) throw Error('canonical alias changed before publication');
           } });
       } else {
+        if (!allowInPlace) throw Error('ordinary mutations require the in-process SDK fence');
         if (signal?.aborted) throw Error('canonical mutation aborted');
         // No child timeout or forced termination of this write. The native SDK
         // and outer fence both await final close, including on cancellation.
