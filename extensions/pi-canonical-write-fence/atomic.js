@@ -22,17 +22,21 @@ export async function atomicWrite(path, content, { gitdir, before, signal, befor
   const bytes = Buffer.from(content, 'utf8');
   if (bytes.length > MAX_BYTES) throw Error('canonical mutation exceeds byte bound');
   if (signal?.aborted) throw Error('canonical mutation aborted');
+  const scratch = join(gitdir, 'dracon-canonical-writes-v1');
+  await fs.mkdir(scratch, { mode: 0o700 }).catch(e => { if (e.code !== 'EEXIST') throw e; });
+  const directory = await fs.lstat(scratch);
+  if (!directory.isDirectory() || directory.uid !== process.geteuid() || (directory.mode & 0o077) !== 0) throw Error('unsafe canonical scratch directory');
   // SIGKILL can leave private scratch. Bound both bytes and inode growth;
   // never delete another request's recovery or treat it as user approval.
   let total = 0, count = 0;
-  for (const name of await fs.readdir(gitdir)) {
+  for (const name of await fs.readdir(scratch)) {
     if (!name.startsWith(PREFIX)) continue;
-    const s = await fs.lstat(join(gitdir, name));
+    const s = await fs.lstat(join(scratch, name));
     if (!s.isFile() || s.nlink !== 1 || s.uid !== process.geteuid()) throw Error('unsafe canonical recovery entry');
     total += s.size; count++;
   }
   if (total + bytes.length > RECOVERY_BYTES || count >= 64) throw Error('canonical recovery budget exhausted; inspect private recovery');
-  const temp = join(gitdir, PREFIX + randomUUID());
+  const temp = join(scratch, PREFIX + randomUUID());
   let file;
   try {
     file = await fs.open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
@@ -40,9 +44,11 @@ export async function atomicWrite(path, content, { gitdir, before, signal, befor
     await file.chmod(before?.mode ?? 0o644);
     await file.sync();
     await file.close(); file = undefined;
-    // Test-only injection remains inside the owned operation; production does
-    // not install a callback. It makes the cancellation boundary falsifiable.
+    // Revalidate repository authority, and allow deterministic cancellation
+    // controls at the actual fully-written-but-not-published boundary.
     await beforePublish?.();
+    const currentDirectory = await fs.lstat(scratch);
+    if (currentDirectory.dev !== directory.dev || currentDirectory.ino !== directory.ino || !currentDirectory.isDirectory()) throw Error('canonical scratch namespace changed');
     if (signal?.aborted) throw Error('canonical mutation aborted before publication');
     const now = await observe(path);
     if (now?.stamp !== before?.stamp) throw Error('canonical file changed; refusing stale mutation');
