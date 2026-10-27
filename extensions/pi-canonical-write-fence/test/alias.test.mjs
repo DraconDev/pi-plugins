@@ -25,7 +25,12 @@ async function fixture(t) {
   await loader.reload(); const loaded = loader.getExtensions(); assert.deepEqual(loaded.errors, []);
   const tools = loaded.extensions[0].tools, ctx = { cwd };
   return { root, cwd, write: p => tools.get('write').definition.execute('alias-write', p, undefined, undefined, ctx),
-    edit: p => tools.get('edit').definition.execute('alias-edit', p, undefined, undefined, ctx) };
+    edit: p => tools.get('edit').definition.execute('alias-edit', p, undefined, undefined, ctx),
+    status: async () => {
+      let text;
+      await loaded.extensions[0].commands.get('canonical-write-fence-status').handler('', { ui: { notify: message => { text = message; } } });
+      return text;
+    } };
 }
 test('differently named same-repo metadata alias uses atomic canonical publication and preserves alias', async t => {
   const f = await fixture(t), target = join(f.cwd, '.gitignore'), alias = join(f.cwd, 'ignore-link');
@@ -78,6 +83,7 @@ test('unowned plain files stay usable but outside symlink/hardlink aliases canno
   await fs.unlink(alias); await fs.link(target, alias);
   await assert.rejects(f.write({ path: alias, content: 'must not publish' }), /unsupported/);
   assert.equal(await fs.readFile(target, 'utf8'), 'preserve\n');
+  assert.match(await f.status(), /2 refused/, 'both external guard refusals must be reported');
 });
 test('cold metadata creation honors native restrictive umask rather than widening permissions', async t => {
   const f = await fixture(t), sdk = await import(process.env.PI_CANONICAL_TEST_SDK);
@@ -118,4 +124,5 @@ test('broken Git ownership metadata is an error, never an ordinary unfenced fall
   await fs.writeFile(join(f.root, '.git'), 'gitdir: /nonexistent-canonical-fixture\n');
   await assert.rejects(f.write({ path, content: 'must not publish' }));
   assert.equal(await fs.readFile(path, 'utf8'), 'preserve\n');
+  assert.match(await f.status(), /1 refused/, 'ownership discovery failure must not disappear from status');
 });
