@@ -69,6 +69,26 @@ test('unowned plain files stay usable but outside symlink/hardlink aliases canno
   await assert.rejects(f.write({ path: alias, content: 'must not publish' }), /unsupported/);
   assert.equal(await fs.readFile(target, 'utf8'), 'preserve\n');
 });
+test('atomic metadata writes and edits respect native file-access refusal rather than bypassing readonly permissions', async t => {
+  const f = await fixture(t), sdk = await import(process.env.PI_CANONICAL_TEST_SDK);
+  const ordinary = join(f.cwd, 'native-readonly'), metadata = join(f.cwd, '.gitignore');
+  for (const tool of ['write', 'edit']) {
+    for (const path of [ordinary, metadata]) {
+      await fs.writeFile(path, 'old\n', { mode: 0o644 }); await fs.chmod(path, 0o444);
+    }
+    const params = path => tool === 'write' ? { path, content: 'new\n' } : { path, edits: [{ oldText: 'old', newText: 'new' }] };
+    const native = tool === 'write' ? sdk.createWriteToolDefinition(f.cwd) : sdk.createEditToolDefinition(f.cwd);
+    const [baseline, guarded] = await Promise.allSettled([
+      native.execute('native', params(ordinary), undefined, undefined, { cwd: f.cwd }), f[tool](params(metadata)),
+    ]);
+    assert.equal(guarded.status, baseline.status, 'must honor host permission semantics, including privileged hosts');
+    if (baseline.status === 'rejected') {
+      assert.match(guarded.reason.message, /EACCES|permission|access/i);
+      assert.equal(await fs.readFile(metadata, 'utf8'), 'old\n');
+    } else assert.equal(await fs.readFile(metadata, 'utf8'), 'new\n');
+    await fs.chmod(ordinary, 0o644); await fs.chmod(metadata, 0o644);
+  }
+});
 test('broken Git ownership metadata is an error, never an ordinary unfenced fallback', async t => {
   const f = await fixture(t), path = join(f.root, 'outside-note'); await fs.writeFile(path, 'preserve\n');
   await fs.writeFile(join(f.root, '.git'), 'gitdir: /nonexistent-canonical-fixture\n');
