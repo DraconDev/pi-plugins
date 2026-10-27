@@ -1,94 +1,93 @@
-# Canonical metadata writer prototype (NOT enabled by this work)
+# Canonical writer prototype — NOT enabled in live sessions
 
-This is an incomplete source integration, not a deployed safety boundary.
-`index.js` registers native edit/write definitions and a scope/counter status
-command; its registration is exercised through the real Pi loader in disposable
-fixtures. No live-session settings were changed. Do not add it to live settings
-until the remaining coverage and runtime qualification pass.
+Source integration and disposable qualification only. Do not enable it or lift
+publication containment until remaining producer/runtime/assembly gates pass.
 
-`client.js` starts an owned Warden `write-fence` family; request content travels
-on stdin, not argv. `worker.js` requires the actual inherited locked descriptor
-and checks its repository namespace before any target lookup/SDK mutation queue.
-Every typed edit/write in a discovered worktree takes the fence before target
-lookup, not merely requests whose basename looks like metadata. After acquiring
-it, the worker resolves same-repo aliases and atomically publishes metadata
-changes to the canonical regular target while preserving the alias itself.
-Cross-repo/unowned aliases, shared-hardlink targets and metadata leaf symlinks
-refuse. Ordinary regular worktree files retain in-place write semantics. Outside
-repositories, ordinary files stay usable through `outside.js`, which uses
-no-follow descriptors and checks regular-file/ownership/link count BEFORE
-truncation. Broken/unreadable Git metadata is never an unfenced fallback.
-Native exact-match edits, BOM/CRLF, Unicode and diff results are retained for
-the qualified cases; this is not yet a general crash-semantics equivalence claim.
+## Boundary and lifetime
 
-`atomic.js` writes and syncs private scratch before rename. Scratch is anchored
-to an open directory descriptor so namespace replacement cannot redirect
-cleanup into a newly substituted directory. Ordinary failures/cancellation
-remove only the owned temporary inode; unexpected entries are not reaped.
-Private scratch has a 32-MiB/64-file recovery ceiling and each request has a
-16-MiB limit. SIGKILL recovery remains private, and exhausting the ceiling
-refuses further mutations rather than deleting recovery. Cross-device rename
-fails closed, never falls back to truncating the target.
+`index.js` acquires the v1 per-worktree fence BEFORE target lookup or host SDK
+mutation-queue registration for every typed worktree edit/write. `lease.js`
+uses a small Linux N-API bridge (`native/fence.c`) for nonblocking flock and
+CLOEXEC descriptor duplication. It interoperates with Warden's persistent owned
+0600 single-link lock; it never unlinks, steals or explicitly unlocks an
+inherited OFD. Acquisition has a finite absolute deadline and abortable waits.
 
-## Current qualification
+The COMPLETE native SDK transaction runs in the actual Pi process, holding its
+fence until awaited I/O and the SDK queue settle. Caller cancellation does not
+force-kill an in-place writing helper. A completed ordinary write can therefore
+remain on disk even when the SDK subsequently reports cancellation, exactly as
+in the native tool. No detached future write or early fence release is intended.
+This does not establish bounds for kernel I/O that never returns; that remains
+an explicit qualification limitation, not permission to release a live writer.
 
-Run with the precise qualified Warden binary and host SDK, not an arbitrary
-installed binary lacking the protocol:
+`operations.js` preserves ordinary file inode/mode/in-place semantics. Metadata
+uses `atomic.js`: private synced scratch, directory-FD-anchored cleanup, stale
+content refusal, original mode or native umask on cold creation. Atomic rename
+must not bypass native write permission. Scratch has 32-MiB/64-file recovery
+ceilings; metadata content has a 16-MiB bound. Cross-device rename fails closed.
+Ordinary in-process requests no longer have a helper JSON transport ceiling.
+
+Existing same-repo aliases to regular metadata publish the canonical target,
+retaining the alias. Cross-repo/unowned/dangling links, shared-hardlink targets
+and metadata leaf symlinks refuse. External ordinary files use no-follow
+owned/single-link descriptors checked before truncation (`outside.js`). Broken
+Git ownership metadata is never an unfenced fallback. Status counts discovery
+and external-guard rejections too; rejected calls do not imply unchanged bytes.
+
+`client.js`/`worker.js` remain a bounded METADATA-ONLY qualification transport.
+They refuse ordinary writes before truncation, closing the old unsafe path.
+The main registration no longer uses a per-operation helper process.
+
+## Build and reproduce (from this directory)
+
+Linux, a C compiler and Node headers are required. Default headers resolve next
+to the actual Node executable; override `NODE_INCLUDE_DIR` if needed. N-API v8
+is used. Missing bindings fail loading, never select an unfenced fallback.
 
 ```sh
+PI_CANONICAL_NATIVE_BINDING=/absolute/qualification/fence.node \
+  timeout 35 node build-native.mjs
+
+PI_CANONICAL_NATIVE_BINDING=/absolute/qualification/fence.node \
 PI_CANONICAL_TEST_WARDEN=/path/to/qualified/target/debug/dracon-warden \
 PI_CANONICAL_TEST_SDK=file:///path/to/pi-coding-agent/dist/index.js \
-node --test test/*.test.mjs
+  timeout 90 node --test test/*.test.mjs
 ```
 
-Nineteen controls pass with zero failures/skips. Added real-loader controls cover
-same-repo metadata alias write/edit, alias preservation, cross-repo refusal,
-ordinary file inode/mode fidelity, outside-repo plain files and link refusals,
-refusal on broken repository ownership metadata, plus ordinary in-place abort
-settling to full new bytes with the same inode/mode and fence release. They include actual Pi loader
-registration, native schemas/legacy-edit preparation/dynamic-cwd execution and
-real SDK transactions in disposable Git repositories. An actual cancellation
-schedule pauses the writing family after scratch fsync but before rename:
-an independent repository still publishes, cancellation preserves the original
-canonical inode/content, private scratch clears, the blocked child exits and
-a new native participant reacquires the fence. Refusal without a held descriptor
-is tested separately. A disposable native interposer also returns ENOSPC on
-actual private scratch write/writev and fsync calls: both stages refuse, preserve
-canonical bytes/inode, clear owned scratch and permit native fence reacquisition.
-This does not fill the host disk or establish the cause of historical leaks. The
-namespace cleanup regression first reproduced deletion of a foreign substituted
-entry; the original failure is retained, not relabelled as a successful run.
-Exact source/native identities and raw outcomes are in utilities:
-`dracon-sync/docs/design/canonical-writer-fence-2026-10-27/pi-ordinary-cancel-controls.json`.
-Earlier alias/cancellation/ENOSPC receipts remain retained.
-The receipt hashes the prototype, native fault fixture, qualified Warden binary
-and compiled host SDK before/after execution.
+Default build output is `build/fence.node`; this work built only an explicitly
+selected qualification artifact, not a live-session installation.
 
-## Not yet qualified / intentionally unsupported
+## Evidence and real regressions
 
-- No loaded live-session proof yet; a disposable loader execution is not evidence
-  that already-running operator sessions have picked up the extension.
-- Scope is typed worktree edit/write, including existing same-repo metadata
-  aliases. Cross-repo/unowned/dangling links and hardlinked mutations refuse.
-  Shell/native-Git mutations, external editors and detached writers remain open.
-- Ordinary abort parity is now qualified: a disposable gate pauses the first
-  native ordinary write after open/truncate; client abort lets that write settle
-  inside the TERM->KILL grace, reports cancelled/aborted, leaves full new bytes
-  (not truncated partial, not silent original) with the same inode/mode, and
-  releases the fence. This matches the host SDK settle-before-release contract
-  where an abort after write still leaves the completed write. SIGKILL mid-write,
-  timeout kills after run deadlines, parent-death and other forced-kill schedules
-  remain unqualified and are still a deployment blocker.
-- Worktree requests have the existing prototype's 16-MiB transport bound;
-  general large-input compatibility has not been established.
-- No all-producer canonical-preservation claim. Unknown/uncooperative writers
-  remain unsupported negative controls, not successful cooperative coverage.
-- SIGKILL/timeout/parent-family schedules, remaining I/O/error stages, directory
-  durability, extended ACL/xattr fidelity and linked-worktree/device behavior
-  need qualification before deployment. Covered controls include actual
-  cooperative cancellation, private scratch write/fsync ENOSPC,
-  independent-repo progress, injected pre-publication abort and namespace
-  replacement, not all those conditions.
-- The host SDK's private path resolver is deliberately bound to the tested host
-  revision. Registration feature-checks its function export, but a future SDK
-  layout or semantic change still requires fresh qualification.
+The previous fast-abort control released I/O immediately. Holding the same write
+6.5 seconds past abort exposed the old five-second escalation: the original
+full-content assertion FAILED with an empty ordinary file. The failure remains
+in `ordinary-long-abort-negative.log/json`, not relabelled as a pass.
+
+The in-process design passes both short and long schedules with the same full
+content/inode/mode assertions. Actual Warden exclusion remains held until I/O
+settles, while the SAME Pi process publishes another repository before the
+blocked write is released. Additional controls cover native OFD reentrancy,
+cross-repo refusal, bounded acquisition/cancelled-waiter descriptor cleanup,
+unsafe/replaced locks, actual loader schemas/path/legacy edit behavior,
+BOM/CRLF/Unicode/diff and ambiguous edits. Readonly and cold umask behavior are
+compared with the actual host SDK; the original umask failure is also retained.
+
+Current raw outcomes and unchanged source/SDK/Node/binding/native-peer/header
+identities: utilities
+`dracon-sync/docs/design/canonical-writer-fence-2026-10-27/pi-inprocess-controls-v3.json`.
+Earlier metadata ENOSPC, cancellation and substituted-namespace controls remain;
+they are component evidence, not whole-fleet acceptance.
+
+## Still open — deployment remains held
+
+- Shell/user-bash/native-Git mutations, other editors and detached producers.
+- Already-running operator-session loaded/executed identities (disposable
+  loader executions are not that proof), and full workspace assembly gates.
+- Whole-host parent death, forced process termination, remaining I/O/deadline
+  schedules, ACL/xattr fidelity, directory durability and linked-worktree/device
+  behavior. No general crash equivalence or all-producer guarantee is claimed.
+- Ordinary large-input qualification; metadata's explicit byte limit remains.
+- Unknown/uncooperative writers remain unsupported negative controls, not passes.
+- The host SDK's private resolver is revision-bound; a layout/behavior change
+  requires fresh qualification even when the export still exists.
