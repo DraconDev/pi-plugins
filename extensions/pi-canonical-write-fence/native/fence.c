@@ -5,6 +5,7 @@
 #include <sys/file.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <unistd.h>
 #include <errno.h>
 #include <string.h>
 static int argument(napi_env env, napi_callback_info info) {
@@ -27,7 +28,9 @@ static napi_value duplicate(napi_env env, napi_callback_info info) {
     int fd = argument(env, info); if (fd < 0) return NULL;
     int copy = fcntl(fd, F_DUPFD_CLOEXEC, 3);
     if (copy < 0) { napi_throw_error(env, NULL, strerror(errno)); return NULL; }
-    napi_value value; napi_create_int32(env, copy, &value); return value;
+    napi_value value;
+    if (napi_create_int32(env, copy, &value) != napi_ok) { close(copy); return NULL; }
+    return value;
 }
 NAPI_MODULE_INIT() {
     napi_property_descriptor methods[] = {
