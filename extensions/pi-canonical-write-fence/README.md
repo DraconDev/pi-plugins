@@ -9,9 +9,17 @@ until the remaining coverage and runtime qualification pass.
 `client.js` starts an owned Warden `write-fence` family; request content travels
 on stdin, not argv. `worker.js` requires the actual inherited locked descriptor
 and checks its repository namespace before any target lookup/SDK mutation queue.
-It runs the host SDK's complete edit/write operation, substituting atomic
-publication for writes to direct `.gitignore` / `.gitattributes` targets.
-Native exact-match edits, BOM/CRLF, Unicode and diff results are retained.
+Every typed edit/write in a discovered worktree takes the fence before target
+lookup, not merely requests whose basename looks like metadata. After acquiring
+it, the worker resolves same-repo aliases and atomically publishes metadata
+changes to the canonical regular target while preserving the alias itself.
+Cross-repo/unowned aliases, shared-hardlink targets and metadata leaf symlinks
+refuse. Ordinary regular worktree files retain in-place write semantics. Outside
+repositories, ordinary files stay usable through `outside.js`, which uses
+no-follow descriptors and checks regular-file/ownership/link count BEFORE
+truncation. Broken/unreadable Git metadata is never an unfenced fallback.
+Native exact-match edits, BOM/CRLF, Unicode and diff results are retained for
+the qualified cases; this is not yet a general crash-semantics equivalence claim.
 
 `atomic.js` writes and syncs private scratch before rename. Scratch is anchored
 to an open directory descriptor so namespace replacement cannot redirect
@@ -33,7 +41,10 @@ PI_CANONICAL_TEST_SDK=file:///path/to/pi-coding-agent/dist/index.js \
 node --test test/*.test.mjs
 ```
 
-Thirteen controls pass with zero failures/skips. They include actual Pi loader
+Eighteen controls pass with zero failures/skips. Added real-loader controls cover
+same-repo metadata alias write/edit, alias preservation, cross-repo refusal,
+ordinary file inode/mode fidelity, outside-repo plain files and link refusals,
+and refusal on broken repository ownership metadata. They include actual Pi loader
 registration, native schemas/legacy-edit preparation/dynamic-cwd execution and
 real SDK transactions in disposable Git repositories. An actual cancellation
 schedule pauses the writing family after scratch fsync but before rename:
@@ -47,7 +58,7 @@ This does not fill the host disk or establish the cause of historical leaks. The
 namespace cleanup regression first reproduced deletion of a foreign substituted
 entry; the original failure is retained, not relabelled as a successful run.
 Exact source/native identities and raw outcomes are in utilities:
-`dracon-sync/docs/design/canonical-writer-fence-2026-10-27/pi-io-controls.json`.
+`dracon-sync/docs/design/canonical-writer-fence-2026-10-27/pi-alias-controls.json`.
 The receipt hashes the prototype, native fault fixture, qualified Warden binary
 and compiled host SDK before/after execution.
 
@@ -55,8 +66,16 @@ and compiled host SDK before/after execution.
 
 - No loaded live-session proof yet; a disposable loader execution is not evidence
   that already-running operator sessions have picked up the extension.
-- Scope is direct named regular metadata targets, not arbitrary symlink aliases,
-  shell/native-Git mutations, external editors or detached writers.
+- Scope is typed worktree edit/write, including existing same-repo metadata
+  aliases. Cross-repo/unowned/dangling links and hardlinked mutations refuse.
+  Shell/native-Git mutations, external editors and detached writers remain open.
+- **Deployment prerequisite:** qualify cancellation/forced-kill after an ordinary
+  (non-metadata) in-place write has begun. The current child worker plus forced
+  group kill must not silently weaken the original tool's settle-before-abort
+  semantics or leave truncated ordinary content. Metadata atomic controls do
+  NOT prove that property. Fix any demonstrated failure before enabling.
+- Worktree requests have the existing prototype's 16-MiB transport bound;
+  general large-input compatibility has not been established.
 - No all-producer canonical-preservation claim. Unknown/uncooperative writers
   remain unsupported negative controls, not successful cooperative coverage.
 - SIGKILL/timeout/parent-family schedules, remaining I/O/error stages, directory
