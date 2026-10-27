@@ -1,4 +1,4 @@
-# Canonical writer prototype — NOT enabled in live sessions
+# Canonical writer prototype — live deployment NOT qualified
 
 Source integration and disposable qualification only. Do not enable it or lift
 publication containment until remaining producer/runtime/assembly gates pass.
