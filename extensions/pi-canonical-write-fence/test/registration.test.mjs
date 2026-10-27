@@ -40,11 +40,12 @@ test('real Pi loader registers native contracts and executes fenced metadata wit
   const edited = await edit.execute('loaded-edit', input, undefined, undefined, ctx);
   assert.match(edited.details.patch, /\*\.secret/);
   assert.equal(await fs.readFile(join(cwd, 'sub/.gitattributes'), 'utf8'), '*.secret filter=dracon\n');
-  // Ordinary files retain the original local SDK operation and dynamic cwd.
+  // Ordinary files retain native in-place semantics and dynamic cwd inside
+  // the same pre-open worktree boundary (not a basename-only bypass).
   await write.execute('ordinary-write', { path: 'note.txt', content: 'ordinary\n' }, undefined, undefined, ctx);
   assert.equal(await fs.readFile(join(cwd, 'note.txt'), 'utf8'), 'ordinary\n');
   const notifications = [];
   await extension.commands.get('canonical-write-fence-status').handler('', { ui: { notify: text => notifications.push(text) } });
-  assert.match(notifications[0], /2 succeeded, 0 refused/);
+  assert.match(notifications[0], /3 succeeded, 0 refused/);
   assert.match(notifications[0], /NOT covered/);
 });
