@@ -50,6 +50,18 @@ test('unsafe symlink, hardlink and permissive lock files refuse without truncati
     assert.equal(await fs.readFile(outside, 'utf8'), 'preserve');
   }
 });
+test('inherited native OFD is reentrant, cross-repo reuse refuses, and duplicate close never unlocks outer owner', { timeout: 10000 }, async t => {
+  const a = await fixture(t), b = await fixture(t), warden = process.env.PI_CANONICAL_TEST_WARDEN;
+  assert.ok(warden, 'qualified native peer required');
+  const script = `import assert from 'node:assert/strict';
+    import {execFile} from 'node:child_process'; import {promisify} from 'node:util';
+    import {withFence} from ${JSON.stringify(new URL('../lease.js', import.meta.url).href)};
+    await withFence(${JSON.stringify(a)}, undefined, async ({verify}) => verify());
+    await assert.rejects(withFence(${JSON.stringify(b)}, undefined, () => assert.fail('foreign inherited OFD')));
+    const env = {...process.env}; delete env.DRACON_CANONICAL_WRITER_FD_V1;
+    await assert.rejects(promisify(execFile)(${JSON.stringify(warden)}, ['write-fence','--repo',${JSON.stringify(a)},'--wait-secs','1','--run-secs','1','--','true'], {env, timeout:4000}));`;
+  await exec(warden, ['write-fence', '--repo', a, '--wait-secs', '1', '--run-secs', '6', '--', process.execPath, '--input-type=module', '-e', script], { timeout: 8000, env: gitEnvironment() });
+});
 test('replaced fence namespace refuses through its held verifier', async t => {
   const repo = await fixture(t), lock = join(repo, '.git/dracon-canonical-writer-v1.lock');
   await withFence(repo, undefined, async ({ verify }) => {
