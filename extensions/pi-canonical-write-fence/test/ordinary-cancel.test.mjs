@@ -4,73 +4,69 @@ import * as fs from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
-import { runFencedMutation, gitEnvironment } from '../client.js';
+import { gitEnvironment } from '../client.js';
 const exec = promisify(execFile);
-// Deployment prerequisite: abort AFTER an ordinary in-place write has begun
-// must settle like the native SDK (queue held until the write finishes) and
-// must not leave truncated partial bytes. The disposable gate pauses the
-// first native write to the ordinary target after open/truncate; the client
-// abort (SIGTERM to the owned family) must let that write finish, report
-// aborted, preserve full new bytes with the same inode, and release the fence.
-test('ordinary in-place write abort settles to full content without truncation and releases fence', { timeout: 30000 }, async t => {
-  const warden = process.env.PI_CANONICAL_TEST_WARDEN, sdkUrl = process.env.PI_CANONICAL_TEST_SDK;
-  assert.ok(warden && sdkUrl, 'qualified artifacts required');
-  const root = await fs.mkdtemp(join(tmpdir(), 'canonical-ordinary-cancel-'));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
-  const repo = join(root, 'repo');
-  await exec('git', ['init', '-q', '--template=', repo], { env: gitEnvironment() });
-  const target = join(repo, 'note.txt');
-  const originalText = 'original-ordinary-content\n';
-  await fs.writeFile(target, originalText, { mode: 0o640 });
-  const before = await fs.stat(target, { bigint: true });
-  const candidate = 'candidate-ordinary-content-'.repeat(200) + '\n';
-  const library = join(root, 'gate-ordinary-write.so');
-  await exec('cc', ['-shared', '-fPIC', '-Wall', '-Wextra', '-Werror', '-o', library,
-    fileURLToPath(new URL('./fixtures/gate-ordinary-write.c', import.meta.url)), '-ldl'], { timeout: 15000 });
-  const ready = join(root, 'gate-ready'), release = join(root, 'gate-release');
-  const oldPreload = process.env.LD_PRELOAD;
-  const oldTarget = process.env.PI_CANONICAL_GATE_TARGET, oldReady = process.env.PI_CANONICAL_GATE_READY, oldRelease = process.env.PI_CANONICAL_GATE_RELEASE;
-  t.after(() => {
-    if (oldPreload === undefined) delete process.env.LD_PRELOAD; else process.env.LD_PRELOAD = oldPreload;
-    if (oldTarget === undefined) delete process.env.PI_CANONICAL_GATE_TARGET; else process.env.PI_CANONICAL_GATE_TARGET = oldTarget;
-    if (oldReady === undefined) delete process.env.PI_CANONICAL_GATE_READY; else process.env.PI_CANONICAL_GATE_READY = oldReady;
-    if (oldRelease === undefined) delete process.env.PI_CANONICAL_GATE_RELEASE; else process.env.PI_CANONICAL_GATE_RELEASE = oldRelease;
+for (const holdMs of [0, 6500]) {
+  // Same meaningful full-content/inode/mode contract for quick abort AND a
+  // write still blocked after the former helper's five-second SIGKILL grace.
+  test(`loaded ordinary write settles before abort releases fence (hold ${holdMs}ms)`, { timeout: 30000 }, async t => {
+    const warden = process.env.PI_CANONICAL_TEST_WARDEN;
+    assert.ok(warden && process.env.PI_CANONICAL_TEST_SDK && process.env.PI_CANONICAL_NATIVE_BINDING, 'qualified artifacts required');
+    const root = await fs.mkdtemp(join(tmpdir(), 'canonical-ordinary-cancel-'));
+    let child, closed;
+    t.after(async () => {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        try { process.kill(-child.pid, 'SIGKILL'); } catch (e) { if (e.code !== 'ESRCH') throw e; }
+      }
+      await closed;
+      await fs.rm(root, { recursive: true, force: true });
+    });
+    const repo = join(root, 'repo'), other = join(root, 'other');
+    for (const path of [repo, other]) await exec('git', ['init', '-q', '--template=', path], { env: gitEnvironment() });
+    const target = join(repo, 'note.txt');
+    await fs.writeFile(target, 'original-ordinary-content\n', { mode: 0o640 });
+    const before = await fs.stat(target, { bigint: true });
+    const candidate = 'candidate-ordinary-content-'.repeat(200) + '\n';
+    const library = join(root, 'gate-ordinary-write.so');
+    await exec('cc', ['-shared', '-fPIC', '-Wall', '-Wextra', '-Werror', '-o', library,
+      fileURLToPath(new URL('./fixtures/gate-ordinary-write.c', import.meta.url)), '-ldl'], { timeout: 10000 });
+    const ready = join(root, 'ready'), release = join(root, 'release'), abort = join(root, 'abort'), ack = join(root, 'ack'), progress = join(root, 'progress');
+    const env = { ...gitEnvironment(), LD_PRELOAD: library,
+      PI_CANONICAL_GATE_TARGET: target, PI_CANONICAL_GATE_READY: ready, PI_CANONICAL_GATE_RELEASE: release,
+      PI_CANONICAL_GATE_REPO: repo, PI_CANONICAL_GATE_AGENT: join(root, 'agent'),
+      PI_CANONICAL_GATE_ABORT: abort, PI_CANONICAL_GATE_ACK: ack,
+      PI_CANONICAL_GATE_OTHER: other, PI_CANONICAL_GATE_PROGRESS: progress };
+    child = spawn(process.execPath, [fileURLToPath(new URL('./fixtures/loaded-ordinary-write.mjs', import.meta.url))], { env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '', stderr = '';
+    child.stdout.on('data', b => { stdout += b; }); child.stderr.on('data', b => { stderr += b; });
+    closed = new Promise(resolve => { child.once('close', (code, signal) => resolve({ code, signal })); child.once('error', error => resolve({ error })); });
+    async function waitFor(path) {
+      for (let i = 0; i < 600; i++) {
+        try { await fs.access(path); return; } catch (e) { if (e.code !== 'ENOENT') throw e; }
+        if (child.exitCode !== null || child.signalCode !== null) assert.fail(`runtime ended early: ${stderr}`);
+        await delay(10);
+      }
+      assert.fail(`runtime did not reach boundary: ${path}; ${stderr}`);
+    }
+    await waitFor(ready);
+    assert.equal(await fs.readFile(target, 'utf8'), '', 'exercise actual post-truncation pending I/O');
+    const started = performance.now();
+    await fs.writeFile(abort, 'abort'); await waitFor(ack); await waitFor(progress);
+    assert.equal(await fs.readFile(join(other, '.gitignore'), 'utf8'), 'independent\n', 'same Pi process must still publish another repository');
+    await assert.rejects(exec(warden, ['write-fence', '--repo', repo, '--wait-secs', '1', '--run-secs', '1', '--', 'true'], { timeout: 4000, env: gitEnvironment() }), 'pending SDK I/O must retain the actual native fence');
+    if (holdMs) await delay(Math.max(0, holdMs - (performance.now() - started)));
+    assert.equal(child.exitCode, null, 'caller abort must not kill the SDK-writing process');
+    await fs.writeFile(release, 'go');
+    const outcome = await closed;
+    assert.equal(outcome.code, 0, stderr); assert.equal(JSON.parse(stdout).cancelled, true);
+    assert.equal(await fs.readFile(target, 'utf8'), candidate, 'retain full content assertion; no truncated partial or silent original');
+    const after = await fs.stat(target, { bigint: true });
+    assert.equal(after.ino, before.ino); assert.equal(after.mode, before.mode);
+    await exec(warden, ['write-fence', '--repo', repo, '--wait-secs', '1', '--run-secs', '1', '--', 'true'], { timeout: 4000, env: gitEnvironment() });
+    const scratch = await fs.readdir(join(repo, '.git/dracon-canonical-writes-v1')).catch(e => { if (e.code === 'ENOENT') return []; throw e; });
+    assert.deepEqual(scratch, []);
   });
-  process.env.LD_PRELOAD = library + (oldPreload ? ':' + oldPreload : '');
-  process.env.PI_CANONICAL_GATE_TARGET = await fs.realpath(target);
-  process.env.PI_CANONICAL_GATE_READY = ready;
-  process.env.PI_CANONICAL_GATE_RELEASE = release;
-  const controller = new AbortController(); t.after(() => controller.abort());
-  const run = runFencedMutation({ tool: 'write', params: { path: target, content: candidate }, cwd: repo, target, sdkUrl, warden, signal: controller.signal });
-  const result = run.then(value => ({ value }), error => ({ error }));
-  for (let i = 0; i < 500; i++) {
-    try { await fs.access(ready); break; }
-    catch (e) { if (e.code !== 'ENOENT') throw e; }
-    await delay(20);
-  }
-  await fs.access(ready);
-  // Open already truncated; the first content write is held inside the gate.
-  const during = await fs.readFile(target, 'utf8');
-  assert.equal(during, '', 'ordinary open truncates before the gated write; this is the window under test');
-  controller.abort();
-  // Let the held write settle inside the 5s TERM->KILL grace so the outcome
-  // mirrors the native settle-before-release contract instead of a KILL cut.
-  await fs.writeFile(release, 'go\n');
-  const outcome = await result;
-  assert.ok(outcome.error, 'aborted ordinary write must report cancellation');
-  assert.match(outcome.error.message, /cancelled|aborted|Operation aborted/i);
-  const afterText = await fs.readFile(target, 'utf8');
-  assert.equal(afterText, candidate, 'must settle to full new bytes, never truncated partial nor silent original');
-  const after = await fs.stat(target, { bigint: true });
-  assert.equal(after.ino, before.ino, 'ordinary in-place semantics preserve inode');
-  assert.equal(after.mode, before.mode, 'ordinary in-place semantics preserve mode');
-  // Fence must be free: a fresh native participant can acquire immediately.
-  await exec(warden, ['write-fence', '--repo', repo, '--wait-secs', '1', '--run-secs', '1', '--', 'true'], { timeout: 5000, env: gitEnvironment() });
-  // No metadata scratch is used for ordinary writes.
-  const scratch = join(repo, '.git/dracon-canonical-writes-v1');
-  const entries = await fs.readdir(scratch).catch(e => { if (e.code === 'ENOENT') return null; throw e; });
-  if (entries !== null) assert.deepEqual(entries, []);
-});
+}
