@@ -1,8 +1,10 @@
-# Canonical metadata writer prototype (NOT enabled)
+# Canonical metadata writer prototype (NOT enabled by this work)
 
 This is an incomplete source integration, not a deployed safety boundary.
-There is deliberately no `index.js` registration yet. Do not add the package to
-live settings until the remaining coverage and runtime qualification pass.
+`index.js` registers native edit/write definitions and a scope/counter status
+command; its registration is exercised through the real Pi loader in disposable
+fixtures. No live-session settings were changed. Do not add it to live settings
+until the remaining coverage and runtime qualification pass.
 
 `client.js` starts an owned Warden `write-fence` family; request content travels
 on stdin, not argv. `worker.js` requires the actual inherited locked descriptor
@@ -31,25 +33,32 @@ PI_CANONICAL_TEST_SDK=file:///path/to/pi-coding-agent/dist/index.js \
 node --test test/*.test.mjs
 ```
 
-Ten controls pass with zero failures/skips. They include real SDK execution in
-disposable Git repositories and a refusal without a held descriptor. The
+Twelve controls pass with zero failures/skips. They include actual Pi loader
+registration, native schemas/legacy-edit preparation/dynamic-cwd execution and
+real SDK transactions in disposable Git repositories. An actual cancellation
+schedule pauses the writing family after scratch fsync but before rename:
+an independent repository still publishes, cancellation preserves the original
+canonical inode/content, private scratch clears, the blocked child exits and
+a new native participant reacquires the fence. Refusal without a held descriptor
+is tested separately. The
 namespace cleanup regression first reproduced deletion of a foreign substituted
 entry; the original failure is retained, not relabelled as a successful run.
 Exact source/native identities and raw outcomes are in utilities:
-`dracon-sync/docs/design/canonical-writer-fence-2026-10-27/pi-worker-controls-v2.json`.
+`dracon-sync/docs/design/canonical-writer-fence-2026-10-27/pi-cancellation-controls.json`.
 
 ## Not yet qualified / intentionally unsupported
 
-- No extension registration or loaded live-session proof yet; existing sessions
-  do not pick up these files automatically.
+- No loaded live-session proof yet; a disposable loader execution is not evidence
+  that already-running operator sessions have picked up the extension.
 - Scope is direct named regular metadata targets, not arbitrary symlink aliases,
   shell/native-Git mutations, external editors or detached writers.
 - No all-producer canonical-preservation claim. Unknown/uncooperative writers
   remain unsupported negative controls, not successful cooperative coverage.
 - Actual SIGKILL/timeout/parent-family schedules, ENOSPC/write/sync faults,
   directory durability, extended ACL/xattr fidelity and linked-worktree/device
-  behavior need qualification before deployment. Current tests cover injected
-  pre-publication abort and namespace replacement, not all those conditions.
+  behavior need qualification before deployment. Current tests cover actual
+  cooperative cancellation, independent-repo progress, injected pre-publication
+  abort and namespace replacement, not all those conditions.
 - The host SDK's private path resolver is deliberately bound to the tested host
-  revision; registration must feature-check/version-bind it, not assume every
-  future SDK has that layout.
+  revision. Registration feature-checks its function export, but a future SDK
+  layout or semantic change still requires fresh qualification.
