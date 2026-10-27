@@ -20,6 +20,7 @@ export async function observe(path) {
 }
 export async function atomicWrite(path, content, { gitdir, before, signal, beforePublish }) {
   const bytes = Buffer.from(content, 'utf8');
+  const mode = before?.mode ?? (0o666 & ~process.umask());
   if (bytes.length > MAX_BYTES) throw Error('canonical mutation exceeds byte bound');
   if (signal?.aborted) throw Error('canonical mutation aborted');
   const scratch = join(gitdir, 'dracon-canonical-writes-v1');
@@ -49,7 +50,7 @@ export async function atomicWrite(path, content, { gitdir, before, signal, befor
       file = await fs.open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
       owned = await file.stat();
       await file.writeFile(bytes);
-      await file.chmod(before?.mode ?? 0o644);
+      await file.chmod(mode);
       await file.sync();
       await file.close(); file = undefined;
       await beforePublish?.();
