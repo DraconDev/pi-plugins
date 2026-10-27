@@ -18,6 +18,6 @@ test('namespace replacement does not make cleanup delete a foreign replacement e
     await fs.writeFile(join(scratch, name), 'foreign replacement\n');
   } }), /namespace changed/);
   assert.equal(await fs.readFile(join(scratch, name), 'utf8'), 'foreign replacement\n');
-  assert.equal(await fs.readFile(join(displaced, name), 'utf8'), 'owned candidate\n');
+  await assert.rejects(fs.access(join(displaced, name)), { code: 'ENOENT' });
   assert.equal(await fs.readFile(path, 'utf8'), 'canonical old\n');
 });
