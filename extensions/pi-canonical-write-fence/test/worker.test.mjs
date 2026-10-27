@@ -34,6 +34,15 @@ test('actual SDK write completes atomically and ambiguous edits preserve prior b
   await assert.rejects(runFencedMutation({ ...f, tool: 'edit', params: { path: f.target, edits: [{ oldText: 'same', newText: 'replacement' }] } }));
   assert.equal(await fs.readFile(f.target, 'utf8'), 'same\nsame\n');
 });
+test('killable legacy worker refuses ordinary in-place writes before truncation', async t => {
+  assert.ok(warden && sdkUrl, 'qualified worker artifacts required');
+  const f = await fixture(t); const target = join(f.cwd, 'note.txt');
+  await fs.writeFile(target, 'preserve ordinary bytes\n', { mode: 0o640 });
+  const before = await fs.stat(target);
+  await assert.rejects(runFencedMutation({ ...f, target, tool: 'write', params: { path: target, content: 'must not publish' } }), /in-process SDK fence/);
+  assert.equal(await fs.readFile(target, 'utf8'), 'preserve ordinary bytes\n');
+  const after = await fs.stat(target); assert.equal(after.ino, before.ino); assert.equal(after.mode, before.mode);
+});
 test('worker launched without a held descriptor refuses before target mutation', async t => {
   assert.ok(sdkUrl, 'qualified SDK required');
   const f = await fixture(t); const original = await fs.readFile(f.target);
