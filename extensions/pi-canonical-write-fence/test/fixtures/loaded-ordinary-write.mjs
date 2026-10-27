@@ -18,6 +18,11 @@ const timer = setInterval(async () => {
   try { await fs.access(process.env.PI_CANONICAL_GATE_ABORT); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
   acknowledging = true; controller.abort();
   await fs.writeFile(process.env.PI_CANONICAL_GATE_ACK, 'aborted\n');
+  const other = process.env.PI_CANONICAL_GATE_OTHER;
+  await loaded.extensions[0].tools.get('write').definition.execute('independent', {
+    path: other + '/.gitignore', content: 'independent\n',
+  }, undefined, undefined, { cwd: other });
+  await fs.writeFile(process.env.PI_CANONICAL_GATE_PROGRESS, 'published\n');
 }, 10);
 try {
   await loaded.extensions[0].tools.get('write').definition.execute('ordinary-write', {
