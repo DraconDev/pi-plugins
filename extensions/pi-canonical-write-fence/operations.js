@@ -1,5 +1,6 @@
 // Called after the in-process v1 fence is acquired, before SDK queue lookup.
 import * as fs from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { atomicWrite, observe } from './atomic.js';
 import { metadataNames, findOwningRepo } from './client.js';
@@ -14,7 +15,7 @@ export function fencedOperations({ tool, repo, gitdir, verify, signal }) {
   }
   let baseline;
   return {
-    access: async path => { await verify(); await fs.access(path); },
+    access: async path => { await verify(); await fs.access(path, constants.R_OK | constants.W_OK); },
     mkdir: async path => { await verify(); await fs.mkdir(path, { recursive: true }); },
     readFile: async path => {
       baseline = await resolveTarget(path);
@@ -26,6 +27,8 @@ export function fencedOperations({ tool, repo, gitdir, verify, signal }) {
       const current = await resolveTarget(path);
       if (tool === 'edit' && (current.path !== baseline.path || current.before?.stamp !== baseline.before?.stamp)) throw Error('canonical file or alias changed after read');
       if (current.metadata) {
+        // Atomic rename must not bypass the native SDK's file write access.
+        if (current.before) await fs.access(current.path, constants.W_OK);
         await atomicWrite(current.path, content, { gitdir, before: current.before, signal,
           beforePublish: async () => {
             if ((await resolveTarget(path)).path !== current.path) throw Error('canonical alias changed before publication');
