@@ -1,0 +1,50 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import * as fs from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { gitEnvironment } from '../client.js';
+const exec = promisify(execFile);
+test('real Pi loader registers native contracts and executes fenced metadata with dynamic cwd', async t => {
+  assert.ok(process.env.PI_CANONICAL_TEST_SDK && process.env.PI_CANONICAL_TEST_WARDEN, 'qualified artifacts required');
+  const sdk = await import(process.env.PI_CANONICAL_TEST_SDK);
+  const root = await fs.mkdtemp(join(tmpdir(), 'canonical-registration-test-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const cwd = join(root, 'repo'); const agentDir = join(root, 'agent');
+  await fs.mkdir(cwd); await fs.mkdir(agentDir);
+  await exec('git', ['init', '-q', '--template=', cwd], { env: gitEnvironment() });
+  const prior = process.env.DRACON_CANONICAL_WARDEN_HELPER;
+  process.env.DRACON_CANONICAL_WARDEN_HELPER = process.env.PI_CANONICAL_TEST_WARDEN;
+  t.after(() => { if (prior === undefined) delete process.env.DRACON_CANONICAL_WARDEN_HELPER; else process.env.DRACON_CANONICAL_WARDEN_HELPER = prior; });
+  const loader = new sdk.DefaultResourceLoader({ cwd, agentDir,
+    settingsManager: sdk.SettingsManager.inMemory({ packages: [], extensions: [] }),
+    additionalExtensionPaths: [fileURLToPath(new URL('../index.js', import.meta.url))],
+    noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
+  await loader.reload();
+  const loaded = loader.getExtensions();
+  assert.deepEqual(loaded.errors, []);
+  assert.equal(loaded.extensions.length, 1);
+  const extension = loaded.extensions[0];
+  const write = extension.tools.get('write').definition;
+  const edit = extension.tools.get('edit').definition;
+  assert.deepEqual(write.parameters, sdk.createWriteToolDefinition(cwd).parameters);
+  assert.deepEqual(edit.parameters, sdk.createEditToolDefinition(cwd).parameters);
+  const ctx = { cwd };
+  const written = await write.execute('loaded-write', { path: '@sub/.gitattributes', content: '*.env filter=dracon\n' }, undefined, undefined, ctx);
+  assert.ok(Object.hasOwn(written, 'details'));
+  assert.equal(written.details, undefined);
+  const input = edit.prepareArguments({ path: '@sub/.gitattributes', oldText: '*.env', newText: '*.secret' });
+  const edited = await edit.execute('loaded-edit', input, undefined, undefined, ctx);
+  assert.match(edited.details.patch, /\*\.secret/);
+  assert.equal(await fs.readFile(join(cwd, 'sub/.gitattributes'), 'utf8'), '*.secret filter=dracon\n');
+  // Ordinary files retain the original local SDK operation and dynamic cwd.
+  await write.execute('ordinary-write', { path: 'note.txt', content: 'ordinary\n' }, undefined, undefined, ctx);
+  assert.equal(await fs.readFile(join(cwd, 'note.txt'), 'utf8'), 'ordinary\n');
+  const notifications = [];
+  await extension.commands.get('canonical-write-fence-status').handler('', { ui: { notify: text => notifications.push(text) } });
+  assert.match(notifications[0], /2 succeeded, 0 refused/);
+  assert.match(notifications[0], /NOT covered/);
+});
