@@ -22,8 +22,8 @@ export default async function canonicalWriteFence(pi) {
         const cwd = ctx?.cwd || process.cwd();
         // Only parent-directory discovery precedes acquisition. Target lookup
         // and the actual host SDK queue/transaction stay inside the held fence.
-        const target = resolveToCwd(params.path, cwd);
         try {
+          const target = resolveToCwd(params.path, cwd);
           const repo = await findOwningRepo(target);
           if (!repo && !metadataNames.has(basename(target))) return await outside.execute(id, params, signal, onUpdate, ctx);
           const owner = repo ?? await owningRepo(target);
