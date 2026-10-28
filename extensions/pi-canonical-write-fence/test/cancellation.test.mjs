@@ -23,7 +23,7 @@ test('actual cancellation before rename preserves canonical bytes, reaps owned w
   // Synchronize on the real beforePublish authority lookup AFTER scratch
   // exists, rather than a brittle ordinal count of discovery subprocesses.
   const scratch = join(a, '.git/dracon-canonical-writes-v1');
-  const script = `#!/usr/bin/env python3\nimport os,sys,pathlib,time,json\nready=pathlib.Path(${JSON.stringify(ready)})\nscratch=pathlib.Path(${JSON.stringify(scratch)})\nif 'rev-parse' in sys.argv and scratch.exists() and any(scratch.iterdir()) and not ready.exists():\n temp=ready.with_suffix('.new')\n temp.write_text(json.dumps({'pid':os.getpid(),'writer':os.getppid()}))\n temp.replace(ready)\n while True: time.sleep(1)\nos.execv(${JSON.stringify(realGit)},[${JSON.stringify(realGit)},*sys.argv[1:]])\n`;
+  const script = `#!/usr/bin/env python3\nimport os,sys,pathlib,time,json\nready=pathlib.Path(${JSON.stringify(ready)})\nscratch=pathlib.Path(${JSON.stringify(scratch)})\nif 'rev-parse' in sys.argv and ${JSON.stringify(a)} in sys.argv and scratch.exists() and any(scratch.iterdir()) and not ready.exists():\n temp=ready.with_suffix('.new')\n temp.write_text(json.dumps({'pid':os.getpid(),'writer':os.getppid()}))\n temp.replace(ready)\n while True: time.sleep(1)\nos.execv(${JSON.stringify(realGit)},[${JSON.stringify(realGit)},*sys.argv[1:]])\n`;
   await fs.writeFile(join(shimdir, 'git'), script, { mode: 0o700 });
   const oldPath = process.env.PATH; process.env.PATH = shimdir + ':' + oldPath;
   t.after(() => { process.env.PATH = oldPath; });
