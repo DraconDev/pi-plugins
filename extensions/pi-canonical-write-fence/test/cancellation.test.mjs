@@ -39,7 +39,10 @@ test('actual cancellation before rename preserves canonical bytes, reaps owned w
     catch (e) { if (e.code !== 'ENOENT') throw e; }
     await delay(20);
   }
-  assert.ok(state?.pid && state?.writer, 'actual writer must reach the instrumented pre-publication boundary');
+  if (!state?.pid || !state?.writer) {
+    const early = await Promise.race([result, delay(1000).then(() => null)]);
+    assert.fail(`actual writer did not reach the instrumented pre-publication boundary: ${early?.error?.message ?? 'writer still pending'}`);
+  }
   const pid = state.writer;
   const entries = await fs.readdir(scratch); assert.equal(entries.length, 1);
   const handles = await fs.readdir(`/proc/${pid}/fd`);
