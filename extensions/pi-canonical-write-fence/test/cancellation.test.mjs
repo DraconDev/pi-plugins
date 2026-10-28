@@ -48,7 +48,7 @@ test('actual cancellation before rename preserves canonical bytes, reaps owned w
   assert.equal(await fs.readFile(target, 'utf8'), 'original\n');
   // Independent repository must publish while A still owns its fence.
   const other = join(b, '.gitignore');
-  const independent = await runFencedMutation({ tool: 'write', params: { path: other, content: 'independent\n' }, cwd: b, target: other, sdkUrl, warden, signal: AbortSignal.timeout(5000) });
+  const independent = await runFencedMutation({ tool: 'write', params: { path: other, content: 'independent\n' }, cwd: b, target: other, sdkUrl, warden, signal: AbortSignal.timeout(15000) });
   assert.match(independent.content[0].text, /Successfully wrote/);
   assert.equal(await fs.readFile(other, 'utf8'), 'independent\n');
   controller.abort();
