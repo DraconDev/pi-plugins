@@ -25,6 +25,10 @@ test('real Pi loader registers native contracts and executes fenced metadata wit
     noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
   await loader.reload();
   const loaded = loader.getExtensions();
+  // The standalone resource loader intentionally leaves action methods as
+  // throwing stubs; the real runner binds settings before tool execution.
+  // Bind only the getter needed by this isolated tool-registration fixture.
+  loaded.runtime.getSettings = () => ({ shellPath: undefined });
   assert.deepEqual(loaded.errors, []);
   assert.equal(loaded.extensions.length, 1);
   const extension = loaded.extensions[0];
@@ -62,6 +66,6 @@ test('real Pi loader registers native contracts and executes fenced metadata wit
   assert.match(userBashOutput, /user-bash-fenced/);
   const notifications = [];
   await extension.commands.get('canonical-write-fence-status').handler('', { ui: { notify: text => notifications.push(text) } });
-  assert.match(notifications[0], /3 succeeded, 0 refused/);
+  assert.match(notifications[0], /3 typed edits\/writes succeeded, 0 refused/);
   assert.match(notifications[0], /NOT covered/);
 });
