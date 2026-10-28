@@ -4,7 +4,6 @@ import * as fs from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { gitEnvironment } from '../client.js';
 import { createFencedBashOperations } from '../shell.js';
 
@@ -122,10 +121,10 @@ test('nested Pi shell wrapper propagates the inherited Warden fence descriptor',
   const repo = await fixture(t);
   assert.ok(process.env.PI_CANONICAL_TEST_SDK, 'qualified Pi SDK artifact required');
   assert.ok(process.env.PI_CANONICAL_TEST_WARDEN, 'qualified Warden artifact required');
-  const sdkUrl = new URL(process.env.PI_CANONICAL_TEST_SDK);
-  const shellPath = fileURLToPath(new URL('../shell.js', import.meta.url));
+  assert.equal(process.env.DRACON_CANONICAL_WRITER_FD_V1, undefined, 'qualification driver must not inherit a parent writer fence');
+  const shellUrl = new URL('../shell.js', import.meta.url).href;
   const script = `
-    const { createFencedBashOperations } = await import(${JSON.stringify(new URL(`file://${shellPath}`).href)});
+    const { createFencedBashOperations } = await import(${JSON.stringify(shellUrl)});
     const { waitForChildProcess } = await import(new URL('./utils/child-process.js', process.env.PI_CANONICAL_TEST_SDK));
     const ops = createFencedBashOperations({ warden: process.env.PI_CANONICAL_TEST_WARDEN, shellConfig: { shell: '/bin/bash', args: ['-c'] }, waitForChildProcess });
     let output = '';
