@@ -22,10 +22,13 @@ async function qualifiedOperations() {
   assert.ok(process.env.PI_CANONICAL_TEST_SDK, 'qualified Pi SDK artifact required');
   assert.ok(process.env.PI_CANONICAL_TEST_WARDEN, 'qualified Warden artifact required');
   const sdkUrl = new URL(process.env.PI_CANONICAL_TEST_SDK);
-  const { waitForChildProcess } = await import(new URL('./utils/child-process.js', sdkUrl).href);
+  const [{ waitForChildProcess }, { getShellConfig }] = await Promise.all([
+    import(new URL('./utils/child-process.js', sdkUrl).href),
+    import(new URL('./utils/shell.js', sdkUrl).href),
+  ]);
   return createFencedBashOperations({
     warden: process.env.PI_CANONICAL_TEST_WARDEN,
-    shellConfig: { shell: '/bin/bash', args: ['-c'] },
+    shellConfig: getShellConfig(),
     waitForChildProcess,
   });
 }
@@ -125,8 +128,11 @@ test('nested Pi shell wrapper propagates the inherited Warden fence descriptor',
   const shellUrl = new URL('../shell.js', import.meta.url).href;
   const script = `
     const { createFencedBashOperations } = await import(${JSON.stringify(shellUrl)});
-    const { waitForChildProcess } = await import(new URL('./utils/child-process.js', process.env.PI_CANONICAL_TEST_SDK));
-    const ops = createFencedBashOperations({ warden: process.env.PI_CANONICAL_TEST_WARDEN, shellConfig: { shell: '/bin/bash', args: ['-c'] }, waitForChildProcess });
+    const [{ waitForChildProcess }, { getShellConfig }] = await Promise.all([
+      import(new URL('./utils/child-process.js', process.env.PI_CANONICAL_TEST_SDK)),
+      import(new URL('./utils/shell.js', process.env.PI_CANONICAL_TEST_SDK)),
+    ]);
+    const ops = createFencedBashOperations({ warden: process.env.PI_CANONICAL_TEST_WARDEN, shellConfig: getShellConfig(), waitForChildProcess });
     let output = '';
     const result = await ops.exec('printf nested-inherited-fence', process.cwd(), { env: process.env, onData: chunk => { output += chunk.toString(); } });
     if (result.exitCode !== 0 || !output.includes('nested-inherited-fence')) process.exit(7);

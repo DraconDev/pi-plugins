@@ -45,16 +45,14 @@ function notify(callback, kind) {
 export function createFencedBashOperations({
   warden = process.env.DRACON_CANONICAL_WARDEN_HELPER || 'dracon-warden',
   shellConfig,
+  resolveShellConfig,
   waitForChildProcess,
   onOutcome,
 } = {}) {
   if (process.platform !== 'linux') throw Error('canonical shell fencing is supported only on Linux');
   if (typeof warden !== 'string' || !warden) throw Error('canonical shell fencing requires dracon-warden');
-  if (!shellConfig || typeof shellConfig.shell !== 'string' || !Array.isArray(shellConfig.args)) {
+  if (shellConfig === undefined && typeof resolveShellConfig !== 'function') {
     throw Error('canonical shell fencing requires the host Pi shell configuration');
-  }
-  if (shellConfig.commandTransport === 'stdin') {
-    throw Error('canonical shell fencing does not support stdin-transport shells');
   }
   if (typeof waitForChildProcess !== 'function') throw Error('canonical shell fencing requires the host Pi child-process waiter');
 
@@ -70,6 +68,13 @@ export function createFencedBashOperations({
         const repo = await findOwningRepo(join(cwd, '.pi-canonical-write-fence-anchor'));
         if (!repo) throw Error('Bash is fail-closed outside a Git worktree');
 
+        const currentShell = resolveShellConfig ? resolveShellConfig() : shellConfig;
+        if (!currentShell || typeof currentShell.shell !== 'string' || !Array.isArray(currentShell.args)) {
+          throw Error('canonical shell fencing requires the host Pi shell configuration');
+        }
+        if (currentShell.commandTransport === 'stdin') {
+          throw Error('canonical shell fencing does not support stdin-transport shells');
+        }
         const env = { ...(providedEnv ?? process.env) };
         const inheritedFd = inheritedFenceFd(env);
         const stdio = ['ignore', 'pipe', 'pipe'];
@@ -84,7 +89,7 @@ export function createFencedBashOperations({
           'write-fence', '--repo', repo,
           '--wait-secs', String(WAIT_SECS),
           '--run-secs', String(runSecs), '--',
-          shellConfig.shell, ...shellConfig.args, command,
+          currentShell.shell, ...currentShell.args, command,
         ];
         const child = spawn(warden, args, {
           cwd,

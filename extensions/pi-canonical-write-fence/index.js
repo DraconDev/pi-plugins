@@ -21,10 +21,10 @@ export default async function canonicalWriteFence(pi) {
   }
   const counts = { succeeded: 0, refused: 0 };
   const shellCounts = { completed: 0, commandFailed: 0, refused: 0 };
-  const settings = pi.getSettings();
-  const shellConfig = getShellConfig(settings.shellPath);
+  // Settings actions are unavailable during extension loading. Resolve the
+  // effective shell path only when a command executes, after runtime init.
   const shellOperations = createFencedBashOperations({
-    shellConfig,
+    resolveShellConfig: () => getShellConfig(pi.getSettings().shellPath),
     waitForChildProcess,
     onOutcome: kind => {
       if (kind === 'completed') shellCounts.completed++;
@@ -32,7 +32,7 @@ export default async function canonicalWriteFence(pi) {
       else shellCounts.refused++;
     },
   });
-  const bashTool = createBashTool(process.cwd(), { shellPath: settings.shellPath, operations: shellOperations });
+  const bashTool = createBashTool(process.cwd(), { operations: shellOperations });
   pi.registerTool({
     ...bashTool,
     execute: (id, params, signal, onUpdate, ctx) => bashTool.execute(id, params, signal, onUpdate, ctx),
