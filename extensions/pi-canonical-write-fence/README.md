@@ -1,7 +1,8 @@
 # Canonical writer prototype — live deployment NOT qualified
 
 Source integration and disposable qualification only. Do not enable it or lift
-publication containment until remaining producer/runtime/assembly gates pass.
+publication containment until the unchanged original syscall control passes and
+remaining producer/runtime/assembly gates pass.
 
 ## Boundary and lifetime
 
@@ -37,6 +38,21 @@ and external-guard rejections too; rejected calls do not imply unchanged bytes.
 `client.js`/`worker.js` remain a bounded METADATA-ONLY qualification transport.
 They refuse ordinary writes before truncation, closing the old unsafe path.
 The main registration no longer uses a per-operation helper process.
+
+## Pi shell and native Git integration (source-only)
+
+The `bash` tool and `user_bash` event both use `dracon-warden write-fence`
+before starting Bash. The fence covers the current working directory's owning
+Git worktree and is inherited by that shell process family, including native
+Git commands run in that family. A command outside any Git worktree is refused.
+Explicit commands that mutate another worktree or an absolute path are not
+sandboxed by this prototype; external editors, unrelated extension tools and
+other unmanaged writers also remain unsupported. Do not use those paths for
+canonical writes, and do not deploy while they remain outside the qualified
+boundary. Explicit Bash timeouts are capped at 3595 seconds; Warden's hard run
+bound is 3600 seconds. Cancellation signals the owned process group and escalates
+after five seconds; detached descendants may retain the fence until their
+inherited descriptor closes.
 
 ## Build and reproduce (from this directory)
 
@@ -81,7 +97,13 @@ they are component evidence, not whole-fleet acceptance.
 
 ## Still open — deployment remains held
 
-- Shell/user-bash/native-Git mutations, other editors and detached producers.
+- The original actual-syscall control still fails for an uncooperative raw
+  opener. A new Warden-cooperative variant must prove the same helper blocks
+  that opener before it can open/write; preserve the original failure as a
+  negative control. Do not deploy before the acceptance variant passes.
+- Shell/user-bash/native-Git integration is source-only and not yet qualified
+  against the original syscall schedule. Explicit cross-worktree/absolute-path
+  writes, external editors and detached producers remain outside the fence.
 - Already-running operator-session loaded/executed identities (disposable
   loader executions are not that proof), and full workspace assembly gates.
 - Whole-host parent death, forced process termination, remaining I/O/deadline
