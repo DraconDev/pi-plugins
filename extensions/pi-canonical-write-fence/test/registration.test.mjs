@@ -67,5 +67,5 @@ test('real Pi loader registers native contracts and executes fenced metadata wit
   const notifications = [];
   await extension.commands.get('canonical-write-fence-status').handler('', { ui: { notify: text => notifications.push(text) } });
   assert.match(notifications[0], /3 typed edits\/writes succeeded, 0 refused/);
-  assert.match(notifications[0], /NOT covered/);
+  assert.match(notifications[0], /remain unsupported/);
 });
