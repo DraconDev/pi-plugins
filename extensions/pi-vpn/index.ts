@@ -237,7 +237,13 @@ async function startWireproxy(pi: any, ctx: any): Promise<{ ok: boolean; msg: st
       fs.writeFileSync(PID_FILE, String(pid), { mode: 0o600 });
       startedByExtension = true;
     }
-    if (await isWireproxyRunning(pi)) {
+    // Poll for listening port (nix-shell first run can take 10-30s)
+    let running = false;
+    for (let i = 0; i < 60; i++) {
+      if (await isWireproxyRunning(pi)) { running = true; break; }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    if (running) {
       // Expose to subsequent fetch in this process (undici dispatcher already created at boot,
       // but wrapper pi-vpn sets it before boot; this helps in-process / bash tools)
       process.env.HTTP_PROXY = HTTP_PROXY_URL;
@@ -248,7 +254,7 @@ async function startWireproxy(pi: any, ctx: any): Promise<{ ok: boolean; msg: st
       process.env.no_proxy = "127.0.0.1,localhost";
       return { ok: true, msg: `wireproxy started (pid ${pid || "?"}) HTTP ${HTTP_PORT} SOCKS5 ${SOCKS_PORT}` };
     }
-    return { ok: false, msg: `wireproxy did not open port ${HTTP_PORT}. Check ${WIREPROXY_CONF} / ${PROTON_CONF}` };
+    return { ok: false, msg: `wireproxy did not open port ${HTTP_PORT} after 30s. Check ${path.join(CONFIG_DIR, "wireproxy.log")} / ${PROTON_CONF}` };
   } catch (e: any) {
     return { ok: false, msg: `wireproxy start error: ${e?.message ?? String(e)}` };
   }
