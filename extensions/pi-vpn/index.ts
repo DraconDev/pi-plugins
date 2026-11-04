@@ -230,7 +230,7 @@ async function startWireproxy(pi: any, ctx: any): Promise<{ ok: boolean; msg: st
     await new Promise((res) => setTimeout(res, 600));
     let pid = Number(((r.stdout ?? "").trim().split(/\s+/).pop() ?? ""));
     if (!Number.isFinite(pid) || pid <= 0) {
-      const pgrep = await pi.exec("bash", ["-lc", `pgrep -f "wireproxy -c ${WIREPROXY_CONF}" | head -1 || echo ""`], { timeout: 3000 });
+      const pgrep = await pi.exec("bash", ["-lc", `pgrep -f "[w]ireproxy -c ${WIREPROXY_CONF}" | head -1 || echo ""`], { timeout: 3000 });
       pid = Number((pgrep.stdout ?? "").trim());
     }
     if (Number.isFinite(pid) && pid > 0) {
@@ -270,7 +270,7 @@ async function stopWireproxy(pi: any): Promise<{ ok: boolean; msg: string }> {
   }
   // Fallback pkill
   try {
-    const r = await pi.exec("bash", ["-lc", `pkill -f "wireproxy -c ${WIREPROXY_CONF}" || true; echo done`], { timeout: 3000 });
+    const r = await pi.exec("bash", ["-lc", `pkill -f "[w]ireproxy -c ${WIREPROXY_CONF}" || true; echo done`], { timeout: 3000 });
     void r;
     try { fs.unlinkSync(PID_FILE); } catch {}
     return { ok: true, msg: "wireproxy stop attempted (no pidfile)" };
