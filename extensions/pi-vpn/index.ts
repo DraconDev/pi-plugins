@@ -206,26 +206,33 @@ async function startWireproxy(pi: any, ctx: any): Promise<{ ok: boolean; msg: st
     try { fs.unlinkSync(PID_FILE); } catch {}
   }
 
-  // Start daemonized via bash so we can capture pid reliably
-  // Use -d daemon flag; wireproxy writes pid? We record via pgrep after start.
-  let cmdStr: string;
+  // Start via bash background (wireproxy -d fails in this sandbox with
+  // "open /dev/null: permission denied" — background & works reliably).
+  // Log goes to ~/.config/pi-vpn/wireproxy.log, pid captured via $!.
+  const LOG_FILE = path.join(CONFIG_DIR, "wireproxy.log");
+  let bin: string;
   if (probe.cmd[0] === "nix-shell") {
-    cmdStr = `nix-shell -p wireproxy --run "wireproxy -c ${WIREPROXY_CONF} -d"`;
-  } else if (probe.cmd[0].startsWith("/nix/store")) {
-    cmdStr = `${probe.cmd[0]} -c ${WIREPROXY_CONF} -d`;
+    bin = "wireproxy";
   } else {
-    cmdStr = `wireproxy -c ${WIREPROXY_CONF} -d`;
+    bin = probe.cmd[0]!;
   }
+  const wrap = probe.cmd[0] === "nix-shell"
+    ? `nix-shell -p wireproxy --run "wireproxy -c ${WIREPROXY_CONF}"`
+    : `${bin} -c ${WIREPROXY_CONF}`;
+  const cmdStr = `nohup ${wrap} > ${LOG_FILE} 2>&1 & echo $!`;
 
   try {
     const r = await pi.exec("bash", ["-lc", cmdStr], { timeout: 8000 });
     if (r.code !== 0) {
       return { ok: false, msg: `wireproxy failed: ${(r.stderr ?? r.stdout ?? "").trim().slice(0, 400)}` };
     }
-    // Wait a moment then find pid by port / pgrep
-    await new Promise((res) => setTimeout(res, 800));
-    const pgrep = await pi.exec("bash", ["-lc", `pgrep -f "wireproxy -c ${WIREPROXY_CONF}" | head -1 || echo ""`], { timeout: 3000 });
-    const pid = Number((pgrep.stdout ?? "").trim());
+    // $! gives pid directly; fallback to pgrep
+    await new Promise((res) => setTimeout(res, 600));
+    let pid = Number(((r.stdout ?? "").trim().split(/\s+/).pop() ?? ""));
+    if (!Number.isFinite(pid) || pid <= 0) {
+      const pgrep = await pi.exec("bash", ["-lc", `pgrep -f "wireproxy -c ${WIREPROXY_CONF}" | head -1 || echo ""`], { timeout: 3000 });
+      pid = Number((pgrep.stdout ?? "").trim());
+    }
     if (Number.isFinite(pid) && pid > 0) {
       fs.writeFileSync(PID_FILE, String(pid), { mode: 0o600 });
       startedByExtension = true;
