@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "lib": ["es2022", "dom"],
+    "strict": true,
+    "noImplicitAny": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": false,
+    "forceConsistentCasingInFileNames": true,
+    "types": [],
+    "baseUrl": ".",
+    "paths": {
+      "@earendil-works/pi-coding-agent": [
+        "/home/dracon/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/dist/index.d.ts"
+      ]
+    },
+    "typeRoots": [
+      "/home/dracon/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@types"
+    ]
+  },
+  "include": ["index.ts"]
+}
