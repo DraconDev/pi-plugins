@@ -58,12 +58,13 @@ const UPSTREAM_VERSION = readJsonVersion([
   join(HERE, "..", "pi-chrome", "package.json"),
 ]) ?? "unknown";
 
-// Optional token auth for /command (opt-in; default off for pi-chrome client compat).
-const REQUIRED_TOKEN =
-  process.env.PI_CHROME_ALWAYS_TOKEN ??
-  (existsSync(join(process.env.HOME ?? "", ".local/share/pi-chrome-always/token"))
-    ? readFileSync(join(process.env.HOME ?? "", ".local/share/pi-chrome-always/token"), "utf8").trim() || undefined
-    : undefined);
+// Optional token auth for /command (opt-in; default off for client compat).
+// Enforced ONLY when PI_CHROME_ALWAYS_TOKEN is set on the daemon process.
+// The token FILE (~/.local/share/pi-chrome-always/token) alone never
+// enforces — it is a distribution path for the same value; Pi-side tools
+// send X-Pi-Chrome-Token when the file exists, so setting the env on the
+// daemon completes the opt-in without breaking unauthenticated local callers.
+const REQUIRED_TOKEN = (process.env.PI_CHROME_ALWAYS_TOKEN ?? "").trim() || undefined;
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
