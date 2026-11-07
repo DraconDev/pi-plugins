@@ -1,7 +1,7 @@
 {
 	"name": "pi-chrome-always",
 	"version": "0.1.0",
-	"description": "Always-on Chrome bridge for Pi: systemd daemon on 127.0.0.1:17318 + indefinite auto-auth + forked companion extension with cookies/bookmarks/history/downloads/management permissions and offscreen keepalive.",
+	"description": "Self-contained always-on Chrome bridge for Pi: forked bridge + 19 chrome_* tools + chrome_always_data, systemd daemon on 127.0.0.1:17318, indefinite auto-auth, forked companion extension with broad permissions and offscreen keepalive. No npm:pi-chrome required at runtime (MIT fork of upstream pi-chrome).",
 	"type": "module",
 	"main": "index.ts",
 	"scripts": {
