@@ -172,7 +172,7 @@ export default function (pi: ExtensionAPI): void {
 		g[PI_CHROME_AUTH_KEY] = { until: "indefinite" };
 
 		const daemonLine = await ensureDaemon(pi).catch((e) => `daemon check failed: ${(e as Error).message}`);
-		const extOk = existsSync(ALWAYS_MANIFEST);
+		const extOk = alwaysManifestExists();
 		if (!g[ANNOUNCED_KEY]) {
 			g[ANNOUNCED_KEY] = true;
 			ctx.ui.notify(
@@ -240,7 +240,7 @@ export default function (pi: ExtensionAPI): void {
 					lines.push("  → systemctl --user start pi-chrome-always   (or ./install.sh)");
 					lines.push("  → journalctl --user -u pi-chrome-always --no-pager | tail -20");
 				}
-				lines.push(existsSync(ALWAYS_MANIFEST) ? "✓ Forked extension found (browser-extension/manifest.json)" : `✗ Forked extension missing at ${ALWAYS_MANIFEST}`);
+				lines.push(alwaysManifestExists() ? "✓ Forked extension found (browser-extension/manifest.json)" : `✗ Forked extension missing; checked: ${ALWAYS_MANIFEST_CANDIDATES.join(", ")}`);
 				lines.push("✓ Background default: on (Chrome stays behind; use /chrome background off to watch)");
 				lines.push("Limits: no control while Chrome closed; no chrome:// pages, native dialogs, password-manager, CAPTCHA/passkeys.");
 				ctx.ui.notify(lines.join("\n"), "info");
@@ -287,7 +287,7 @@ export default function (pi: ExtensionAPI): void {
 			"Broad-permissions browser data via the always-on bridge (cookies, bookmarks, history, downloads, extensions). Requires the forked extension (browser-extension/) with expanded permissions + the loopback daemon on 127.0.0.1:17318. Cookies/history expose sensitive browsing data — use sparingly.",
 		promptSnippet: "Query cookies/bookmarks/history/downloads/extensions via the always-on Chrome bridge.",
 		parameters: Type.Object({
-						ActionUnion: Type.Union(DATA_ACTIONS.map((a) => Type.Literal(a)) as [ReturnType<typeof Type.Literal>, ...ReturnType<typeof Type.Literal>[]]),
+						action: Type.Union(DATA_ACTIONS.map((a) => Type.Literal(a)) as [ReturnType<typeof Type.Literal>, ...ReturnType<typeof Type.Literal>[]]),
 			domain: Type.Optional(Type.String({ description: "cookies.list: optional domain filter." })),
 			name: Type.Optional(Type.String({ description: "cookies.list/cookies.get: optional cookie name filter." })),
 			url: Type.Optional(Type.String({ description: "cookies.get: full URL of the cookie." })),
