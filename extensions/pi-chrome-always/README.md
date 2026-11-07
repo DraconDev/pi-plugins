@@ -1,15 +1,15 @@
 # pi-chrome-always
 
-> Always-on Chrome bridge for Pi: persistent loopback daemon (`127.0.0.1:17318`) + indefinite auto-auth + forked companion extension with broad permissions and keepalive.
+> Self-contained always-on Chrome bridge for Pi: forked bridge + 19 `chrome_*` tools + `chrome_always_data`, persistent loopback daemon (`127.0.0.1:17318`), indefinite auto-auth, forked companion extension with broad permissions and keepalive.
 
-Pairs with upstream **[pi-chrome](https://pi.dev/packages/pi-chrome)** (the `chrome_*` tab/input layer, kept as-is). This package is the persistence + permissions layer around it. User choices baked in: **systemd daemon**, **max-useful permissions**, **background focus default**, **scaffold now**.
+**No `npm:pi-chrome` required at runtime.** License-compatible (MIT) fork of upstream pi-chrome's bridge+tools plus daemon + expanded extension. Wire-compatible with upstream protocol (`/status|/command|/next|/result`) so OpenCode and other local tools interoperate. User choices baked in: **systemd daemon**, **max-useful permissions**, **background focus default**, **self-contained**.
 
 ## What it does
 
 | Layer | Upstream pi-chrome | pi-chrome-always |
 |---|---|---|
-| Bridge lifetime | Dies when the Pi session that first bound `17318` exits (later sessions become clients, and self-heal by re-binding). | systemd user service keeps a wire-compatible bridge on `17318` even when Pi exits; Pi sessions run as clients forwarding via `POST /command`. Takes over the port automatically when a Pi session releases it (5s retry). |
-| Auth | `/chrome authorize` (15m default, up to `indefinite`); lock on `/chrome revoke`. | Indefinite auto-auth on every Pi start (same `globalThis` mechanism as `pi-chrome-auto-auth`) + cold-start tool-race fix. `/chrome revoke` still locks until next `/reload` or Pi exit. |
+| Bridge lifetime | Dies when the Pi session that first bound `17318` exits (later sessions become clients, and self-heal by re-binding). | Self-contained: this package's Pi extension owns `17318` when Pi runs, and a systemd daemon keeps it when Pi exits; Pi sessions run as clients forwarding via `POST /command`. Takes over the port automatically when a Pi session releases it (5s retry). |
+| Auth | `/chrome authorize` (15m default, up to `indefinite`); lock on `/chrome revoke`. | Indefinite auto-auth baked in (no prompt, no `pi-chrome-auto-auth` needed) + cold-start tool-race fix. `/chrome revoke` still locks until next `/reload` or Pi exit. |
 | Companion extension | `tabs, tabGroups, scripting, storage, activeTab, alarms, webNavigation, debugger` + `<all_urls>`, `http://127.0.0.1:17318/*`; polls `/next`, alarms keepalive 0.5m, auto-`reload()` on version drift. | Forked, renamed **Pi Chrome Connector — Always (v0.1.0)**: adds `cookies, bookmarks, history, downloads, management, notifications, desktopCapture`; offscreen keepalive document; version-drift is warn-only (no `reload()` loop with upstream `0.15.x`). |
 | Browser data tools | None (no cookie/bookmark/history/downloads API). | `chrome_always_data` tool: `data.cookies.list/get`, `data.bookmarks.tree`, `data.history.search`, `data.downloads.list`, `data.extensions.list` (bridge `data.*` actions). |
 | Focus | Background on by default (`backgroundDefault=true`, module-local). | Kept: background on. Watch mode via `/chrome background off`. |
@@ -18,14 +18,19 @@ Pairs with upstream **[pi-chrome](https://pi.dev/packages/pi-chrome)** (the `chr
 
 ```bash
 # 1. Stage daemon + systemd unit + extension copy
-./extensions/pi-chrome-always/install.sh
-
-# 2. Load this Pi package FIRST (must precede pi-chrome)
-pi install /home/dracon/Dev/pi-plugins/extensions/pi-chrome-always
-pi install npm:pi-chrome   # if not already installed
+./examples/hooks/install.sh  # or: extensions/pi-chrome-always/install.sh
 ```
 
-Then in Pi: `/reload` (you should see `pi-chrome-always: auto-auth (indefinite) …`).
+```bash
+# 2. Load this Pi package (self-contained; no npm:pi-chrome needed)
+pi install /home/dracon/Dev/pi-plugins/extensions/pi-chrome-always
+# Migration: remove the now-redundant upstream to avoid tool-name collision:
+#   pi uninstall npm:pi-chrome   # then /reload
+# (If both stay installed, the first one to load wins via the shared
+#  __piChromeProfileBridgeLoaded__ singleton; remove pi-chrome for clarity.)
+```
+
+Then in Pi: `/reload` — `chrome_*` tools are active with no `/chrome authorize`.
 
 In Chrome (your normal, signed-in profile):
 
