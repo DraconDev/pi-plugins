@@ -72,6 +72,16 @@ const PI_CHROME_GLOBAL_KEY = "__piChromeProfileBridgeLoaded__";
 // reload) so a /reload — which tears down and re-evaluates the module — does not silently drop
 // an active /chrome authorize grant.
 const PI_CHROME_AUTH_KEY = "__piChromeProfileBridgeAuth__";
+// pi-chrome-always: optional bridge token (daemon enforces only when env set).
+function readBridgeToken(): string | undefined {
+	const env = (process.env.PI_CHROME_ALWAYS_TOKEN ?? "").trim();
+	if (env) return env;
+	try {
+		const p = join(process.env.HOME ?? "", ".local/share/pi-chrome-always/token");
+		if (existsSync(p)) { const t = readFileSync(p, "utf8").trim(); if (t) return t; }
+	} catch {}
+	return undefined;
+}
 const DEFAULT_HOST = process.env.PI_CHROME_BRIDGE_HOST ?? "127.0.0.1";
 const DEFAULT_PORT = Number(process.env.PI_CHROME_BRIDGE_PORT ?? "17318");
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -481,9 +491,10 @@ class ChromeProfileBridge {
 			else signal.addEventListener("abort", forwardAbort, { once: true });
 		}
 		try {
+			const token = readBridgeToken();
 			const response = await fetch(`${this.url}/command`, {
 				method: "POST",
-				headers: { "content-type": "application/json" },
+				headers: { "content-type": "application/json", ...(token ? { "x-pi-chrome-token": token } : {}) },
 				body: JSON.stringify({ action, params, timeoutMs }),
 				signal: controller.signal,
 			});
