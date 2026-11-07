@@ -961,6 +961,21 @@ export default function (pi: ExtensionAPI): void {
 		updateChromeStatus(ctx);
 	});
 
+	// pi-chrome-always: cold-start race safety net (mirrors pi-chrome-auto-auth).
+	// session_start's activateChromeTools() is async (await bridge.start()); if it
+	// loses the race the chrome_* tools are registered but not active on turn 1.
+	// agent_start fires after session_start settles, before the model sees tools.
+	pi.on("agent_start", () => {
+		if (!chromeControlAuthorized()) return;
+		const active = pi.getActiveTools();
+		if (active.some((n) => CHROME_TOOL_NAME_SET.has(n))) return;
+		registerChromeTools(pi);
+		const all = pi.getAllTools();
+		const names = all.filter((t) => CHROME_TOOL_NAME_SET.has(t.name)).map((t) => t.name);
+		if (names.length === 0) return;
+		pi.setActiveTools([...new Set([...active, ...names])]);
+	});
+
 	pi.on("session_shutdown", (event) => {
 		clearAuthExpiryTimer();
 		clearCountdownInterval();
@@ -1315,6 +1330,39 @@ Usage rules:
 				default:
 					ctx.ui.notify(`Unknown subcommand '${head}'. Try: /chrome authorize | revoke | status | doctor | onboard | background.`, "warning");
 			}
+		},
+	});
+
+	// pi-chrome-always: broad-permissions data tool (registered with chrome_* tools).
+	// Lives outside registerChromeTools so it is available even if the main set
+	// is in a transient state; it still goes through authorizedBridgeSend and
+	// therefore respects /chrome revoke.
+	const DATA_ACTIONS = ["data.cookies.list","data.cookies.get","data.bookmarks.tree","data.history.search","data.downloads.list","data.extensions.list"] as const;
+	pi.registerTool({
+		name: "chrome_always_data",
+		label: "Chrome Always Data",
+		description:
+			"Broad-permissions browser data via the always-on bridge (cookies, bookmarks, history, downloads, extensions). Requires the forked extension (browser-extension/) with expanded permissions + the loopback daemon on 127.0.0.1:17318. Cookies/history expose sensitive browsing data — use sparingly.",
+		promptSnippet: "Query cookies/bookmarks/history/downloads/extensions via the always-on Chrome bridge.",
+		parameters: Type.Object({
+			action: Type.Union(DATA_ACTIONS.map((a) => Type.Literal(a)) as [ReturnType<typeof Type.Literal>, ...ReturnType<typeof Type.Literal>[]]),
+			domain: Type.Optional(Type.String({ description: "cookies.list: optional domain filter." })),
+			name: Type.Optional(Type.String({ description: "cookies.list/cookies.get: optional cookie name filter." })),
+			url: Type.Optional(Type.String({ description: "cookies.get: full URL of the cookie." })),
+			storeId: Type.Optional(Type.String({ description: "cookies.list/cookies.get: optional cookie store id." })),
+			text: Type.Optional(Type.String({ description: "history.search: query text (empty = recent)." })),
+			maxResults: Type.Optional(Type.Number({ description: "history.search / downloads.list: max results (default 50)." })),
+			limit: Type.Optional(Type.Number({ description: "downloads.list: max results (default 50)." })),
+			startTime: Type.Optional(Type.Number({ description: "history.search: start time (ms since epoch, default 0 = all)." })),
+		}),
+		async execute(_id, params, signal): Promise<ToolTextResult> {
+			if (signal?.aborted) throw new Error("Chrome command aborted");
+			const { action, ...rest } = params as { action: string; [k: string]: unknown };
+			const forwarded: Record<string, unknown> = {};
+			for (const [k, v] of Object.entries(rest)) if (v !== undefined) forwarded[k] = v;
+			const result = await authorizedBridgeSend(action, forwarded, DEFAULT_TIMEOUT_MS, signal);
+			const text = typeof result === "string" ? result : JSON.stringify(result, null, 2);
+			return { content: [{ type: "text", text }], details: { action, result: result as Json } };
 		},
 	});
 
