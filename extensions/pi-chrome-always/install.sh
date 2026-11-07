@@ -40,7 +40,7 @@ else
   echo "• token exists: $TOKEN_FILE (left untouched)"
 fi
 echo "  NOTE: token file alone does not enforce. To require it, set in the"
-echo "  systemd unit: Environment=PI_CHROME_ALWAYS_TOKEN=$(cat "$TOKEN_FILE" | cut -c1-4)…"
+echo "  systemd unit: Environment=PI_CHROME_ALWAYS_TOKEN=<value from token file> (not printed)"
 echo "  (value redacted; edit the unit + daemon restart). Upstream pi-chrome"
 echo "  clients do not send the token, so enforcing breaks them — see README."
 
