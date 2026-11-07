@@ -1,0 +1,18 @@
+[Unit]
+Description=Pi Chrome Always - persistent loopback bridge (127.0.0.1:17318)
+After=network.target
+Documentation=file:///home/dracon/Dev/pi-plugins/extensions/pi-chrome-always/README.md
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/env node /home/dracon/.local/share/pi-chrome-always/daemon.mjs
+Restart=on-failure
+RestartSec=2
+Environment=PI_CHROME_BRIDGE_HOST=127.0.0.1
+Environment=PI_CHROME_BRIDGE_PORT=17318
+WorkingDirectory=/home/dracon/.local/share/pi-chrome-always
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

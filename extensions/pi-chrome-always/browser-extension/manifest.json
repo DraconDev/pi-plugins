@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Pi Chrome Connector — Always",
+  "short_name": "Pi Chrome Always",
+  "version": "0.1.0",
+  "description": "Always-on local connector: lets Pi (and any local tool) control tabs in your existing Chrome profile via a persistent loopback bridge at 127.0.0.1:17318. Fork of pi-chrome's companion with broader permissions and keepalive.",
+  "permissions": [
+    "tabs",
+    "tabGroups",
+    "scripting",
+    "storage",
+    "activeTab",
+    "alarms",
+    "webNavigation",
+    "debugger",
+    "cookies",
+    "bookmarks",
+    "history",
+    "downloads",
+    "management",
+    "notifications",
+    "desktopCapture"
+  ],
+  "host_permissions": [
+    "<all_urls>",
+    "http://127.0.0.1:17318/*"
+  ],
+  "background": {
+    "service_worker": "service_worker.js"
+  },
+  "action": {
+    "default_title": "Pi Chrome Connector — Always"
+  },
+  "minimum_chrome_version": "116"
+}

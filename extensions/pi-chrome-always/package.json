@@ -1,0 +1,35 @@
+{
+	"name": "pi-chrome-always",
+	"version": "0.1.0",
+	"description": "Always-on Chrome bridge for Pi: systemd daemon on 127.0.0.1:17318 + indefinite auto-auth + forked companion extension with cookies/bookmarks/history/downloads/management permissions and offscreen keepalive.",
+	"type": "module",
+	"main": "index.ts",
+	"scripts": {
+		"clean": "echo 'nothing to clean'",
+		"build": "echo 'nothing to build'",
+		"check": "tsc --noEmit",
+		"doctor": "./scripts/doctor.sh"
+	},
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"extension",
+		"pi-chrome",
+		"chrome",
+		"browser",
+		"browser-automation",
+		"always-on",
+		"systemd",
+		"loopback-bridge"
+	],
+	"author": {
+		"name": "DraconDev"
+	},
+	"license": "MIT",
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	}
+}
