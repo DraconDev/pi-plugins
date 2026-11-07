@@ -18,7 +18,7 @@
 
 ```bash
 # 1. Stage daemon + systemd unit + extension copy
-./examples/hooks/install.sh  # or: extensions/pi-chrome-always/install.sh
+extensions/pi-chrome-always/install.sh
 ```
 
 ```bash
@@ -48,15 +48,12 @@ systemctl --user status pi-chrome-always --no-pager
 ./extensions/pi-chrome-always/scripts/doctor.sh
 ```
 
-In Pi: `/chrome-always doctor` and `/chrome doctor`.
+In Pi: `/chrome doctor` (trace daemon + extension + versions).
 
 ## Commands
 
 ```text
-/chrome-always status                 daemon + extension + auth snapshot
-/chrome-always doctor                 full health check (bridge, systemd, extension, limits)
-/chrome-always daemon start|stop|restart
-/chrome-always background             focus policy info (background on by default)
+/chrome status   · doctor · onboard · background [on|off|status|toggle] · authorize [15m|indefinite] · revoke  (upstream commands, kept)
 ```
 
 Tool: `chrome_always_data` (cookies/bookmarks/history/downloads/extensions).
