@@ -101,7 +101,11 @@ async function createAutomationTarget(sessionKey, groupTitle) {
   }
   if (chrome.windows && typeof chrome.windows.create === "function") {
     try {
-      const win = await chrome.windows.create({ url: "about:blank", focused: false });
+      // pi-chrome-always: owned windows must start windowed (draggable/square-restore).
+      // Without explicit state/bounds Chrome/KDE inherits maximized from the last
+      // window, leaving the new owned window maximized and impossible to drag by
+      // the top row. Scoped to owned targets only; user windows untouched.
+      const win = await chrome.windows.create({ url: "about:blank", focused: false, state: "normal", width: 1280, height: 800, left: 100, top: 100 });
       const created = win && Array.isArray(win.tabs) ? win.tabs[0] : undefined;
       if (created && typeof created.id === "number") {
         automationTargets.set(sessionKey, { windowId: typeof win.id === "number" ? win.id : undefined, tabId: created.id });
