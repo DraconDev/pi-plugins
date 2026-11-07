@@ -42,7 +42,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 const PI_CHROME_AUTH_KEY = "__piChromeProfileBridgeAuth__";
 const ANNOUNCED_KEY = "__piChromeAlwaysAnnounced__";
