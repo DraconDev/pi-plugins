@@ -55,12 +55,12 @@ echo
 echo "== next steps (in order) =="
 echo "1. In Pi:  pi install /home/dracon/Dev/pi-plugins/extensions/pi-chrome-always"
 echo "           then: /reload"
-echo "           (this package must load BEFORE npm:pi-chrome)"
+echo "           (self-contained: uninstall npm:pi-chrome to avoid tool-name collision)"
 echo
 echo "2. In Chrome (your normal profile): chrome://extensions"
 echo "   - enable Developer mode"
 echo "   - Load unpacked → $INSTALL_DIR/browser-extension"
-echo "   - (optional: remove/untick the old upstream 'Pi Chrome Connector')"
+echo "   - (remove/untick the old upstream 'Pi Chrome Connector' to avoid polling conflicts)"
 echo
 echo "3. Verify:"
 echo "   curl -s http://127.0.0.1:17318/status"
