@@ -50,8 +50,18 @@ const CHROME_TOOL_PREFIX = "chrome_";
 const BRIDGE_HOST = process.env.PI_CHROME_BRIDGE_HOST ?? "127.0.0.1";
 const BRIDGE_PORT = Number(process.env.PI_CHROME_BRIDGE_PORT ?? "17318");
 const BRIDGE_URL = `http://${BRIDGE_HOST}:${BRIDGE_PORT}`;
-const ALWAYS_EXT_DIR = typeof __dirname === "string" ? __dirname : process.cwd();
+const ALWAYS_EXT_DIR =
+	typeof __dirname === "string" ? __dirname
+		: typeof import.meta !== "undefined" && (import.meta as { url?: string }).url
+			? join(process.cwd(), ".")
+			: process.cwd();
 const ALWAYS_MANIFEST = join(ALWAYS_EXT_DIR, "browser-extension", "manifest.json");
+const ALWAYS_MANIFEST_CANDIDATES: Array<string> = [
+	join(ALWAYS_EXT_DIR, "browser-extension", "manifest.json"),
+	join(process.cwd(), "extensions/pi-chrome-always/browser-extension/manifest.json"),
+	join(process.cwd(), "browser-extension/manifest.json"),
+];
+const alwaysManifestExists = (): boolean => ALWAYS_MANIFEST_CANDIDATES.some((p) => existsSync(p));
 const TOKEN_FILE = join(process.env.HOME ?? "", ".local/share/pi-chrome-always/token");
 
 const isChromeTool = (name: string): boolean => name.startsWith(CHROME_TOOL_PREFIX);
@@ -277,7 +287,7 @@ export default function (pi: ExtensionAPI): void {
 			"Broad-permissions browser data via the always-on bridge (cookies, bookmarks, history, downloads, extensions). Requires the forked extension (browser-extension/) with expanded permissions + the loopback daemon on 127.0.0.1:17318. Cookies/history expose sensitive browsing data — use sparingly.",
 		promptSnippet: "Query cookies/bookmarks/history/downloads/extensions via the always-on Chrome bridge.",
 		parameters: Type.Object({
-			action: Type.Union(DATA_ACTIONS.map((a) => Type.Literal(a))),
+						ActionUnion: Type.Union(DATA_ACTIONS.map((a) => Type.Literal(a)) as [ReturnType<typeof Type.Literal>, ...ReturnType<typeof Type.Literal>[]]),
 			domain: Type.Optional(Type.String({ description: "cookies.list: optional domain filter." })),
 			name: Type.Optional(Type.String({ description: "cookies.list/cookies.get: optional cookie name filter." })),
 			url: Type.Optional(Type.String({ description: "cookies.get: full URL of the cookie." })),
