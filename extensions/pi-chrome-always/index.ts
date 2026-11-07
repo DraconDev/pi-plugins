@@ -7,15 +7,24 @@ import { dirname, join, resolve } from "node:path";
 import { capEvaluateOutput, EVALUATE_CAP_DEFAULT_BYTES } from "./evaluate-cap.mjs";
 
 /**
- * Existing-profile Chrome bridge for pi.
+ * pi-chrome-always — self-contained existing-profile Chrome bridge for Pi.
  *
- * This is intentionally not a remote-debugging-port integration. Chrome blocks default-profile
- * remote debugging in many normal launches, so pi-chrome uses a companion extension from the
- * browser-extension folder bundled next to this Pi extension.
+ * This package is the product: it does NOT require npm:pi-chrome at runtime.
+ * It bundles (a) this Pi extension (bridge server + 19 chrome_* tools +
+ * chrome_always_data), (b) ./daemon.mjs (systemd always-on bridge), and
+ * (c) ./browser-extension/ (forked companion with broader permissions +
+ * offscreen keepalive). Wire-compatible with upstream pi-chrome's loopback
+ * protocol (127.0.0.1:17318, /status|/command|/next|/result) so OpenCode
+ * and other local tools interoperate; code below is forked from upstream
+ * pi-chrome (MIT, © tianrendong/Earendil Inc.) with always-on patches:
+ * indefinite auto-auth (no /chrome authorize prompt), daemon assurance via
+ * systemctl, in-package version/extension resolution, and data.* actions.
  *
- * The companion extension runs inside the user's real Chrome profile and polls this local
- * pi extension for commands. That gives pi access to the user's existing tabs/authenticated
- * profile, subject to the browser extension permissions the user grants.
+ * Not a remote-debugging-port integration: Chrome blocks default-profile
+ * remote debugging in many normal launches, so this uses a companion
+ * extension from ./browser-extension/ in the user's real Chrome profile
+ * polling the local bridge. That gives access to existing tabs/auth state
+ * subject to the extension permissions granted.
  */
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -46,7 +55,10 @@ type BridgeResult = {
 	error?: string;
 };
 
-const PI_CHROME_PKG_PATH = resolve(__dirname, "..", "..", "package.json");
+const PI_CHROME_PKG_PATH = (() => {
+	const candidates = [resolve(__dirname, "package.json"), resolve(__dirname, "..", "..", "package.json")];
+	return candidates.find((p) => existsSync(p)) ?? candidates[0];
+})();
 function readPiChromeVersion(): string {
 	try {
 		const pkg = JSON.parse(readFileSync(PI_CHROME_PKG_PATH, "utf8")) as { version?: string };
@@ -694,6 +706,9 @@ export default function (pi: ExtensionAPI): void {
 	// If the stale flag points at this same extension root, replace it instead of
 	// skipping the freshly reloaded extension.
 	globalState[PI_CHROME_GLOBAL_KEY] = { version: PI_CHROME_VERSION, root: currentRoot, token: instanceToken };
+	// pi-chrome-always: indefinite auto-auth so /chrome authorize is never required.
+	// Pre-set BEFORE the persisted-auth restore below (factory reads it on init).
+	globalState[PI_CHROME_AUTH_KEY] = { until: "indefinite" };
 
 	const bridge = new ChromeProfileBridge(DEFAULT_HOST, DEFAULT_PORT);
 	let backgroundDefault = true;
@@ -922,6 +937,16 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("session_start", async (_event, ctx) => {
 		sessionCtx = ctx;
+		// pi-chrome-always: assure the systemd daemon owns 17318 when possible.
+		// Fire-and-forget: bridge.start() below still binds/becomes-client correctly.
+		void (async () => {
+			try {
+				const r = await fetch(`http://${DEFAULT_HOST}:${DEFAULT_PORT}/status`, { signal: AbortSignal.timeout(1_500) });
+				if (!r.ok) throw new Error("not ok");
+			} catch {
+				await pi.exec("systemctl", ["--user", "start", "pi-chrome-always"], { timeout: 5_000 }).catch(() => undefined);
+			}
+		})();
 		await bridge.start();
 		// Reestablish in-memory state after a /reload restored chromeAuthorizedUntil from globalThis.
 		if (chromeControlAuthorized()) {
