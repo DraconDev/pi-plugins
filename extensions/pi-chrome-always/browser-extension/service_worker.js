@@ -1295,6 +1295,20 @@ async function dispatch(action, params) {
       if (!w) return { windowId: t.windowId, tabId: t?.tabId ?? null, state: "closed", width: null, height: null };
       return { windowId: w.id, tabId: t.tabId ?? null, state: w.state, width: w.width ?? null, height: w.height ?? null, left: w.left ?? null, top: w.top ?? null, incognito: !!w.incognito, focused: !!w.focused };
     }
+    case "automation.windowMove": {
+      // Read-only diagnostics follow-up: move THIS session's owned window by deltas.
+      // Owned-only; never touches user windows. Used to prove owned windows are
+      // title-bar draggable (left/top changes after an OS-drag-equivalent move).
+      await hydrateAutomationTargets();
+      const t = automationTargets.get(sessionKeyOf(params));
+      if (typeof t?.windowId !== "number" || !chrome.windows?.update) throw new Error("no owned window to move");
+      const dx = Number(params.dx || 0), dy = Number(params.dy || 0);
+      const cur = await chrome.windows.get(t.windowId).catch(() => null);
+      if (!cur) throw new Error("owned window closed");
+      await chrome.windows.update(t.windowId, { left: (cur.left ?? 100) + dx, top: (cur.top ?? 100) + dy });
+      const after = await chrome.windows.get(t.windowId).catch(() => null);
+      return { windowId: t.windowId, tabId: t.tabId ?? null, before: { left: cur.left ?? null, top: cur.top ?? null, state: cur.state }, after: after ? { left: after.left ?? null, top: after.top ?? null, state: after.state } : null };
+    }
     case "automation.cleanup":
       // Close only THIS session's pi-chrome-owned window/tab. Never touches user tabs/windows or
       // another Pi session's target.
