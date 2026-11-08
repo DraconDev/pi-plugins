@@ -1285,6 +1285,16 @@ async function dispatch(action, params) {
       const t = automationTargets.get(sessionKeyOf(params));
       return { windowId: t?.windowId ?? null, tabId: t?.tabId ?? null };
     }
+    case "automation.windowState": {
+      // Read-only diagnostics: window state/bounds for THIS session's owned window.
+      // Does not touch user windows; used to verify owned windows start windowed.
+      await hydrateAutomationTargets();
+      const t = automationTargets.get(sessionKeyOf(params));
+      if (typeof t?.windowId !== "number") return { windowId: t?.windowId ?? null, tabId: t?.tabId ?? null, state: "no-owned-window", width: null, height: null };
+      const w = await chrome.windows.get(t.windowId).catch(() => null);
+      if (!w) return { windowId: t.windowId, tabId: t?.tabId ?? null, state: "closed", width: null, height: null };
+      return { windowId: w.id, tabId: t.tabId ?? null, state: w.state, width: w.width ?? null, height: w.height ?? null, left: w.left ?? null, top: w.top ?? null, incognito: !!w.incognito, focused: !!w.focused };
+    }
     case "automation.cleanup":
       // Close only THIS session's pi-chrome-owned window/tab. Never touches user tabs/windows or
       // another Pi session's target.
