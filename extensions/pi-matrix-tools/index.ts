@@ -29,7 +29,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 
 // typebox is provided to extensions by pi itself (bundled/virtual module).
 import * as _typebox from "typebox";
@@ -213,7 +213,7 @@ async function downloadNode(nodeId: string, destPath: string): Promise<number> {
   const res = await fetch(assetUrl(nodeId));
   if (!res.ok) throw new Error(`Download failed with HTTP ${res.status}`);
   const buf = Buffer.from(await res.arrayBuffer());
-  mkdirSync(join(destPath, ".."), { recursive: true });
+  mkdirSync(dirname(destPath), { recursive: true });
   writeFileSync(destPath, buf);
   return buf.length;
 }
