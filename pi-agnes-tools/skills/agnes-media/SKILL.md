@@ -1,16 +1,45 @@
 ---
 name: agnes-media
-description: Generate images and videos with Agnes AI. Use when the user asks for a generated image, video, illustration, texture, mockup, image-to-video, keyframes, or media content from Agnes. Calls the pi-agnes-tools custom tools (agnes_image, agnes_video) — no model switch needed.
+description: Generate videos with Agnes AI (agnes_video), including image-to-video, keyframes, and multi-shot motion. For IMAGE generation use matrix_image instead — the Matrix model is the default and higher-quality image tool in pi (up to 6336x2688). agnes_image remains available only as a fallback when Matrix is unavailable. Calls the pi-agnes-tools custom tools (agnes_video, agnes_image) — no model switch needed.
 ---
 
 # Agnes Media (image & video)
+
+> **For images, use `matrix_image`, not `agnes_image`.**
+> The Matrix model (via `pi-matrix-tools`) is the default image path in pi: higher
+> quality, up to 4096x4096 / 6336x2688, and a much better fit for photorealism,
+> macro detail and typography. `agnes_image` is a **fallback only** — reach for it
+> when a Matrix call fails (usually because MCode is not running), and say so
+> rather than silently switching.
+>
+> Video is still Agnes's job: use `agnes_video`.
 
 Generate media via the `pi-agnes-tools` tools. They hit the Agnes REST APIs
 directly — do NOT switch to an Agnes model.
 
 ## Tools
 
-### `agnes_image` — text-to-image / reference-conditioned image
+### `agnes_video` — text-to-video / image-to-video / keyframes
+
+| Param | Notes |
+|---|---|
+| `prompt` | required — describe motion and scene |
+| `model` | default `agnes-video-2.5-flash`; others: `agnes-video-2.5`, `agnes-video-v2.0` |
+| `endpoint` | `agnes` (international, default) or `agnes-cn` (China) |
+| `images` | 1 image = image-to-video; >1 = keyframes mode (base64 data URIs) |
+| `num_frames` / `frame_rate` | only sent when you pass them; some routes reject these fields |
+
+**Model availability is per-distributor:** `agnes-video-v2.0` is the reliable
+text-to-video model (returns a top-level `url`). `agnes-video-2.5-flash`
+(sometimes the default) may require a `mode` field this tool does not send,
+and `agnes-video-2.5` can be unavailable under some plans. If a video call
+fails with `mode is required` or `No available channel`, retry with
+`model: "agnes-video-v2.0"`.
+
+### `agnes_image` — FALLBACK ONLY, prefer `matrix_image`
+
+Use `matrix_image` for all image generation. Only fall back to this tool when
+Matrix is unavailable (MCode not running), and mention the fallback.
 
 | Param | Notes |
 |---|---|
@@ -28,23 +57,6 @@ concrete pixel grid (e.g. `size: "2K", ratio: "16:9"` -> 2624x1472,
 prompt does **not** change the output dimensions — it actively degrades
 composition (drives letterbox-bars failures). Pass it as a param instead.
 Full matrix: https://www.agnes-ai.com/en/docs/tokenplan
-
-### `agnes_video` — text-to-video / image-to-video / keyframes
-
-| Param | Notes |
-|---|---|
-| `prompt` | required — describe motion and scene |
-| `model` | default `agnes-video-2.5-flash`; others: `agnes-video-2.5`, `agnes-video-v2.0` |
-| `endpoint` | `agnes` (default) or `agnes-cn` |
-| `images` | 1 image = image-to-video; >1 = keyframes mode (base64 data URIs) |
-| `num_frames` / `frame_rate` | only sent when you pass them; some routes reject these fields |
-
-**Model availability is per-distributor:** `agnes-video-v2.0` is the reliable
-text-to-video model (returns a top-level `url`). `agnes-video-2.5-flash`
-(sometimes the default) may require a `mode` field this tool does not send,
-and `agnes-video-2.5` can be unavailable under some plans. If a video call
-fails with `mode is required` or `No available channel`, retry with
-`model: "agnes-video-v2.0"`.
 
 ## Notes
 
