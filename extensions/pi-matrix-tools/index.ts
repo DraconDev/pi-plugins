@@ -70,17 +70,17 @@ function findLease(): { cap: string; sock: string; mtime: number } | null {
 }
 
 /** Region-scoped config dir, e.g. ~/.minimax/integrations/mcode-tools/en */
-function findConfigDir(region: string): string {
+function findConfigDir(region: string): { dir: string; region: string } {
   const base = join(homedir(), ".minimax", "integrations", "mcode-tools");
   const exact = join(base, region);
-  if (existsSync(exact)) return exact;
+  if (existsSync(exact)) return { dir: exact, region };
   if (existsSync(base)) {
     for (const name of readdirSync(base)) {
       const p = join(base, name);
-      if (statSync(p).isDirectory()) return p;
+      if (statSync(p).isDirectory()) return { dir: p, region: name };
     }
   }
-  return exact;
+  return { dir: exact, region };
 }
 
 /** A node binary capable of running the mcode-tools entry script. */
@@ -133,12 +133,13 @@ function resolveHostEnv(): Record<string, string> {
   }
 
   const region = process.env.__MAVIS_MCODE_TOOLS_REGION || "en";
+  const cfg = findConfigDir(region);
   return {
     __MAVIS_MCODE_TOOLS_RUNTIME_EXECUTABLE: findNode(),
-    __MAVIS_MCODE_TOOLS_CONFIG_DIR: findConfigDir(region),
+    __MAVIS_MCODE_TOOLS_CONFIG_DIR: cfg.dir,
     __MAVIS_MCODE_TOOLS_BROKER_CAPABILITY_FILE: lease.cap,
     __MAVIS_MCODE_TOOLS_BROKER_ENDPOINT: lease.sock,
-    __MAVIS_MCODE_TOOLS_REGION: region,
+    __MAVIS_MCODE_TOOLS_REGION: cfg.region,
   };
 }
 
