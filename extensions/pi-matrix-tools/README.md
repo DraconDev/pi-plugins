@@ -8,6 +8,17 @@ MiniMax's **Matrix** image generation as callable tools inside pi.
 | `matrix_enhance` | 2× super-resolution of an existing local image |
 | `matrix_remove_background` | Transparent-PNG cutout of an existing local image |
 
+## Skill
+
+The package also ships a `matrix-image` skill (`skills/matrix-image/SKILL.md`), auto-discovered
+by pi from the package's `skills/` directory. It tells the agent that `matrix_image` is the
+default image path in pi and to prefer it over `agnes_image` and `mmx image generate`.
+
+pi injects every skill's **name and description** into the system prompt — the full `SKILL.md`
+body is only opened if the agent decides to read it — so name and description are what drive
+tool selection. `matrix-image` is named that way deliberately: it says "image" outright, matches
+the `matrix_image` tool prefix, and does not imply a video capability the skill does not have.
+
 ## Why this exists
 
 The public MiniMax API exposes only `image-01` and `image-01-live`, and both hard-cap
