@@ -1,0 +1,32 @@
+{
+	"name": "pi-matrix-tools",
+	"version": "0.1.0",
+	"description": "MiniMax Matrix image generation for pi: generate, 2x enhance and background removal as callable tools, using the high-resolution internal Matrix model (up to 6336x2688) that the public image-01 API cannot reach.",
+	"type": "module",
+	"main": "index.ts",
+	"scripts": {
+		"clean": "echo 'nothing to clean'",
+		"build": "echo 'nothing to build'",
+		"check": "echo 'nothing to check'"
+	},
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"extension",
+		"minimax",
+		"matrix",
+		"image-generation",
+		"upscale",
+		"background-removal"
+	],
+	"author": {
+		"name": "DraconDev"
+	},
+	"license": "MIT",
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	}
+}
