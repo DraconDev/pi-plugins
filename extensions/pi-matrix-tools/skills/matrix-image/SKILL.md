@@ -3,7 +3,7 @@ name: matrix-image
 description: Generate images with MiniMax's Matrix model using the matrix_image, matrix_enhance and matrix_remove_background tools. Use for ANY image generation, illustration, mockup, texture or photo request — this is the default and highest-quality image path in pi (up to 4096x4096 and 6336x2688), preferred over agnes_image and `mmx image generate`.
 ---
 
-# Matrix Media (image generation)
+# Matrix Image (generate, upscale, background removal)
 
 **`matrix_image` is the default image tool in pi.** Use it for every image request
 unless the user explicitly asks for another provider.
