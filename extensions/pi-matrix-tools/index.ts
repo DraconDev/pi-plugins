@@ -15,209 +15,31 @@
  * extension is the way to get that model from pi.
  *
  * Transport:
- * The `mcode-tools` CLI. It is a thin host-managed shim that reaches the
- * Matrix backend through a shared auth broker on a unix socket, and it needs
- * five __MAVIS_MCODE_TOOLS_* variables that MCode injects into its own
- * process. Those variables are NOT in any shell rc file, so a plain `pi`
- * launch cannot use mcode-tools as-is. This extension re-discovers the lease
- * itself (see resolveHostEnv), which makes the tools work from a standalone
- * pi session.
+ * A direct HTTPS call to the MiniMax agent backend
+ * (agent.minimax.io/minimax-cloud/api/v1/connectors/...). The bearer token is
+ * the OAuth credential MCode already persists at
+ * ~/.minimax/auth/<env>/<region>/mcode-public/auth.json; the extension
+ * refreshes it on demand and writes the rotated credential back, so MCode and
+ * this extension share one login.
  *
- * Requirement: MCode must be running, because the auth lease only exists for
- * the lifetime of the MCode process that owns it.
+ * Requirement: MCode does NOT need to be running. It only needs to have been
+ * signed in once, so that the credential file exists.
  */
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 
 // typebox is provided to extensions by pi itself (bundled/virtual module).
 import * as _typebox from "typebox";
 const Type = _typebox.Type;
 
-// ---------------------------------------------------------------------------
-// Host environment / lease discovery
-// ---------------------------------------------------------------------------
-
-const HOST_ENV_KEYS = [
-  "__MAVIS_MCODE_TOOLS_RUNTIME_EXECUTABLE",
-  "__MAVIS_MCODE_TOOLS_CONFIG_DIR",
-  "__MAVIS_MCODE_TOOLS_BROKER_CAPABILITY_FILE",
-  "__MAVIS_MCODE_TOOLS_BROKER_ENDPOINT",
-  "__MAVIS_MCODE_TOOLS_REGION",
-] as const;
-
-/** Newest lease dir under ~/.minimax/run/mt-*, or null when MCode is not running. */
-function findLease(): { cap: string; sock: string; mtime: number } | null {
-  const root = join(homedir(), ".minimax", "run");
-  if (!existsSync(root)) return null;
-  let best: { cap: string; sock: string; mtime: number } | null = null;
-  for (const name of readdirSync(root)) {
-    if (!name.startsWith("mt-")) continue;
-    const dir = join(root, name);
-    const cap = join(dir, "mcode-auth-lease-v1.cap");
-    const sock = join(dir, "mcode-auth-lease-v1.sock");
-    if (!existsSync(cap) || !existsSync(sock)) continue;
-    let mtime = 0;
-    try {
-      mtime = statSync(dir).mtimeMs;
-    } catch {
-      /* ignore */
-    }
-    if (!best || mtime > best.mtime) best = { cap, sock, mtime };
-  }
-  return best;
-}
-
-/** Region-scoped config dir, e.g. ~/.minimax/integrations/mcode-tools/en */
-function findConfigDir(region: string): { dir: string; region: string } {
-  const base = join(homedir(), ".minimax", "integrations", "mcode-tools");
-  const exact = join(base, region);
-  if (existsSync(exact)) return { dir: exact, region };
-  if (existsSync(base)) {
-    for (const name of readdirSync(base)) {
-      const p = join(base, name);
-      if (statSync(p).isDirectory()) return { dir: p, region: name };
-    }
-  }
-  return { dir: exact, region };
-}
-
-/** A node binary capable of running the mcode-tools entry script. */
-function findNode(): string {
-  const fromHost = process.env.__MAVIS_MCODE_TOOLS_RUNTIME_EXECUTABLE;
-  if (fromHost && existsSync(fromHost)) return fromHost;
-  if (/(^|[/\\])node([0-9.]*)?$/.test(process.execPath)) return process.execPath;
-  for (const dir of (process.env.PATH || "").split(":")) {
-    if (!dir) continue;
-    const candidate = join(dir, "node");
-    if (existsSync(candidate)) return candidate;
-  }
-  throw new Error(
-    "Could not find a node binary to run mcode-tools. Set __MAVIS_MCODE_TOOLS_RUNTIME_EXECUTABLE or put node on PATH.",
-  );
-}
-
-/** The mcode-tools launcher. */
-function findMcodeTools(): string {
-  const override = process.env.MCODE_TOOLS_BIN;
-  if (override && existsSync(override)) return override;
-  for (const dir of (process.env.PATH || "").split(":")) {
-    if (!dir) continue;
-    const candidate = join(dir, "mcode-tools");
-    if (existsSync(candidate)) return candidate;
-  }
-  const fallback = join(homedir(), ".npm-global", "bin", "mcode-tools");
-  if (existsSync(fallback)) return fallback;
-  throw new Error("Could not find the mcode-tools CLI on PATH. Install @minimax-ai/code or set MCODE_TOOLS_BIN.");
-}
-
-/**
- * Build the five __MAVIS_MCODE_TOOLS_* variables the shim needs.
- * Prefers the ones already in the environment (i.e. we are running inside
- * MCode), otherwise re-discovers the live auth lease.
- */
-function resolveHostEnv(): Record<string, string> {
-  if (HOST_ENV_KEYS.every((k) => process.env[k])) {
-    const out: Record<string, string> = {};
-    for (const k of HOST_ENV_KEYS) out[k] = process.env[k] as string;
-    return out;
-  }
-
-  const lease = findLease();
-  if (!lease) {
-    throw new Error(
-      "No Matrix auth lease found. mcode-tools authenticates through a shared broker owned by the MCode host, " +
-        "so MCode must be running. Start MCode and retry.",
-    );
-  }
-
-  const region = process.env.__MAVIS_MCODE_TOOLS_REGION || "en";
-  const cfg = findConfigDir(region);
-  return {
-    __MAVIS_MCODE_TOOLS_RUNTIME_EXECUTABLE: findNode(),
-    __MAVIS_MCODE_TOOLS_CONFIG_DIR: cfg.dir,
-    __MAVIS_MCODE_TOOLS_BROKER_CAPABILITY_FILE: lease.cap,
-    __MAVIS_MCODE_TOOLS_BROKER_ENDPOINT: lease.sock,
-    __MAVIS_MCODE_TOOLS_REGION: cfg.region,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// mcode-tools invocation
-// ---------------------------------------------------------------------------
-
-function runMcode(args: string[], timeoutMs = 900_000): string {
-  const env = { ...process.env, ...resolveHostEnv() };
-  let stdout: string;
-  let stderr: string;
-  try {
-    stdout = execFileSync(findMcodeTools(), args, {
-      encoding: "utf8",
-      env,
-      timeout: timeoutMs,
-      maxBuffer: 64 * 1024 * 1024,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    stderr = "";
-  } catch (err: any) {
-    const detail = (err?.stderr || err?.message || String(err)).toString().trim();
-    if (detail.includes("MCode mcode-tools runtime is unavailable")) {
-      throw new Error(
-        "mcode-tools could not reach the MCode host runtime. Make sure MCode is running so the auth lease is live.",
-      );
-    }
-    throw new Error(`mcode-tools ${args[0]} failed: ${detail}`);
-  }
-  void stderr;
-  return stdout;
-}
-
-/** Call a Matrix connector tool and return its parsed JSON result. */
-function callConnector(tool: string, args: Record<string, unknown>): any {
-  const tmp = join(tmpdir(), `mcode-args-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
-  writeFileSync(tmp, JSON.stringify(args));
-  try {
-    const out = runMcode(["connector", "call", tool, "--args-file", tmp]);
-    try {
-      return JSON.parse(out);
-    } catch {
-      throw new Error(`Could not parse mcode-tools output for ${tool}: ${out.slice(0, 300)}`);
-    }
-  } finally {
-    try {
-      unlinkSync(tmp);
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
-/** Fetch a short-lived download URL for a Matrix drive node. */
-function assetUrl(nodeId: string): string {
-  const out = runMcode(["get_asset_url", nodeId], 180_000);
-  const parsed = JSON.parse(out);
-  if (!parsed?.download_url) throw new Error(`No download_url for node ${nodeId}`);
-  return parsed.download_url;
-}
-
-/** Upload a local file and return its temporary public URL. */
-function uploadTempUrl(filePath: string): string {
-  const out = runMcode(["upload_temp_url", filePath], 300_000);
-  const parsed = JSON.parse(out);
-  if (!parsed?.temp_url) throw new Error(`Upload of ${filePath} did not return a temp_url`);
-  return parsed.temp_url;
-}
-
-/** Download a Matrix node to a local path. */
-async function downloadNode(nodeId: string, destPath: string): Promise<number> {
-  const res = await fetch(assetUrl(nodeId));
-  if (!res.ok) throw new Error(`Download failed with HTTP ${res.status}`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  mkdirSync(dirname(destPath), { recursive: true });
-  writeFileSync(destPath, buf);
-  return buf.length;
-}
+import {
+  MatrixApiError,
+  MatrixAuthError,
+  callConnectorTool,
+  downloadNode,
+  resolveStore,
+  uploadTempUrl,
+} from "./matrix-client";
 
 // ---------------------------------------------------------------------------
 // Output helpers
@@ -246,6 +68,29 @@ function withExt(base: string, ext: string): string {
 
 function fileLink(path: string, label?: string): string {
   return `[${label || path}](file://${path})`;
+}
+
+function mimeFor(path: string): string {
+  const ext = extname(path).toLowerCase();
+  if (ext === ".png") return "image/png";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".bmp") return "image/bmp";
+  if (ext === ".tif" || ext === ".tiff") return "image/tiff";
+  return "image/jpeg";
+}
+
+/** Turn client failures into messages that say what to actually do. */
+function describeError(err: unknown): string {
+  if (err instanceof MatrixAuthError) {
+    return (
+      `${err.message} ` +
+      "Sign in with MCode once (it stores the credential at ~/.minimax/auth/<env>/<region>/mcode-public/auth.json), " +
+      "then retry."
+    );
+  }
+  if (err instanceof MatrixApiError) return err.message;
+  const message = (err as any)?.message ?? String(err);
+  return message;
 }
 
 // ---------------------------------------------------------------------------
@@ -346,7 +191,14 @@ async function executeImage(_toolCallId: string, params: any): Promise<any> {
     output_file: count > 1 ? `${prefix}-${i + 1}` : prefix,
   }));
 
-  const result = callConnector("connector__matrix__generate_image", { requests });
+  const store = resolveStore();
+  let result: any;
+  try {
+    result = await callConnectorTool(store, "connector__matrix__generate_image", { requests });
+  } catch (err) {
+    throw new Error(describeError(err));
+  }
+
   const items: any[] = result?.success_items || [];
   if (!items.length) {
     const failed = result?.failed_items?.length ? JSON.stringify(result.failed_items) : "no reason reported";
@@ -358,7 +210,7 @@ async function executeImage(_toolCallId: string, params: any): Promise<any> {
     const ext = extname(item.file_name || "") || ".jpg";
     const stem = basename(item.file_name || "", ext);
     const dest = join(dir, withExt(stem || prefix, ext));
-    const bytes = await downloadNode(item.node_id, dest);
+    const bytes = await downloadNode(store, item.node_id, dest);
     saved.push({ path: dest, bytes, nodeId: item.node_id });
   }
 
@@ -383,13 +235,19 @@ async function executeEnhance(_toolCallId: string, params: any): Promise<any> {
   const dir = resolveOutputDir(params.output_dir);
   const prefix = safeName(params.output_prefix || basename(src, extname(src)) + "-2x");
 
-  const tempUrl = uploadTempUrl(src);
-  const result = callConnector("connector__matrix__enhance_image", { image_url: tempUrl });
+  const store = resolveStore();
+  let result: any;
+  try {
+    const tempUrl = await uploadTempUrl(store, src, mimeFor(src));
+    result = await callConnectorTool(store, "connector__matrix__enhance_image", { image_url: tempUrl });
+  } catch (err) {
+    throw new Error(describeError(err));
+  }
   if (!result?.node_id) throw new Error(`Enhance failed: ${JSON.stringify(result)}`);
 
   const ext = extname(result.file_name || "") || ".jpg";
   const dest = join(dir, withExt(prefix, ext));
-  const bytes = await downloadNode(result.node_id, dest);
+  const bytes = await downloadNode(store, result.node_id, dest);
 
   const text =
     `Enhanced to ${result.width}x${result.height} (2x).\n\n- ${fileLink(dest)} (${Math.round(bytes / 1024)} KB)`;
@@ -406,13 +264,21 @@ async function executeRemoveBackground(_toolCallId: string, params: any): Promis
   const dir = resolveOutputDir(params.output_dir);
   const prefix = safeName(params.output_prefix || basename(src, extname(src)) + "-nobg");
 
-  const tempUrl = uploadTempUrl(src);
-  const result = callConnector("connector__matrix__remove_image_background", { image_url: tempUrl });
+  const store = resolveStore();
+  let result: any;
+  try {
+    const tempUrl = await uploadTempUrl(store, src, mimeFor(src));
+    result = await callConnectorTool(store, "connector__matrix__remove_image_background", {
+      image_url: tempUrl,
+    });
+  } catch (err) {
+    throw new Error(describeError(err));
+  }
   if (!result?.node_id) throw new Error(`Background removal failed: ${JSON.stringify(result)}`);
 
   const ext = extname(result.file_name || "") || ".png";
   const dest = join(dir, withExt(prefix, ext));
-  const bytes = await downloadNode(result.node_id, dest);
+  const bytes = await downloadNode(store, result.node_id, dest);
 
   const text = `Removed background, saved transparent PNG (${result.width}x${result.height}).\n\n- ${fileLink(dest)} (${Math.round(bytes / 1024)} KB)`;
 
@@ -437,7 +303,7 @@ export default function (pi: any) {
       "Supports aspect ratios 1:1, 16:9, 9:16, 4:3, 3:4, 21:9 at 1K / 2K / 4K, and up to 4 images per call. " +
       "Strong on photorealism, macro detail, legible typography, volumetric light and material physics. " +
       "Saves under .pi/generated-images/ and returns the local path. " +
-      "Requires MCode to be running (the Matrix auth lease is owned by the MCode host).",
+      "Uses the MiniMax account already signed in on this machine — MCode does not need to be running.",
     parameters: imageParams,
     executionMode: "sequential",
     execute: executeImage,
@@ -450,7 +316,7 @@ export default function (pi: any) {
       "Upscale an existing local image 2x via the Matrix connector's super-resolution pass. " +
       "Input must be PNG, JPEG or WebP, at most 10 MB, short side at least 256px and long side at most 2048px. " +
       "Saves the result under .pi/generated-images/ and returns the local path. " +
-      "Requires MCode to be running.",
+      "Uses the MiniMax account already signed in on this machine — MCode does not need to be running.",
     parameters: editParams,
     executionMode: "parallel",
     execute: executeEnhance,
@@ -463,7 +329,7 @@ export default function (pi: any) {
       "Remove the background from an existing local image and save a transparent PNG via the Matrix connector. " +
       "Works best with a clear, single main subject. " +
       "Saves the result under .pi/generated-images/ and returns the local path. " +
-      "Requires MCode to be running.",
+      "Uses the MiniMax account already signed in on this machine — MCode does not need to be running.",
     parameters: editParams,
     executionMode: "parallel",
     execute: executeRemoveBackground,
