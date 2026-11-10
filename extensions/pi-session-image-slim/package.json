@@ -1,0 +1,31 @@
+{
+	"name": "pi-session-image-slim",
+	"version": "0.1.0",
+	"description": "Keep Pi session transcripts free of inline base64 image payloads so the session store and the resumed context stay small.",
+	"type": "module",
+	"main": "index.ts",
+	"files": ["index.ts", "strip.ts", "README.md", "package.json", "tsconfig.json"],
+	"scripts": {
+		"clean": "echo 'nothing to clean'",
+		"build": "echo 'Pi loads index.ts directly; no build step'",
+		"check": "bunx tsc --noEmit -p tsconfig.json"
+	},
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"session",
+		"memory",
+		"images"
+	],
+	"author": {
+		"name": "DraconDev"
+	},
+	"license": "MIT",
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	},
+	"pi": {
+		"extensions": ["./index.ts"]
+	}
+}
