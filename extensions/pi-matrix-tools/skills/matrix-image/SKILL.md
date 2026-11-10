@@ -1,6 +1,6 @@
 ---
 name: matrix-image
-description: Generate images with MiniMax's Matrix model using the matrix_image, matrix_enhance and matrix_remove_background tools. Use for ANY image generation, illustration, mockup, texture or photo request — this is the default and highest-quality image path in pi (up to 4096x4096 and 6336x2688), preferred over agnes_image and `mmx image generate`.
+description: Generate images with MiniMax's Matrix model using the matrix_image, matrix_enhance and matrix_remove_background tools. Use for ANY image generation, illustration, mockup, texture or photo request — this is the default and highest-quality image path in pi (up to 4096x4096 and 6336x2688), preferred over agnes_image and `mmx image generate`. Also provides matrix_login for signing in to the MiniMax account these tools need.
 ---
 
 # Matrix Image (generate, upscale, background removal)
@@ -15,6 +15,7 @@ unless the user explicitly asks for another provider.
 | Generate an image | `matrix_image` | High-res Matrix model: 1K/2K/4K, six aspect ratios, up to 6336x2688 |
 | Enlarge an existing image | `matrix_enhance` | 2x super-resolution via the Matrix connector |
 | Cut out a background | `matrix_remove_background` | Transparent PNG via the Matrix connector |
+| Fix a "not signed in" error | `matrix_login` | One-time URL and code for the user to approve |
 
 Do **not** reach for `agnes_image` or `mmx image generate` by default:
 
