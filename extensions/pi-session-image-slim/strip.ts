@@ -20,7 +20,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { readdir, rename, rm, stat, utimes } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { Writable } from "node:stream";
+import { Transform } from "node:stream";
 
 /** One image content item inside a tool result. */
 const IMAGE_ITEM = /{"type":"image","data":"([A-Za-z0-9+/=]{200,})"(?:,"mimeType":"([^"]*)")?}/g;
@@ -165,29 +165,29 @@ export async function stripSessionFile(file: string, options: { minAgeMs?: numbe
 	// Pass 2: write the stripped transcript out line by line.
 	const temp = join(dirname(file), `.${file.split("/").pop()}.slim-tmp`);
 	const state = { removed: 0, bytes: 0 };
-	const writer = createWriteStream(temp, { encoding: "utf8" });
 	let pending = "";
 	try {
+		const transform = new Transform({
+			transform(chunk, _encoding, callback) {
+				pending += chunk.toString();
+				let index = pending.indexOf("\n");
+				let out = "";
+				while (index !== -1) {
+					out += `${stripLine(pending.slice(0, index), paths, state)}\n`;
+					pending = pending.slice(index + 1);
+					index = pending.indexOf("\n");
+				}
+				callback(null, out);
+			},
+			flush(callback) {
+				if (pending.length > 0) this.push(stripLine(pending, paths, state));
+				callback();
+			},
+		});
 		await pipeline(
 			createReadStream(file, { encoding: "utf8" }),
-			new Writable({
-				write(chunk, _encoding, callback) {
-					pending += chunk;
-					let index = pending.indexOf("\n");
-					while (index !== -1) {
-						writer.write(`${stripLine(pending.slice(0, index), paths, state)}\n`);
-						pending = pending.slice(index + 1);
-						index = pending.indexOf("\n");
-					}
-					callback();
-				},
-				final(callback) {
-					if (pending.length > 0) writer.write(stripLine(pending, paths, state));
-					callback();
-				},
-			}),
-			writer,
-			{ end: true },
+			transform,
+			createWriteStream(temp, { encoding: "utf8" }),
 		);
 	} catch (error) {
 		await rm(temp, { force: true }).catch(() => undefined);
