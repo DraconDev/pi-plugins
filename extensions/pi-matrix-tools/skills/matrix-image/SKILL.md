@@ -22,9 +22,9 @@ Do **not** reach for `agnes_image` or `mmx image generate` by default:
 - `agnes_image` is a separate provider at a lower quality tier.
 
 Both remain valid **fallbacks** when `matrix_image` fails — most often because
-MCode is not running (the Matrix auth lease is owned by the MCode host process).
-If a Matrix call fails with *"No Matrix auth lease found"* or *"runtime is
-unavailable"*, say so and offer the fallback rather than silently switching.
+the MiniMax account is not signed in. If a Matrix call fails with *"Run the
+matrix_login tool"*, call `matrix_login`, show the user the URL and code, and
+retry — do not silently switch providers.
 
 ## Tools
 
@@ -77,8 +77,10 @@ busy backgrounds produce messy mattes.
   `file://` link to the saved file.
 - `matrix_image` runs `sequential`; it can still produce up to 4 images in a
   single call via `count` — prefer that over several parallel calls.
-- Requires **MCode to be running** (the Matrix auth lease belongs to the MCode
-  host process). See the extension README for details.
+- Requires a signed-in MiniMax account on this machine. **MCode does not need
+  to be running** — the tools talk to the Matrix API directly over HTTPS. If
+  the account is not signed in, `matrix_login` returns a one-time URL and code
+  for the user to approve.
 - Strong on photorealism, macro detail, legible typography, volumetric light
   and material physics. Typography is the most fragile category — verify the
   text on close inspection before presenting it as final.
