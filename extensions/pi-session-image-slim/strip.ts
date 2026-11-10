@@ -10,10 +10,17 @@
  * This module replaces every image content item with a short text marker that
  * records the size and the file the image came from, so the transcript stays
  * readable and the original can still be re-read from disk.
+ *
+ * Files are processed as a stream, line by line. A session transcript can be
+ * hundreds of megabytes and this runs unattended on a memory-constrained box,
+ * so the whole file is never held in memory at once.
  */
 
-import { readFile, readdir, rename, stat, utimes, writeFile } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { readdir, rename, rm, stat, utimes } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { pipeline } from "node:stream/promises";
+import { Writable } from "node:stream";
 
 /** One image content item inside a tool result. */
 const IMAGE_ITEM = /{"type":"image","data":"([A-Za-z0-9+/=]{200,})"(?:,"mimeType":"([^"]*)")?}/g;
@@ -78,6 +85,26 @@ function toolCallIdOf(line: string): string | undefined {
 	}
 }
 
+/** Replace every inline image payload in a single line. */
+function stripLine(
+	line: string,
+	paths: Map<string, string>,
+	state: { removed: number; bytes: number },
+): string {
+	if (!line.includes('"image"')) return line;
+	const source = paths.get(toolCallIdOf(line) ?? "");
+	return line.replace(IMAGE_ITEM, (_match, base64: string, mimeType?: string) => {
+		state.removed++;
+		state.bytes += base64.length;
+		const mime = mimeType ?? "image";
+		const origin = source ? ` - re-read ${source}` : "";
+		return JSON.stringify({
+			type: "text",
+			text: `[image stripped from transcript: ${formatBytes(base64.length)} base64 ${mime}${origin}]`,
+		});
+	});
+}
+
 /** Replace every inline image payload in a transcript. */
 export function stripTranscript(text: string): StripResult {
 	const lines = text.split("\n");
@@ -86,25 +113,25 @@ export function stripTranscript(text: string): StripResult {
 		if (!line.includes('"toolCall"')) continue;
 		for (const [id, path] of toolCallPaths(line)) paths.set(id, path);
 	}
+	const state = { removed: 0, bytes: 0 };
+	const out = lines.map((line) => stripLine(line, paths, state));
+	return { text: out.join("\n"), removed: state.removed, bytes: state.bytes, changed: state.removed > 0 };
+}
 
-	let removed = 0;
-	let bytes = 0;
-	const out = lines.map((line) => {
-		if (!line.includes('"image"')) return line;
-		const source = paths.get(toolCallIdOf(line) ?? "");
-		return line.replace(IMAGE_ITEM, (_match, base64: string, mimeType?: string) => {
-			removed++;
-			bytes += base64.length;
-			const mime = mimeType ?? "image";
-			const origin = source ? ` - re-read ${source}` : "";
-			return JSON.stringify({
-				type: "text",
-				text: `[image stripped from transcript: ${formatBytes(base64.length)} base64 ${mime}${origin}]`,
-			});
-		});
-	});
-
-	return { text: out.join("\n"), removed, bytes, changed: removed > 0 };
+/** Call `onLine` for every newline-delimited line of a file, streaming. */
+async function forEachLine(file: string, onLine: (line: string) => void): Promise<void> {
+	const stream = createReadStream(file, { encoding: "utf8" });
+	let pending = "";
+	for await (const chunk of stream) {
+		pending += chunk;
+		let index = pending.indexOf("\n");
+		while (index !== -1) {
+			onLine(pending.slice(0, index));
+			pending = pending.slice(index + 1);
+			index = pending.indexOf("\n");
+		}
+	}
+	if (pending.length > 0) onLine(pending);
 }
 
 /**
@@ -127,34 +154,80 @@ export async function stripSessionFile(file: string, options: { minAgeMs?: numbe
 		};
 	}
 
-	const original = await readFile(file, "utf8");
-	const result = stripTranscript(original);
-	if (!result.changed) {
-		return { file, text: original, removed: 0, bytes: 0, changed: false, rewritten: false };
+	// Pass 1: collect the tool call -> path map. Only the ids are kept, so
+	// memory stays flat regardless of transcript size.
+	const paths = new Map<string, string>();
+	await forEachLine(file, (line) => {
+		if (!line.includes('"toolCall"')) return;
+		for (const [id, path] of toolCallPaths(line)) paths.set(id, path);
+	});
+
+	// Pass 2: write the stripped transcript out line by line.
+	const temp = join(dirname(file), `.${file.split("/").pop()}.slim-tmp`);
+	const state = { removed: 0, bytes: 0 };
+	const writer = createWriteStream(temp, { encoding: "utf8" });
+	let pending = "";
+	try {
+		await pipeline(
+			createReadStream(file, { encoding: "utf8" }),
+			new Writable({
+				write(chunk, _encoding, callback) {
+					pending += chunk;
+					let index = pending.indexOf("\n");
+					while (index !== -1) {
+						writer.write(`${stripLine(pending.slice(0, index), paths, state)}\n`);
+						pending = pending.slice(index + 1);
+						index = pending.indexOf("\n");
+					}
+					callback();
+				},
+				final(callback) {
+					if (pending.length > 0) writer.write(stripLine(pending, paths, state));
+					callback();
+				},
+			}),
+			writer,
+			{ end: true },
+		);
+	} catch (error) {
+		await rm(temp, { force: true }).catch(() => undefined);
+		return {
+			file,
+			text: "",
+			removed: state.removed,
+			bytes: state.bytes,
+			changed: state.removed > 0,
+			rewritten: false,
+			skipped: error instanceof Error ? error.message : String(error),
+		};
+	}
+
+	if (state.removed === 0) {
+		await rm(temp, { force: true }).catch(() => undefined);
+		return { file, text: "", removed: 0, bytes: 0, changed: false, rewritten: false };
 	}
 
 	// If the session grew while we were reading it, leave it for the next pass
 	// instead of overwriting entries that were appended in the meantime.
 	const after = await stat(file);
 	if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
+		await rm(temp, { force: true }).catch(() => undefined);
 		return {
 			file,
-			text: result.text,
-			removed: result.removed,
-			bytes: result.bytes,
+			text: "",
+			removed: state.removed,
+			bytes: state.bytes,
 			changed: true,
 			rewritten: false,
 			skipped: "file changed during rewrite",
 		};
 	}
 
-	const temp = join(dirname(file), `.${file.split("/").pop()}.slim-tmp`);
-	await writeFile(temp, result.text, "utf8");
 	const now = new Date();
 	await utimes(temp, now, before.mtime);
 	await rename(temp, file);
 
-	return { file, text: result.text, removed: result.removed, bytes: result.bytes, changed: true, rewritten: true };
+	return { file, text: "", removed: state.removed, bytes: state.bytes, changed: true, rewritten: true };
 }
 
 /** Strip every session transcript below a root directory. */
