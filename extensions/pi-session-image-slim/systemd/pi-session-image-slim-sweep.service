@@ -1,0 +1,6 @@
+[Unit]
+Description=Strip inline base64 image payloads from Pi session transcripts
+
+[Service]
+Type=oneshot
+ExecStart=%h/.bun/bin/bun %h/Dev/pi-plugins/extensions/pi-session-image-slim/strip.ts %h/.pi/agent/sessions

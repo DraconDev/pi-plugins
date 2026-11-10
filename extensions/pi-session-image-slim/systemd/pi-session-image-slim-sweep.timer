@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically strip inline image payloads from Pi session transcripts
+
+[Timer]
+OnBootSec=20min
+OnUnitActiveSec=2h
+Persistent=true
+RandomizedDelaySec=10min
+Unit=pi-session-image-slim-sweep.service
+
+[Install]
+WantedBy=timers.target
