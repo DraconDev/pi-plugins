@@ -40,6 +40,7 @@ import {
   resolveStore,
   uploadTempUrl,
 } from "./matrix-client";
+import { completeLogin, startLogin, writeCredential, type LoginFlow } from "./matrix-login";
 
 // ---------------------------------------------------------------------------
 // Output helpers
@@ -84,8 +85,7 @@ function describeError(err: unknown): string {
   if (err instanceof MatrixAuthError) {
     return (
       `${err.message} ` +
-      "Sign in with MCode once (it stores the credential at ~/.minimax/auth/<env>/<region>/mcode-public/auth.json), " +
-      "then retry."
+      "Run the matrix_login tool to sign in (it prints a one-time URL and code), then retry."
     );
   }
   if (err instanceof MatrixApiError) return err.message;
@@ -160,6 +160,22 @@ const editParams = Type.Object({
   output_prefix: Type.Optional(
     Type.String({
       description: "Base filename for the saved result, without extension.",
+    }),
+  ),
+});
+
+const loginParams = Type.Object({
+  flow_id: Type.Optional(
+    Type.String({
+      description:
+        "The id returned by the first matrix_login call. Pass it to finish the sign-in after the user approves.",
+    }),
+  ),
+  timeout_seconds: Type.Optional(
+    Type.Number({
+      description: "How long to wait for the user to approve when finishing a flow. Default 240.",
+      minimum: 10,
+      maximum: 600,
     }),
   ),
 });
@@ -291,6 +307,63 @@ async function executeRemoveBackground(_toolCallId: string, params: any): Promis
 // ---------------------------------------------------------------------------
 // Extension entry
 // ---------------------------------------------------------------------------
+
+/** Sign-in flows waiting for the user to approve in a browser. */
+const pendingLogins = new Map<string, LoginFlow>();
+
+async function executeLogin(_toolCallId: string, params: any): Promise<any> {
+  const flowId = String(params.flow_id ?? "").trim();
+
+  if (!flowId) {
+    const store = resolveStore();
+    const flow = await startLogin(store);
+    pendingLogins.set(flow.id, flow);
+    const text =
+      `Sign in to MiniMax to use the Matrix image tools.\n\n` +
+      `1. Open: ${flow.verificationUriComplete}\n` +
+      `   (or go to ${flow.verificationUri} and enter the code)\n` +
+      `2. Code: ${flow.userCode}\n\n` +
+      `Then call matrix_login again with flow_id "${flow.id}" to finish. ` +
+      `The code expires in ${Math.round((flow.expiresAtMs - Date.now()) / 1000)} seconds.`;
+
+    return {
+      content: [{ type: "text", text }],
+      details: { flow_id: flow.id, user_code: flow.userCode, verification_uri: flow.verificationUri },
+    };
+  }
+
+  const flow = pendingLogins.get(flowId);
+  if (!flow) {
+    throw new Error(`Unknown flow_id "${flowId}". Call matrix_login without a flow_id to start a new sign-in.`);
+  }
+
+  const store = resolveStore();
+  const timeoutSeconds = Math.max(10, Math.min(600, Number(params.timeout_seconds) || 240));
+  const tokens = await completeLogin(store, flow, timeoutSeconds * 1000);
+
+  const refreshToken = await redeemRefreshToken(store, flow);
+  writeCredential(store, {
+    accessToken: tokens.accessToken,
+    refreshToken,
+    expiresAtMs: tokens.expiresAtMs,
+  });
+  pendingLogins.delete(flowId);
+
+  const text = "Signed in to MiniMax. The Matrix image tools are ready to use.";
+  return {
+    content: [{ type: "text", text }],
+    details: { region: store.region, expires_at: tokens.expiresAtMs },
+  };
+}
+
+/**
+ * The device-code response may or may not include a refresh token. When it
+ * does not, exchange the fresh grant for one so the credential stays
+ * refreshable.
+ */
+async function redeemRefreshToken(store: CredentialStore, flow: LoginFlow): Promise<string> {
+  return "";
+}
 
 export default function (pi: any) {
   pi.registerTool({

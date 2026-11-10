@@ -23,6 +23,7 @@
  * Everything the image tools need (generate, enhance, background removal,
  * asset download, signed upload) is a connector tool on that one endpoint.
  */
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -200,7 +201,7 @@ function pickRecord(doc: AuthFileDoc, store: CredentialStore): { key: string; re
   return { key, record: doc.records[key] };
 }
 
-function writeJsonAtomic(path: string, value: unknown, mode = 0o600): void {
+export function writeJsonAtomic(path: string, value: unknown, mode = 0o600): void {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const tmp = `${path}.tmp-${process.pid}-${Date.now()}`;
   writeFileSync(tmp, JSON.stringify(value, null, 2), { mode });
