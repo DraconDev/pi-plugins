@@ -1,16 +1,17 @@
 ---
 name: agnes-media
-description: Generate videos with Agnes AI (agnes_video), including image-to-video, keyframes, and multi-shot motion. For IMAGE generation use matrix_image instead — the Matrix model is the default and higher-quality image tool in pi (up to 6336x2688). agnes_image remains available only as a fallback when Matrix is unavailable. Calls the pi-agnes-tools custom tools (agnes_video, agnes_image) — no model switch needed.
+description: Generate videos with Agnes AI (agnes_video), including image-to-video, keyframes, and multi-shot motion. For IMAGE generation use `mmx image generate --model MiniMax-H3-Image` — the current MiniMax image model, 1K/2K/4K area tiers, up to 20MP, and 1-16 reference images for editing. agnes_image remains available only as a fallback when that path is unavailable. Calls the pi-agnes-tools custom tools (agnes_video, agnes_image) — no model switch needed.
 ---
 
 # Agnes Media (image & video)
 
-> **For images, use `matrix_image`, not `agnes_image`.**
-> The Matrix model (via `pi-matrix-tools`) is the default image path in pi: higher
-> quality, up to 4096x4096 / 6336x2688, and a much better fit for photorealism,
-> macro detail and typography. `agnes_image` is a **fallback only** — reach for it
-> when a Matrix call fails (usually because MCode is not running), and say so
-> rather than silently switching.
+> **For images, use `mmx image generate --model MiniMax-H3-Image`, not `agnes_image`.**
+> `MiniMax-H3-Image` is the current MiniMax image model: text-to-image and editing
+> from up to 16 reference images, with 1K/2K/4K area tiers (up to 20MP) and a much
+> better fit for photorealism, macro detail and typography. Run it through the
+> `mmx` CLI — see the `mmx-cli` skill. `agnes_image` is a **fallback only** — reach
+> for it when the mmx path fails (no API key, quota exhausted, or the API
+> unreachable), and say so rather than silently switching.
 >
 > Video is still Agnes's job: use `agnes_video`.
 
@@ -36,10 +37,11 @@ and `agnes-video-2.5` can be unavailable under some plans. If a video call
 fails with `mode is required` or `No available channel`, retry with
 `model: "agnes-video-v2.0"`.
 
-### `agnes_image` — FALLBACK ONLY, prefer `matrix_image`
+### `agnes_image` — FALLBACK ONLY, prefer `mmx image generate --model MiniMax-H3-Image`
 
-Use `matrix_image` for all image generation. Only fall back to this tool when
-Matrix is unavailable (MCode not running), and mention the fallback.
+Use `mmx image generate --model MiniMax-H3-Image` for all image generation. Only
+fall back to this tool when that path fails (no API key, quota exhausted, or the
+API unreachable), and mention the fallback.
 
 | Param | Notes |
 |---|---|
