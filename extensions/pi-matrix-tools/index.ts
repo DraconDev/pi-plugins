@@ -40,6 +40,7 @@ import {
   resolveStore,
   resolveStoreForLogin,
   uploadTempUrl,
+  type CredentialStore,
 } from "./matrix-client";
 import { completeLogin, startLogin, writeCredential, type LoginFlow } from "./matrix-login";
 
@@ -92,6 +93,15 @@ function describeError(err: unknown): string {
   if (err instanceof MatrixApiError) return err.message;
   const message = (err as any)?.message ?? String(err);
   return message;
+}
+
+/** Resolve the credential store, turning a missing login into guidance. */
+function resolveStoreOrThrow(): CredentialStore {
+  try {
+    return resolveStore();
+  } catch (err) {
+    throw new Error(describeError(err));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -208,7 +218,7 @@ async function executeImage(_toolCallId: string, params: any): Promise<any> {
     output_file: count > 1 ? `${prefix}-${i + 1}` : prefix,
   }));
 
-  const store = resolveStore();
+  const store = resolveStoreOrThrow();
   let result: any;
   try {
     result = await callConnectorTool(store, "connector__matrix__generate_image", { requests });
@@ -252,7 +262,7 @@ async function executeEnhance(_toolCallId: string, params: any): Promise<any> {
   const dir = resolveOutputDir(params.output_dir);
   const prefix = safeName(params.output_prefix || basename(src, extname(src)) + "-2x");
 
-  const store = resolveStore();
+  const store = resolveStoreOrThrow();
   let result: any;
   try {
     const tempUrl = await uploadTempUrl(store, src, mimeFor(src));
@@ -281,7 +291,7 @@ async function executeRemoveBackground(_toolCallId: string, params: any): Promis
   const dir = resolveOutputDir(params.output_dir);
   const prefix = safeName(params.output_prefix || basename(src, extname(src)) + "-nobg");
 
-  const store = resolveStore();
+  const store = resolveStoreOrThrow();
   let result: any;
   try {
     const tempUrl = await uploadTempUrl(store, src, mimeFor(src));
