@@ -11,7 +11,15 @@
 		"allowImportingTsExtensions": true,
 		"noEmit": true,
 		"isolatedModules": true,
-		"types": []
+		"types": [],
+		"paths": {
+			"typebox": [
+				"/home/dracon/.npm-global/lib/node_modules/@tintinweb/pi-subagents/node_modules/typebox/index.d.ts"
+			]
+		}
 	},
-	"include": ["index.ts"]
+	"include": [
+		"index.ts",
+		"matrix-client.ts"
+	]
 }
