@@ -11,12 +11,7 @@
 		"allowImportingTsExtensions": true,
 		"noEmit": true,
 		"isolatedModules": true,
-		"types": [],
-		"paths": {
-			"typebox": [
-				"/home/dracon/.npm-global/lib/node_modules/@tintinweb/pi-subagents/node_modules/typebox/index.d.ts"
-			]
-		}
+		"types": []
 	},
 	"include": [
 		"index.ts",
