@@ -19,7 +19,11 @@ unless the user explicitly asks for another provider.
 
 Do **not** reach for `agnes_image` or `mmx image generate` by default:
 
-- `mmx image generate` uses the public `image-01` model, hard-capped at **2048px**.
+- `mmx image generate` defaults to the legacy `image-01` model, hard-capped at
+  **2048px**. Since **mmx-cli 1.0.29** it can serve the same current model with
+  `--model MiniMax-H3-Image` (same 1K/2K/4K tiers), so it is an equal-quality
+  fallback — but it needs that extra flag, and it offers no 2x upscale or
+  background removal.
 - `agnes_image` is a separate provider at a lower quality tier.
 
 Both remain valid **fallbacks** when `matrix_image` fails — most often because
