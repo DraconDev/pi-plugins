@@ -58,9 +58,29 @@ pi install /home/dracon/Dev/pi-plugins/extensions/pi-session-image-slim
 
 Then restart Pi or run `/reload`.
 
+The extension only covers sessions that run with it loaded. To keep the store
+clean for sessions started before the install, run the sweep on a timer:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp systemd/pi-session-image-slim-sweep.{service,timer} ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now pi-session-image-slim-sweep.timer
+```
+
+It sweeps every two hours. The unit assumes this checkout stays at
+`~/Dev/pi-plugins` and Bun stays at `~/.bun/bin/bun`.
+
 ## Sweep the whole store by hand
 
 ```bash
 bun /home/dracon/Dev/pi-plugins/extensions/pi-session-image-slim/strip.ts \
     /home/dracon/.pi/agent/sessions
 ```
+
+## Memory behaviour
+
+Transcripts are processed as a stream, line by line, and the file is never held
+in memory in full. The sweep over the whole store peaks around 350 MB and takes
+about ten seconds; an earlier implementation that read whole files peaked at
+1.7 GB, which is why this matters on a memory-constrained machine.
