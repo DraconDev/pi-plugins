@@ -15,6 +15,7 @@
 	},
 	"include": [
 		"index.ts",
-		"matrix-client.ts"
+		"matrix-client.ts",
+		"matrix-login.ts"
 	]
 }

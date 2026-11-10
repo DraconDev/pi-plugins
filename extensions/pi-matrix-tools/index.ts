@@ -38,6 +38,7 @@ import {
   callConnectorTool,
   downloadNode,
   resolveStore,
+  resolveStoreForLogin,
   uploadTempUrl,
 } from "./matrix-client";
 import { completeLogin, startLogin, writeCredential, type LoginFlow } from "./matrix-login";
@@ -315,7 +316,7 @@ async function executeLogin(_toolCallId: string, params: any): Promise<any> {
   const flowId = String(params.flow_id ?? "").trim();
 
   if (!flowId) {
-    const store = resolveStore();
+    const store = resolveStoreForLogin();
     const flow = await startLogin(store);
     pendingLogins.set(flow.id, flow);
     const text =
@@ -337,7 +338,7 @@ async function executeLogin(_toolCallId: string, params: any): Promise<any> {
     throw new Error(`Unknown flow_id "${flowId}". Call matrix_login without a flow_id to start a new sign-in.`);
   }
 
-  const store = resolveStore();
+  const store = resolveStoreForLogin();
   const timeoutSeconds = Math.max(10, Math.min(600, Number(params.timeout_seconds) || 240));
   const tokens = await completeLogin(store, flow, timeoutSeconds * 1000);
 
@@ -356,6 +357,18 @@ async function executeLogin(_toolCallId: string, params: any): Promise<any> {
 }
 
 export default function (pi: any) {
+  pi.registerTool({
+    name: "matrix_login",
+    label: "Matrix Sign In",
+    description:
+      "Sign in to the MiniMax account that the Matrix image tools use. Call it once without arguments: it returns a " +
+      "one-time URL and code. The user approves it in a browser, then call matrix_login again with the returned " +
+      "flow_id to finish. The credential is written to the same store MCode reads, so both share one login.",
+    parameters: loginParams,
+    executionMode: "sequential",
+    execute: executeLogin,
+  });
+
   pi.registerTool({
     name: "matrix_image",
     label: "Matrix Image",

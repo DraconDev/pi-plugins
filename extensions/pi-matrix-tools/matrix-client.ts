@@ -149,8 +149,8 @@ export function resolveStore(): CredentialStore {
   const candidates = candidateStores();
   if (!candidates.length) {
     throw new MatrixAuthError(
-      "No MiniMax credential found. MCode stores its login at ~/.minimax/auth/<env>/<region>/mcode-public/auth.json. " +
-        "Run MCode once and sign in, or point MATRIX_AUTH_DIR at a credential file.",
+      "No MiniMax credential found. Run the matrix_login tool to sign in — it stores the credential at " +
+        "~/.minimax/auth/<env>/<region>/mcode-public/auth.json.",
     );
   }
 
@@ -162,6 +162,26 @@ export function resolveStore(): CredentialStore {
     candidates[0];
 
   return buildStore(chosen.dir, chosen.region, chosen.buildEnv);
+}
+
+/**
+ * The store a new credential should be written to. Unlike resolveStore() this
+ * does not require a credential to already exist, so it works for a first
+ * sign-in.
+ */
+export function resolveStoreForLogin(): CredentialStore {
+  const override = process.env.MATRIX_AUTH_DIR?.trim();
+  if (override) {
+    const region = process.env.MATRIX_REGION?.trim() || "en";
+    const store = buildStore(override, region, "prod");
+    mkdirSync(store.dir, { recursive: true, mode: 0o700 });
+    return store;
+  }
+
+  const region = preferredRegion() ?? "en";
+  const dir = join(minimaxHome(), "auth", "prod", region, CLIENT_ID);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return buildStore(dir, region, "prod");
 }
 
 function buildStore(dir: string, region: string, buildEnv: string): CredentialStore {
