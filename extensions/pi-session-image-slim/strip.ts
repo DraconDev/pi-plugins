@@ -261,6 +261,10 @@ export async function stripStore(root: string, options: { minAgeMs?: number } = 
 					skipped: error instanceof Error ? error.message : String(error),
 				});
 			}
+			// Bun keeps freed read buffers until the next collection cycle. A
+			// sweep touches hundreds of files, so release them eagerly instead
+			// of letting the heap grow with every file.
+			if (typeof Bun !== "undefined" && typeof Bun.gc === "function") Bun.gc(true);
 		}
 	};
 
