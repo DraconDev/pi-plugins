@@ -341,10 +341,9 @@ async function executeLogin(_toolCallId: string, params: any): Promise<any> {
   const timeoutSeconds = Math.max(10, Math.min(600, Number(params.timeout_seconds) || 240));
   const tokens = await completeLogin(store, flow, timeoutSeconds * 1000);
 
-  const refreshToken = await redeemRefreshToken(store, flow);
   writeCredential(store, {
     accessToken: tokens.accessToken,
-    refreshToken,
+    refreshToken: tokens.refreshToken,
     expiresAtMs: tokens.expiresAtMs,
   });
   pendingLogins.delete(flowId);
@@ -354,15 +353,6 @@ async function executeLogin(_toolCallId: string, params: any): Promise<any> {
     content: [{ type: "text", text }],
     details: { region: store.region, expires_at: tokens.expiresAtMs },
   };
-}
-
-/**
- * The device-code response may or may not include a refresh token. When it
- * does not, exchange the fresh grant for one so the credential stays
- * refreshable.
- */
-async function redeemRefreshToken(store: CredentialStore, flow: LoginFlow): Promise<string> {
-  return "";
 }
 
 export default function (pi: any) {

@@ -95,7 +95,7 @@ export async function completeLogin(
   store: CredentialStore,
   flow: LoginFlow,
   timeoutMs = 240_000,
-): Promise<{ accessToken: string; expiresAtMs: number }> {
+): Promise<{ accessToken: string; refreshToken: string; expiresAtMs: number }> {
   const deadline = Date.now() + timeoutMs;
   const intervalMs = Math.max(1, flow.intervalSec) * 1000;
 
@@ -144,8 +144,14 @@ export async function completeLogin(
     if (typeof parsed?.access_token !== "string" || !parsed.access_token) {
       throw new MatrixAuthError("Device sign-in returned no access_token.");
     }
+    if (typeof parsed?.refresh_token !== "string" || !parsed.refresh_token) {
+      throw new MatrixAuthError(
+        "Device sign-in returned no refresh_token, so the credential could not be refreshed later.",
+      );
+    }
     return {
       accessToken: parsed.access_token,
+      refreshToken: parsed.refresh_token,
       expiresAtMs: Date.now() + Number(parsed.expires_in ?? 3600) * 1000,
     };
   }
