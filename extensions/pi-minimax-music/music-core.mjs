@@ -180,7 +180,10 @@ export function buildMusicBody(params = {}) {
   }
 
   const seed = normalizeSeed(params.seed);
-  if (seed !== undefined) body.seed = seed;
+  if (seed !== undefined) {
+    if (!cover) throw new Error("seed is only supported for cover models (music-cover / music-cover-free).");
+    body.seed = seed;
+  }
   if (params.aigc_watermark) body.aigc_watermark = true;
 
   body.audio_setting = normalizeAudioSetting(params.audio_setting);

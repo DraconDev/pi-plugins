@@ -16,7 +16,8 @@ pi-plugins/
 │   ├── pi-auto-review/                  automated project review — scans, writes TODO.md, auto-fixes
 │   ├── pi-context-compaction-cap/       explicit, opt-in Pi model compaction cap
 │   ├── pi-session-retention/             quarantines stale and high-churn loadable Pi sessions
-│   └── pi-retry-on-error/               continuously retries assistant/provider errors with backoff
+│   ├── pi-retry-on-error/               continuously retries assistant/provider errors with backoff
+│   └── pi-minimax-music/                 MiniMax Music 3.0 (generate/lyrics/cover) as pi tools — mmx dropped `music`
 └── skills/
     ├── chrome-extension-dev/            load/reload/manage unpacked Chrome extensions in dev
     └── pi-search-skill/                 unlimited local key-less web search via search-daemon
@@ -58,6 +59,17 @@ bounded fix loops. The `autoReview` config block in `~/.pi/agent/settings.json` 
 - Has its own `.pi/settings.json` with detailed `focusAreas` (TypeScript errors, missing types,
   broken imports, dead code, FIXME/HACK comments, security issues).
 - See [extensions/pi-auto-review/README.md](./extensions/pi-auto-review/README.md) for details.
+
+### `extensions/pi-minimax-music`
+
+MiniMax Music 3.0 for pi as callable tools — `minimax_music_generate`, `minimax_lyrics_generate`,
+`minimax_music_cover_preprocess`. The mmx CLI no longer ships a `music` command (removed in
+mmx-cli 1.0.x) even though paid MiniMax plans keep access to the music API; this extension calls
+the same public endpoints directly. Reuses mmx's `~/.mmx/config.json` api_key (or `MINIMAX_API_KEY`),
+writes audio to `.pi/generated-music/`.
+
+- Registered in `packages` as `../../Dev/pi-plugins/extensions/pi-minimax-music`.
+- See [extensions/pi-minimax-music/README.md](./extensions/pi-minimax-music/README.md) for install and usage.
 
 ### `extensions/pi-retry-on-error`
 

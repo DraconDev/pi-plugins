@@ -120,9 +120,23 @@ test("unknown models rejected; all documented models accepted", () => {
   }
 });
 
-test("seed bounds and audio_setting validation", () => {
-  assert.throws(() => buildMusicBody({ model: "music-3.0", prompt: "p", lyrics: "l", seed: 1000001 }), /seed must be/);
-  assert.throws(() => buildMusicBody({ model: "music-3.0", prompt: "p", lyrics: "l", seed: 1.5 }), /seed must be/);
+test("seed bounds, cover-only, and audio_setting validation", () => {
+  assert.throws(
+    () => buildMusicBody({ model: "music-cover", prompt: "Jazz, smooth, late night lounge, saxophone", audio_url: "u", seed: 1000001 }),
+    /seed must be/,
+  );
+  assert.throws(
+    () => buildMusicBody({ model: "music-cover", prompt: "Jazz, smooth, late night lounge, saxophone", audio_url: "u", seed: 1.5 }),
+    /seed must be/,
+  );
+  assert.throws(
+    () => buildMusicBody({ model: "music-3.0", prompt: "p", lyrics: "l", seed: 42 }),
+    /seed is only supported for cover/,
+  );
+  assert.equal(
+    buildMusicBody({ model: "music-cover", prompt: "Jazz, smooth, late night lounge, saxophone", audio_url: "u", seed: 42 }).seed,
+    42,
+  );
   assert.throws(
     () => buildMusicBody({ model: "music-3.0", prompt: "p", lyrics: "l", audio_setting: { format: "ogg" } }),
     /audio_setting.format/,
