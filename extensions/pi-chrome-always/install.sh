@@ -60,12 +60,19 @@ echo
 echo "2. In Chrome (your normal profile): chrome://extensions"
 echo "   - enable Developer mode"
 echo "   - Load unpacked → $INSTALL_DIR/browser-extension"
-echo "   - (remove/untick the old upstream 'Pi Chrome Connector' to avoid polling conflicts)"
+echo "   - DISABLE the upstream 'Pi Chrome Connector' extension."
+echo "     Both extensions answer the same /next queue, so whichever polls"
+echo "     first wins each command; the fork's data.* actions are unreachable"
+echo "     while upstream's worker is the one serving."
+if [ -n "$FORK_EXT_ID" ]; then
+	echo "   - The fork's card is the one with id $FORK_EXT_ID."
+fi
 echo
 echo "3. Verify:"
 echo "   curl -s http://127.0.0.1:17318/status"
 echo "   systemctl --user status pi-chrome-always --no-pager"
 echo "   In Pi: /chrome-always doctor   (and /chrome doctor)"
+echo "   ./scripts/audit.sh   (identity + parity + token enforcement)"
 echo
 echo "4. (Optional) Chrome autostart: enable Chrome 'Continue where you left off'"
 echo "   or add com.google.Chrome to your session autostart — this package"
