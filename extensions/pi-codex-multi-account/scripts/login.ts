@@ -42,7 +42,16 @@ async function main() {
 				if (info.type === "auth_url") console.log(`\nOpen this URL to sign in:\n${info.url}\n`);
 			},
 			prompt: async () => {
-				throw new Error("Paste the redirect URL in the terminal to finish login.");
+				// Fallback when the browser callback does not arrive: read one line from stdin.
+				return await new Promise<string>(resolve => {
+					const onData = (chunk: Buffer) => {
+						process.stdin.off("data", onData);
+						resolve(chunk.toString("utf8"));
+					};
+					process.stdin.on("data", onData);
+					process.stdin.resume();
+					console.log("Or paste the full redirect URL here and press Enter:");
+				});
 			},
 		}));
 
