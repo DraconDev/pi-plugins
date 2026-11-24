@@ -10,8 +10,9 @@
 |---|---|---|
 | Bridge lifetime | Dies when the Pi session that first bound `17318` exits (later sessions become clients, and self-heal by re-binding). | Self-contained: this package's Pi extension owns `17318` when Pi runs, and a systemd daemon keeps it when Pi exits; Pi sessions run as clients forwarding via `POST /command`. Takes over the port automatically when a Pi session releases it (5s retry). |
 | Auth | `/chrome authorize` (15m default, up to `indefinite`); lock on `/chrome revoke`. | Indefinite auto-auth baked in (no prompt, no `pi-chrome-auto-auth` needed) + cold-start tool-race fix. `/chrome revoke` still locks until next `/reload` or Pi exit. |
-| Companion extension | `tabs, tabGroups, scripting, storage, activeTab, alarms, webNavigation, debugger` + `<all_urls>`, `http://127.0.0.1:17318/*`; polls `/next`, alarms keepalive 0.5m, auto-`reload()` on version drift. | Forked, renamed **Pi Chrome Connector — Always (v0.1.0)**: adds `cookies, bookmarks, history, downloads, management, notifications, desktopCapture`; offscreen keepalive document; version-drift is warn-only (no `reload()` loop with upstream `0.15.x`). |
+| Companion extension | `tabs, tabGroups, scripting, storage, activeTab, alarms, webNavigation, debugger` + `<all_urls>`, `http://127.0.0.1:17318/*`; polls `/next`, alarms keepalive 0.5m, auto-`reload()` on version drift. | Forked, renamed **Pi Chrome Connector — Always (v0.1.0)**: adds `cookies, bookmarks, history, downloads, management, offscreen`; offscreen keepalive document; version-drift is warn-only (no `reload()` loop with upstream `0.15.x`). Rebased onto upstream 0.15.57, so it implements **every** upstream action (`cdp.call`, `cdp.targets`, background-mode focus gating) plus its own. Its id is pinned by a manifest `key`, so it is the same extension from every install path. It disables the rival upstream connector on startup (it has `management`), so only one worker ever answers the queue. |
 | Browser data tools | None (no cookie/bookmark/history/downloads API). | `chrome_always_data` tool: `data.cookies.list/get`, `data.bookmarks.tree`, `data.history.search`, `data.downloads.list`, `data.extensions.list` (bridge `data.*` actions). |
+| Bridge auth | Loopback trust: any local process may `POST /command`. | Loopback trust for ordinary actions (so upstream clients and the book campaign's `scripts/_bridge_cdp.py` keep working), but the `data.*` browser-data actions **always require** the token file (`~/.local/share/pi-chrome-always/token`, mode 600). Set `PI_CHROME_ALWAYS_REQUIRE_TOKEN=1` to demand the token for every action. |
 | Focus | Background on by default (`backgroundDefault=true`, module-local). | Kept: background on. Watch mode via `/chrome background off`. |
 
 ## Install
@@ -40,6 +41,13 @@ chrome://extensions
   → Load unpacked → ~/.local/share/pi-chrome-always/browser-extension
 ```
 
+The fork's card shows the id `kmjcfjgefmkhmickoakebpmlhikabega` (pinned by the
+manifest `key`, so it does not change with the install path). Once it is loaded it
+disables the rival upstream "Pi Chrome Connector" by itself, so exactly one worker
+answers the `/next` queue. Until it is loaded, upstream's worker keeps serving and
+the fork's `data.*` actions are unreachable — `doctor.sh` and `audit.sh` both say so
+explicitly rather than reporting a healthy bridge.
+
 Verify:
 
 ```bash
@@ -51,12 +59,19 @@ systemctl --user status pi-chrome-always --no-pager
 
 In Pi: `/chrome doctor` (trace daemon + extension + versions).
 
-`doctor.sh` reports whether the bridge answers. `audit.sh` reports whether the
-extension answering it is THIS fork, whether it implements every action the upstream
-package implements, whether the permissions this fork adds are used by its code, and
-whether the token is actually enforced as installed. It is read-only and exits
-non-zero on any finding; the findings of the 2026-11-24 run are in
+`doctor.sh` reports whether the bridge answers, which extension is actually polling, and
+whether that is this fork. `audit.sh` reports whether the extension answering it is
+THIS fork, whether it implements every action the upstream package implements,
+whether the permissions this fork adds are used by its code, and whether the token
+is actually enforced as installed. It is read-only and exits non-zero on any
+finding; the findings of the 2026-11-24 run are in
 [AUDIT-2026-11-24.md](./AUDIT-2026-11-24.md).
+
+`npm test` (or `node scripts/test-worker-contract.mjs`) is the worker contract
+test: it loads the service worker with a stubbed `chrome` API and checks action
+parity with upstream, the background-mode focus policy, that every `data.*` action
+fails closed without its permission, and that a `cdp.call` works in the live path
+and fails loudly (rather than hanging) when the debugger is unavailable.
 
 ## Commands
 

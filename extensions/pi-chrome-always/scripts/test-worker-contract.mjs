@@ -101,13 +101,29 @@ function makeChrome({ debuggerAvailable = true, permissions = [] } = {}) {
     downloads: granted.has("downloads") ? { search: () => Promise.resolve([]) } : undefined,
     management: granted.has("management") ? { getAll: () => Promise.resolve([]) } : undefined,
     debugger: {
-      attach: () => (debuggerAvailable ? Promise.resolve() : Promise.reject(new Error("debugger refused"))),
-      detach: () => Promise.resolve(),
-      sendCommand: () => {
-        calls.cdp.push("called");
-        return Promise.resolve({ result: {} });
+      attach: (target, version, callback) => {
+        if (debuggerAvailable) {
+          if (typeof callback === "function") callback();
+          return Promise.resolve();
+        }
+        const error = new Error("debugger refused");
+        if (typeof callback === "function") callback(error);
+        return Promise.reject(error);
       },
-      getTargets: () => Promise.resolve([]),
+      detach: (target, callback) => {
+        if (typeof callback === "function") callback();
+        return Promise.resolve();
+      },
+      // chrome.debugger.sendCommand is CALLBACK based, not promise based.
+      sendCommand: (debuggee, method, params, callback) => {
+        calls.cdp.push(method);
+        if (typeof callback === "function") callback({ result: { echoed: method } });
+        return Promise.resolve({ result: { echoed: method } });
+      },
+      getTargets: (callback) => {
+        if (typeof callback === "function") callback([]);
+        return Promise.resolve([]);
+      },
       onDetach: { addListener: noop },
       onEvent: { addListener: noop },
     },
@@ -276,3 +292,6 @@ if (failures > 0) {
   process.exit(1);
 }
 console.log("== all worker contract checks passed ==");
+// The worker arms a keepalive interval when it loads, which would keep this
+// process alive forever. The checks are done, so exit explicitly.
+process.exit(0);

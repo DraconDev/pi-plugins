@@ -9,7 +9,8 @@
     "build": "echo 'nothing to build'",
     "check": "tsc --noEmit",
     "doctor": "./scripts/doctor.sh",
-    "audit": "./scripts/audit.sh"
+    "audit": "./scripts/audit.sh",
+    "test": "node scripts/test-worker-contract.mjs"
   },
   "keywords": [
     "pi",
