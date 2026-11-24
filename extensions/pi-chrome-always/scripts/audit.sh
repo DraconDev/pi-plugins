@@ -265,9 +265,14 @@ run_checks
 
 printf '%s' "$REPORT"
 findings="$(grep -c '^  FINDING' <<<"$REPORT")"
+errors="$(grep -c '^  ERROR' <<<"$REPORT")"
 if [ "${findings:-0}" -gt 0 ]; then
 	echo "== $findings finding(s) =="
 	exit 1
+fi
+if [ "${errors:-0}" -gt 0 ]; then
+	echo "== $errors check(s) could not run =="
+	exit 2
 fi
 echo "== no findings =="
 exit 0
