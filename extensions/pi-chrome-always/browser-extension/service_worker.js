@@ -1,6 +1,13 @@
 const BRIDGE_URL = "http://127.0.0.1:17318";
 const CLIENT_NAME = `Pi Chrome Connector ${chrome.runtime.id}`;
 const POLL_ERROR_BACKOFF_MS = 2000;
+// /next is a server-side long poll held for up to 25s (see waitForCommand in index.ts). A fetch that
+// outlives this deadline means the socket is half-open (the owning Pi process died, the machine
+// slept, the network changed) and will never settle; abort it so pollLoop backs off and reconnects
+// instead of parking on a zombie connection until the extension is reloaded by hand.
+const POLL_REQUEST_TIMEOUT_MS = 45_000;
+const RESULT_REQUEST_TIMEOUT_MS = 15_000;
+const RESULT_POST_ATTEMPTS = 3;
 const DEFAULT_GROUP_COLOR = "blue";
 const PI_GROUP_RE = /^Pi(\b|\s*-)/i;
 const VALID_GROUP_COLORS = new Set(["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"]);
@@ -8,6 +15,8 @@ const COMMAND_TIMEOUT_MS = 25_000;
 const CDP_COMMAND_TIMEOUT_MS = 5_000;
 const SCRIPTING_TIMEOUT_MS = 8_000;
 const ATTACH_TIMEOUT_MS = 3_000;
+// Raw CDP methods that explicitly focus or activate a tab. Blocked by hard background mode.
+const CDP_FOCUS_METHODS = new Set(["Page.bringToFront", "Target.activateTarget"]);
 let polling = false;
 
 // =================== pi-chrome automation target ownership ===================
@@ -24,12 +33,21 @@ let polling = false;
 //
 // State is mirrored to chrome.storage.session so a service-worker restart (MV3 can suspend the
 // worker at any time) re-hydrates ownership instead of orphaning the window it already created.
+// storage.session is also cleared when the extension reloads, which it does itself on every
+// pi-chrome version bump, so ownership is mirrored to chrome.storage.local too (see
+// readOwnership). The local copy is restored only when the session copy is missing, every restored
+// tab is re-checked, and the local copy is dropped on browser startup because tab ids do not carry
+// over between browser runs.
 // storage.session is cleared on browser restart; any window restored by Chrome's session-restore
 // is then untracked and simply left alone (we only ever close ids we still recognize as ours).
 const automationTargets = new Map(); // sessionKey -> { windowId?: number, tabId: number }
 const DEFAULT_SESSION_KEY = "__default__";
 const AUTOMATION_STORAGE_KEY = "piChromeAutomationTargets";
-let automationHydrated = false;
+let automationHydrated;
+const sessionTabs = new Map(); // sessionKey -> Map<tabId, { created: boolean, groupId?: number }>
+const SESSION_TABS_STORAGE_KEY = "piChromeSessionTabs";
+let sessionTabsReady;
+let sessionTabsWrite = Promise.resolve();
 
 function sessionKeyOf(params) {
   return params && typeof params.sessionKey === "string" && params.sessionKey
@@ -37,37 +55,159 @@ function sessionKeyOf(params) {
     : DEFAULT_SESSION_KEY;
 }
 
+// Read an ownership record: the storage.session copy if present, else the storage.local copy
+// (after an extension reload). Returns { value, restored } where restored marks a local copy.
+async function readOwnership(key) {
+  const fromSession = await chrome.storage?.session?.get?.(key).catch(() => null);
+  if (fromSession && fromSession[key] && typeof fromSession[key] === "object") return { value: fromSession[key], restored: false };
+  const fromLocal = await chrome.storage?.local?.get?.(key).catch(() => null);
+  if (fromLocal && fromLocal[key] && typeof fromLocal[key] === "object") return { value: fromLocal[key], restored: true };
+  return { value: null, restored: false };
+}
+
+async function writeOwnership(key, value) {
+  await Promise.all([
+    Promise.resolve(chrome.storage?.session?.set?.({ [key]: value })).catch(() => {}),
+    Promise.resolve(chrome.storage?.local?.set?.({ [key]: value })).catch(() => {}),
+  ]);
+}
+
+// A restored (local) record is trusted only if its tab still exists in the window it was recorded
+// in. Anything else is forgotten, so a reused id or a tab the user moved is never closed by Pi.
+async function restoredTabStillOurs(tabId, windowId) {
+  if (!Number.isInteger(tabId) || tabId < 0 || !Number.isInteger(windowId)) return null;
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  return tab && tab.windowId === windowId ? tab : null;
+}
+
+async function tabWindowId(tabId) {
+  const tab = Number.isInteger(tabId) ? await chrome.tabs.get(tabId).catch(() => null) : null;
+  return Number.isInteger(tab?.windowId) ? tab.windowId : undefined;
+}
+
 // Re-hydrate the in-memory ownership map from storage.session once per worker lifetime. Best
 // effort: storage may be unavailable on old Chrome, and a failure just means we may create a
 // fresh window (a harmless orphan) rather than reusing one.
 async function hydrateAutomationTargets() {
-  if (automationHydrated) return;
-  automationHydrated = true;
-  try {
-    const stored = await chrome.storage?.session?.get?.(AUTOMATION_STORAGE_KEY);
-    const saved = stored && stored[AUTOMATION_STORAGE_KEY];
-    if (saved && typeof saved === "object") {
-      for (const [key, value] of Object.entries(saved)) {
-        if (value && typeof value.tabId === "number") {
+  if (automationHydrated) return automationHydrated;
+  automationHydrated = (async () => {
+    try {
+      const { value: saved, restored } = await readOwnership(AUTOMATION_STORAGE_KEY);
+      if (saved && typeof saved === "object") {
+        for (const [key, value] of Object.entries(saved)) {
+          if (!value || typeof value.tabId !== "number") continue;
+          const tabWindow = typeof value.tabWindowId === "number" ? value.tabWindowId : undefined;
+          if (restored && !(await restoredTabStillOurs(value.tabId, tabWindow))) continue;
           automationTargets.set(key, {
             windowId: typeof value.windowId === "number" ? value.windowId : undefined,
             tabId: value.tabId,
+            tabWindowId: tabWindow,
           });
         }
+        if (restored) await persistAutomationTargets();
       }
+    } catch {
+      // Ignore: treat as "no persisted state".
     }
-  } catch {
-    // Ignore: treat as "no persisted state".
+  })();
+  return automationHydrated;
+}
+
+async function hydrateSessionTabs() {
+  if (!sessionTabsReady) sessionTabsReady = (async () => {
+    try {
+      const { value: saved, restored } = await readOwnership(SESSION_TABS_STORAGE_KEY);
+      for (const [key, entries] of Object.entries(saved || {})) {
+        if (!Array.isArray(entries)) continue;
+        const tabs = new Map();
+        for (const entry of entries) {
+          if (!entry || !Number.isInteger(entry.tabId) || entry.tabId < 0) continue;
+          const windowId = Number.isInteger(entry.windowId) ? entry.windowId : undefined;
+          let tab = null;
+          if (restored) {
+            tab = await restoredTabStillOurs(entry.tabId, windowId);
+            if (!tab) continue;
+          }
+          if (entry.created === true) tabs.set(entry.tabId, { created: true, windowId });
+          else if (entry.created === false && Number.isInteger(entry.groupId) && entry.groupId >= 0) {
+            // An adopted tab must also still be in the group Pi put it in.
+            if (restored && tab.groupId !== entry.groupId) continue;
+            tabs.set(entry.tabId, { created: false, groupId: entry.groupId, windowId });
+          }
+        }
+        if (tabs.size) sessionTabs.set(key, tabs);
+      }
+      if (restored) await persistSessionTabs();
+    } catch {
+      // Missing ownership must leave tabs alone, not guess ownership from group names.
+    }
+  })();
+  return sessionTabsReady;
+}
+
+function persistSessionTabs() {
+  // Serialize writes and construct each snapshot when its turn starts.
+  sessionTabsWrite = sessionTabsWrite.then(async () => {
+    const saved = Object.fromEntries([...sessionTabs].map(([key, tabs]) => [
+      key, [...tabs].map(([tabId, record]) => ({ tabId, ...record })),
+    ]));
+    await writeOwnership(SESSION_TABS_STORAGE_KEY, saved);
+  }).catch(() => {});
+  return sessionTabsWrite;
+}
+
+async function trackSessionTab(sessionKey, tabId, created, groupId) {
+  await Promise.all([hydrateSessionTabs(), hydrateAutomationTargets()]);
+  if (!Number.isInteger(tabId)) return;
+  if (!created) {
+    if (!Number.isInteger(groupId) || groupId < 0 || isPiChromeOwnedTarget(tabId)) return;
+    if ([...sessionTabs.values()].some((tabs) => tabs.get(tabId)?.created)) return;
   }
+  let tabs = sessionTabs.get(sessionKey);
+  if (!tabs) sessionTabs.set(sessionKey, tabs = new Map());
+  const windowId = await tabWindowId(tabId);
+  tabs.set(tabId, created ? { created: true, windowId } : { created: false, groupId, windowId });
+  await persistSessionTabs();
+}
+
+async function cleanupSessionTabs(sessionKey) {
+  await hydrateSessionTabs();
+  const automation = await cleanupAutomationTarget(sessionKey);
+  const tabs = sessionTabs.get(sessionKey);
+  let closedCreatedTabs = 0;
+  let ungroupedAdoptedTabs = 0;
+  for (const [tabId, record] of [...(tabs || [])]) {
+    try {
+      const tab = await chrome.tabs.get(tabId).catch(() => null);
+      if (tab && record.created) {
+        await chrome.tabs.remove(tabId);
+        closedCreatedTabs++;
+      } else if (tab && tab.groupId === record.groupId) {
+        await chrome.tabs.ungroup(tabId);
+        ungroupedAdoptedTabs++;
+      }
+      tabs.delete(tabId);
+    } catch {
+      // Retain failed operations for a later cleanup; never report them as completed.
+    }
+  }
+  if (tabs && !tabs.size) sessionTabs.delete(sessionKey);
+  await persistSessionTabs();
+  return { ...automation, closedCreatedTabs, ungroupedAdoptedTabs };
 }
 
 async function persistAutomationTargets() {
   try {
     const obj = {};
     for (const [key, value] of automationTargets) {
-      obj[key] = { windowId: typeof value.windowId === "number" ? value.windowId : null, tabId: value.tabId };
+      if (typeof value.tabWindowId !== "number") value.tabWindowId = await tabWindowId(value.tabId);
+      obj[key] = {
+        windowId: typeof value.windowId === "number" ? value.windowId : null,
+        tabId: value.tabId,
+        tabWindowId: typeof value.tabWindowId === "number" ? value.tabWindowId : null,
+      };
     }
-    await chrome.storage?.session?.set?.({ [AUTOMATION_STORAGE_KEY]: obj });
+    await writeOwnership(AUTOMATION_STORAGE_KEY, obj);
   } catch {
     // Ignore: persistence is an optimization, not a correctness requirement.
   }
@@ -101,11 +241,7 @@ async function createAutomationTarget(sessionKey, groupTitle) {
   }
   if (chrome.windows && typeof chrome.windows.create === "function") {
     try {
-      // pi-chrome-always: owned windows must start windowed (draggable/square-restore).
-      // Without explicit state/bounds Chrome/KDE inherits maximized from the last
-      // window, leaving the new owned window maximized and impossible to drag by
-      // the top row. Scoped to owned targets only; user windows untouched.
-      const win = await chrome.windows.create({ url: "about:blank", focused: false, state: "normal", width: 1280, height: 800, left: 100, top: 100 });
+      const win = await chrome.windows.create({ url: "about:blank", focused: false });
       const created = win && Array.isArray(win.tabs) ? win.tabs[0] : undefined;
       if (created && typeof created.id === "number") {
         automationTargets.set(sessionKey, { windowId: typeof win.id === "number" ? win.id : undefined, tabId: created.id });
@@ -148,25 +284,26 @@ async function getOrCreateAutomationTarget(sessionKey, groupTitle) {
 async function cleanupAutomationTarget(sessionKey) {
   await hydrateAutomationTargets();
   const t = automationTargets.get(sessionKey);
+  const result = { closedWindowId: null, closedTabId: null };
+  if (!t) return result;
+  const tab = await chrome.tabs.get(t.tabId).catch(() => null);
+  if (tab) {
+    try {
+      // Never remove a whole window: users/other sessions can add tabs even between a
+      // contents check and removal. Chrome closes empty windows when their last tab closes.
+      await chrome.tabs.remove(t.tabId);
+      result.closedTabId = t.tabId;
+    } catch {
+      return result; // Keep ownership so cleanup can retry.
+    }
+    if (tab.windowId === t.windowId && typeof chrome.windows?.get === "function") {
+      const remaining = await chrome.windows.get(t.windowId).catch(() => null);
+      if (!remaining) result.closedWindowId = t.windowId;
+    }
+  }
   automationTargets.delete(sessionKey);
   await persistAutomationTargets();
-  if (!t) return { closedWindowId: null, closedTabId: null };
-  const { windowId, tabId } = t;
-  if (typeof windowId === "number" && chrome.windows && typeof chrome.windows.remove === "function") {
-    const win = await chrome.windows.get(windowId).catch(() => null);
-    if (win) {
-      await chrome.windows.remove(windowId).catch(() => {});
-      return { closedWindowId: windowId, closedTabId: typeof tabId === "number" ? tabId : null };
-    }
-  }
-  if (typeof tabId === "number") {
-    const tab = await chrome.tabs.get(tabId).catch(() => null);
-    if (tab) {
-      await chrome.tabs.remove(tabId).catch(() => {});
-      return { closedWindowId: null, closedTabId: tabId };
-    }
-  }
-  return { closedWindowId: null, closedTabId: null };
+  return result;
 }
 
 function withTimeout(promise, ms, label, onTimeout) {
@@ -174,9 +311,12 @@ function withTimeout(promise, ms, label, onTimeout) {
   return Promise.race([
     Promise.resolve(promise).finally(() => clearTimeout(timer)),
     new Promise((_, reject) => {
-      timer = setTimeout(async () => {
-        try { await onTimeout?.(); } catch {}
+      timer = setTimeout(() => {
+        // Settle with the timeout first. Cleanup (e.g. debugger detach) makes the pending command
+        // fail with "Detached while handling command"; if that won the race, cdp() would treat it as
+        // a stale session and re-send a command that may already have run.
         reject(new Error(`${label} timed out after ${ms}ms`));
+        Promise.resolve().then(() => onTimeout?.()).catch(() => {});
       }, ms);
     }),
   ]);
@@ -303,7 +443,8 @@ async function attachDebugger(tabId) {
 }
 
 async function describeInputTarget(tabId) {
-  const tab = await chrome.tabs.get(Number(tabId)).catch(() => null);
+  const id = Number(tabId);
+  const tab = Number.isInteger(id) && id >= 0 ? await chrome.tabs.get(id).catch(() => null) : null;
   const active = (await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []))[0] || null;
   let targets = [];
   try { targets = await new Promise((resolve) => chrome.debugger.getTargets((t) => resolve(t || []))); } catch {}
@@ -320,13 +461,70 @@ function targetMetaSuffix(meta) {
 }
 
 async function inputDebug(params) {
-  const requested = params?.targetId ? await describeInputTarget(Number(params.targetId)) : await describeInputTarget(-1);
+  // No explicit target: describe this session's automation tab if it exists, without creating one.
+  let tabId = params?.targetId !== undefined ? Number(params.targetId) : null;
+  if (tabId === null) {
+    const owned = await resolveOwnedAutomationTarget(sessionKeyOf(params || {})).catch(() => null);
+    tabId = owned?.id ?? null;
+  }
+  const requested = await describeInputTarget(tabId);
   return {
     extensionVersion: chrome.runtime.getManifest().version,
     extensionId: chrome.runtime.id,
     ...requested,
     recentAttachEvents: attachDebugLog.slice(),
   };
+}
+
+// Chrome drops trusted CDP input to hidden pages: mouse presses and keys are silently ignored and
+// mouse moves can hang waiting for a frame. A page is hidden when its tab is inactive, its window is
+// minimized, or (macOS) its window became a native window-tab behind a full-screen window. Check
+// before sending input so the caller gets an actionable error instead of a false success.
+async function pageVisibilityState(tabId) {
+  try {
+    const evaluated = await cdp(tabId, "Runtime.evaluate", { expression: "document.visibilityState", returnByValue: true });
+    const value = evaluated?.result?.value;
+    return typeof value === "string" ? value : null;
+  } catch {
+    return null; // Unknown: do not block input on a failed probe.
+  }
+}
+
+function hiddenTabReason(tab, win) {
+  if (win?.state === "minimized") return "its window is minimized";
+  if (tab && tab.active === false) return "it is an inactive tab in its window";
+  if (win?.state === "fullscreen") return "its window is behind a full-screen window or on another Space";
+  return "its window is covered by another window or is on another Space (Chrome treats fully covered windows as hidden)";
+}
+
+async function assertTabVisibleForInput(tab, params, label) {
+  let state = await pageVisibilityState(tab.id);
+  if (state !== "hidden") return;
+  if (foregroundRequested(params)) {
+    // bringToFront just ran; give Chrome a moment to report the page visible.
+    for (let i = 0; i < 6 && state === "hidden"; i++) {
+      await sleep(100);
+      state = await pageVisibilityState(tab.id);
+    }
+    if (state !== "hidden") return;
+  }
+  const fresh = await chrome.tabs.get(tab.id).catch(() => tab);
+  const win = typeof chrome.windows?.get === "function" ? await chrome.windows.get(fresh?.windowId ?? tab.windowId).catch(() => null) : null;
+  const error = new Error(
+    `${label}: tab ${tab.id} is hidden because ${hiddenTabReason(fresh, win)}. Chrome ignores trusted input to hidden pages, so the events would be dropped. ` +
+    `Pass background:false for this call (or run /chrome background off) to bring the tab forward. chrome_click and chrome_fill can instead use their DOM fallback (untrusted page events).`,
+  );
+  error.hiddenTab = true;
+  error.windowState = win?.state;
+  throw error;
+}
+
+// Put the caret at the end of the focused field with Chrome's editing command (platform-neutral,
+// works for inputs, textareas, and contenteditables). Used after chrome_type clicks a field to focus
+// it, so the random click point never splices text into the middle of existing content.
+async function moveCaretToEnd(tabId) {
+  await cdp(tabId, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "End", code: "End", windowsVirtualKeyCode: 35, commands: ["moveToEndOfDocument"] });
+  await cdp(tabId, "Input.dispatchKeyEvent", { type: "keyUp", key: "End", code: "End", windowsVirtualKeyCode: 35 });
 }
 
 async function detachDebugger(tabId) {
@@ -359,14 +557,28 @@ setInterval(() => {
   }
 }, 5000);
 
-function cdpRaw(tabId, method, params) {
+// Deadline policy for cdp.call. Callers may widen the per-command CDP deadline via params.timeoutMs,
+// clamped below the MV3 service-worker lifetime so a stuck command cannot pin the debugger forever.
+const CDP_CALL_MAX_TIMEOUT_MS = 120_000;
+const CDP_CALL_GRACE_MS = 5_000;
+function cdpCallTimeoutMs(params) {
+  const requested = Number(params?.timeoutMs);
+  if (!Number.isFinite(requested) || requested <= 0) return CDP_COMMAND_TIMEOUT_MS;
+  return Math.min(Math.floor(requested), CDP_CALL_MAX_TIMEOUT_MS);
+}
+
+// `opts.timeoutMs` overrides the default per-command deadline. On timeout the session is detached
+// and forgotten so the next call re-attaches cleanly.
+function cdpRaw(tabId, method, params, opts) {
   const debuggee = attachedTabs.get(tabId)?.debuggee || { tabId };
+  const requested = Number(opts?.timeoutMs);
+  const timeoutMs = Number.isFinite(requested) && requested > 0 ? requested : CDP_COMMAND_TIMEOUT_MS;
   return withTimeout(new Promise((resolve, reject) => {
     chrome.debugger.sendCommand(debuggee, method, params || {}, (result) => {
       if (chrome.runtime.lastError) reject(new Error(`${method}: ${chrome.runtime.lastError.message}`));
       else resolve(result);
     });
-  }), CDP_COMMAND_TIMEOUT_MS, `CDP ${method}`, async () => {
+  }), timeoutMs, `CDP ${method}`, async () => {
     attachedTabs.delete(tabId);
     try { await chrome.debugger.detach(debuggee); } catch {}
   });
@@ -374,6 +586,51 @@ function cdpRaw(tabId, method, params) {
 
 function executeScriptTimed(options, label) {
   return withTimeout(chrome.scripting.executeScript(options), SCRIPTING_TIMEOUT_MS, label || "chrome.scripting.executeScript");
+}
+
+// Chrome refuses chrome.scripting on pages outside the extension's host permissions. Notably a
+// top-level about:blank (pi-chrome's fresh automation tab) has an opaque origin that <all_urls>
+// does not cover, so snapshot/inspect/probe/console/click-resolution failed there with
+// "Cannot access contents of url \"about:blank\"". The debugger API still attaches to about:blank.
+function isScriptingAccessDenied(error) {
+  const message = String(error?.message || error);
+  return /Cannot access contents of url|Cannot access .+ at origin|Extension manifest must request permission|matchAboutBlank must be true/i.test(message);
+}
+
+// chrome.scripting.executeScript with a CDP Runtime.evaluate fallback when Chrome refuses scripting
+// for a permission reason. Scripting stays primary: it is what ordinary pages use and the only path
+// that works while DevTools holds the tab's debugger. The fallback runs in the same MAIN world and
+// covers both forms: `func` is stringified and invoked with its args; `files` are read from the
+// extension package and evaluated. Any other scripting failure surfaces unchanged.
+const packagedFileSources = new Map();
+async function executeScriptWithFallback(options, label) {
+  try {
+    return await executeScriptTimed(options, label);
+  } catch (error) {
+    if (!isScriptingAccessDenied(error) || !chrome.debugger) throw error;
+    const tabId = options?.target?.tabId;
+    recordAttachEvent({ kind: "scripting-denied-cdp-fallback", tabId, files: options?.files || null, message: String(error?.message || error).slice(0, 300) });
+    if (Array.isArray(options?.files) && options.files.length) {
+      for (const file of options.files) {
+        if (!packagedFileSources.has(file)) {
+          const response = await fetch(chrome.runtime.getURL(file));
+          if (!response.ok) throw new Error(`Could not read ${file} for CDP injection (HTTP ${response.status})`);
+          packagedFileSources.set(file, await response.text());
+        }
+        const injected = await cdpEval(tabId, packagedFileSources.get(file));
+        if (injected.exceptionDetails) {
+          throw new Error(`${label || file}: ${cdpExceptionText(injected.exceptionDetails) || "CDP injection failed"}`);
+        }
+      }
+      return [{ result: undefined }];
+    }
+    const expression = `(${options.func.toString()})(...${JSON.stringify(Array.isArray(options.args) ? options.args : [])})`;
+    const result = await cdpEval(tabId, expression);
+    if (result.exceptionDetails) {
+      throw new Error(`${label || "page script"}: ${cdpExceptionText(result.exceptionDetails) || "evaluation failed"}`);
+    }
+    return [{ result: result.result?.value }];
+  }
 }
 
 // Wraps cdpRaw with one auto-recover on detached/closed sessions:
@@ -418,9 +675,9 @@ async function dismissOverlayViaEscape(tabId) {
   } catch {}
 }
 
-async function cdp(tabId, method, params) {
+async function cdp(tabId, method, params, opts) {
   try {
-    return await cdpRaw(tabId, method, params);
+    return await cdpRaw(tabId, method, params, opts);
   } catch (error) {
     const msg = String(error?.message || error);
     const isStale = /Debugger is not attached|Detached while|Target closed|No tab with id/i.test(msg);
@@ -432,7 +689,7 @@ async function cdp(tabId, method, params) {
       recordAttachEvent({ kind: "foreign-ext-detected", tabId, method, foreignExtId: extractForeignExtId(before), targetCount: before.length });
       await dismissOverlayViaEscape(tabId);
       try {
-        return await cdpRaw(tabId, method, params);
+        return await cdpRaw(tabId, method, params, opts);
       } catch (retryErr) {
         const retryMsg = String(retryErr?.message || retryErr);
         if (/Cannot access a chrome-extension:\/\/ URL of different extension/i.test(retryMsg)) {
@@ -449,7 +706,7 @@ async function cdp(tabId, method, params) {
     if (!isStale) throw error;
     attachedTabs.delete(tabId);
     await attachDebugger(tabId).catch(() => undefined);
-    return cdpRaw(tabId, method, params);
+    return cdpRaw(tabId, method, params, opts);
   }
 }
 
@@ -487,7 +744,7 @@ function cdpIsSyntaxError(details) {
 
 // Resolve target -> {x, y, rect} in viewport coords by running tiny script in tab.
 async function resolveTargetInTab(tabId, params) {
-  const results = await executeScriptTimed({
+  const results = await executeScriptWithFallback({
     target: { tabId, frameIds: [0] },
     world: "MAIN",
     func: (selector, uid, x, y) => {
@@ -605,7 +862,13 @@ function cdpKeyInfo(key, shifted) {
   };
   if (SPECIAL[key]) return { key, ...SPECIAL[key] };
   if (key.length === 1) {
-    const ch = key;
+    // Explicit Shift chords need shifted text as well as a modifier bit. CDP does
+    // not derive printable text from code/windowsVirtualKeyCode for us.
+    const SHIFTED = {
+      "`": "~", "1": "!", "2": "@", "3": "#", "4": "$", "5": "%", "6": "^", "7": "&", "8": "*", "9": "(", "0": ")",
+      "-": "_", "=": "+", "[": "{", "]": "}", "\\": "|", ";": ":", "'": "\"", ",": "<", ".": ">", "/": "?",
+    };
+    const ch = shifted ? (/^[a-z]$/.test(key) ? key.toUpperCase() : SHIFTED[key] || key) : key;
     const layout = usKeyLayoutForChar(ch);
     return { key: ch, code: layout.code, windowsVirtualKeyCode: layout.keyCode, text: ch };
   }
@@ -639,7 +902,7 @@ async function cdpTypeChar(tabId, ch) {
 }
 
 async function domClickFallback(tabId, params, cause) {
-  const results = await executeScriptTimed({
+  const results = await executeScriptWithFallback({
     target: { tabId, frameIds: [0] },
     world: "MAIN",
     func: (selector, uid, x, y) => {
@@ -669,9 +932,10 @@ async function domClickFallback(tabId, params, cause) {
 
 async function chromeInputClick(params) {
   const tab = await getTabByParams(params);
-  if (params.foreground) await bringToFront(tab);
+  await bringToFront(tab, params);
   try {
     await attachDebugger(tab.id);
+    await assertTabVisibleForInput(tab, params, "chrome.click");
     const resolved = await resolveTargetInTab(tab.id, params);
     const point = resolved.rect ? pickInsideRect(resolved.rect) : { x: resolved.x, y: resolved.y };
     await cdpMoveTo(tab.id, point.x, point.y);
@@ -682,7 +946,7 @@ async function chromeInputClick(params) {
     // focus can leave :focus-visible=true in Chromium, which trips heuristics that expect
     // Reset focus styling after pointer click when possible.
     if (params.selector || params.uid) {
-      await executeScriptTimed({
+      await executeScriptWithFallback({
         target: { tabId: tab.id, frameIds: [0] },
         world: "MAIN",
         func: (sel, uid) => {
@@ -706,8 +970,9 @@ async function chromeInputClick(params) {
 
 async function chromeInputHover(params) {
   const tab = await getTabByParams(params);
-  if (params.foreground) await bringToFront(tab);
+  await bringToFront(tab, params);
   await attachDebugger(tab.id);
+  await assertTabVisibleForInput(tab, params, "chrome.hover");
   const resolved = await resolveTargetInTab(tab.id, params);
   const point = resolved.rect ? pickInsideRect(resolved.rect) : { x: resolved.x, y: resolved.y };
   await cdpMoveTo(tab.id, point.x, point.y);
@@ -717,8 +982,9 @@ async function chromeInputHover(params) {
 
 async function chromeInputKey(params) {
   const tab = await getTabByParams(params);
-  if (params.foreground) await bringToFront(tab);
+  await bringToFront(tab, params);
   await attachDebugger(tab.id);
+  await assertTabVisibleForInput(tab, params, "chrome.key");
   const key = String(params.key || "");
   if (!key) throw new Error("chrome.key: missing key");
   const mods = params.modifiers || {};
@@ -733,13 +999,14 @@ async function chromeInputKey(params) {
     await cdp(tab.id, "Input.dispatchKeyEvent", { type: "keyDown", key: m.key, code: m.code, windowsVirtualKeyCode: m.vk, modifiers: modBits });
     await sleep(rng(6, 18));
   }
-  const info = cdpKeyInfo(key);
-  // When modifiers are active, browsers usually emit "rawKeyDown" (no text) so chords like Cmd+V don't insert the literal char.
-  const downType = modBits ? "rawKeyDown" : "keyDown";
+  const info = cdpKeyInfo(key, mods.shiftKey);
+  // Ctrl/Meta/Alt chords must not insert literal text (e.g. Cmd+V). Shift alone
+  // still types: Shift+a -> A, Shift+1 -> !, and Shift+Enter carries a newline.
+  const shortcut = !!(mods.ctrlKey || mods.metaKey || mods.altKey);
   await cdp(tab.id, "Input.dispatchKeyEvent", {
-    type: downType, key: info.key, code: info.code,
+    type: shortcut ? "rawKeyDown" : "keyDown", key: info.key, code: info.code,
     windowsVirtualKeyCode: info.windowsVirtualKeyCode, nativeVirtualKeyCode: info.windowsVirtualKeyCode,
-    text: modBits ? "" : info.text, unmodifiedText: modBits ? "" : info.text, modifiers: modBits,
+    text: shortcut ? "" : info.text, unmodifiedText: shortcut ? "" : info.text, modifiers: modBits,
   });
   await sleep(rng(25, 90));
   await cdp(tab.id, "Input.dispatchKeyEvent", {
@@ -753,10 +1020,54 @@ async function chromeInputKey(params) {
   return { input: "chrome", key: info.key, modifiers: mods };
 }
 
+// Read the actual focused editor, not a role=textbox lookalike. For fill, select
+// the requested editor's entire contents: triple-click only selects a paragraph.
+// Selection uses the DOM; deletion and insertion still use Chrome's input layer.
+async function contentEditableInTab(tabId, selectAllParams = null) {
+  const results = await executeScriptWithFallback({
+    target: { tabId, frameIds: [0] },
+    world: "MAIN",
+    func: (selector, uid, selectAll) => {
+      const active = document.activeElement;
+      if (selectAll) {
+        const state = window.__PI_CHROME_STATE__;
+        const el = uid ? state?.elements?.[uid] : document.querySelector(selector);
+        if (uid && (!el || !el.isConnected)) throw new Error(`snapshot uid ${uid} is stale; refresh chrome_snapshot`);
+        if (!el?.isContentEditable) return false;
+        if (!active?.isContentEditable || !(el === active || el.contains(active) || active.contains(el))) {
+          throw new Error("chrome.fill: requested contenteditable is not focused");
+        }
+        const selection = window.getSelection();
+        if (!selection) throw new Error("Could not select contenteditable contents");
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+      return active?.isContentEditable === true;
+    },
+    args: [selectAllParams?.selector ?? null, selectAllParams?.uid ?? null, selectAllParams !== null],
+  }, `inspect contenteditable in tab ${tabId}`);
+  return results?.[0]?.result === true;
+}
+
+async function typeTextInTab(tabId, text, perCharacter) {
+  if (!text) return "none";
+  if (!perCharacter && await contentEditableInTab(tabId)) {
+    // One native edit avoids per-character delays and rich-editor render races.
+    // Do not retry as keystrokes if insertion fails: it may already have applied.
+    await cdp(tabId, "Input.insertText", { text });
+    return "insertText";
+  }
+  for (const ch of Array.from(text)) await cdpTypeChar(tabId, ch);
+  return "keys";
+}
+
 async function chromeInputType(params) {
   const tab = await getTabByParams(params);
-  if (params.foreground) await bringToFront(tab);
+  await bringToFront(tab, params);
   await attachDebugger(tab.id);
+  await assertTabVisibleForInput(tab, params, "chrome.type");
   if (params.selector || params.uid) {
     // Focus target by clicking it first.
     const resolved = await resolveTargetInTab(tab.id, params);
@@ -766,19 +1077,148 @@ async function chromeInputType(params) {
     await sleep(rng(45, 110));
     await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", buttons: 0, clickCount: 1, pointerType: "mouse" });
     await sleep(rng(50, 120));
+    // The click lands at a random point inside the field, which leaves the caret mid-text. Move it to
+    // the end so a targeted chrome_type appends; replace=true selects everything below anyway.
+    if (params.replace !== true) await moveCaretToEnd(tab.id);
   }
   const text = String(params.text || "");
-  for (const ch of Array.from(text)) await cdpTypeChar(tab.id, ch);
-  if (params.pressEnter) {
-    await cdpTypeChar(tab.id, "\r").catch(() => undefined);
-    await chromeInputKey({ ...params, key: "Enter" });
+  // chrome_type inserts at the caret. Read the field before and after so a splice into existing
+  // text is reported instead of hidden behind a bare character count. The "before" read precedes
+  // replace's select-all/delete. Reads are best-effort and never block typing.
+  const before = await readInputStateInTab(tab.id, params).catch(() => null);
+  if (params.replace === true) await selectAllAndDelete(tab.id);
+  const typing = await typeTextInTab(tab.id, text, params.perCharacter);
+  const after = await readInputStateInTab(tab.id, params).catch(() => null);
+  if (params.pressEnter) await chromeInputKey({ ...params, targetId: tab.id, key: "Enter" });
+  return {
+    input: "chrome",
+    length: text.length,
+    typing,
+    ...inputValueEvidence(before, after, { replaced: params.replace === true }),
+  };
+}
+
+// Select the focused field's whole contents with Chrome's editing command, then delete it with real
+// key events. The selectAll editing command is platform-neutral (Ctrl+A moves to line start on macOS).
+async function selectAllAndDelete(tabId) {
+  const mac = /Mac/i.test(String(globalThis.navigator?.platform || globalThis.navigator?.userAgent || ""));
+  const modifiers = mac ? 4 : 2;
+  const key = mac ? { key: "Meta", code: "MetaLeft", vk: 91 } : { key: "Control", code: "ControlLeft", vk: 17 };
+  await cdp(tabId, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: key.key, code: key.code, windowsVirtualKeyCode: key.vk, modifiers });
+  await cdp(tabId, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "a", code: "KeyA", windowsVirtualKeyCode: 65, modifiers, commands: ["selectAll"] });
+  await cdp(tabId, "Input.dispatchKeyEvent", { type: "keyUp", key: "a", code: "KeyA", windowsVirtualKeyCode: 65, modifiers });
+  await cdp(tabId, "Input.dispatchKeyEvent", { type: "keyUp", key: key.key, code: key.code, windowsVirtualKeyCode: key.vk, modifiers: 0 });
+  await cdp(tabId, "Input.dispatchKeyEvent", { type: "keyDown", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46 });
+  await cdp(tabId, "Input.dispatchKeyEvent", { type: "keyUp", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46 });
+  await sleep(rng(20, 60));
+}
+
+// Read the typing target's value and caret. Sensitive fields (password/OTP/card/etc., matching the
+// snapshot redaction convention) report only valueRedacted + length, never contents. Displayed values
+// are truncated to 120 chars like snapshots; lengths and caret offsets are exact.
+async function readInputStateInTab(tabId, params) {
+  const results = await executeScriptWithFallback({
+    target: { tabId, frameIds: [0] },
+    world: "MAIN",
+    func: (selector, uid) => {
+      const state = window.__PI_CHROME_STATE__;
+      const carrierOf = (node) => {
+        if (!node) return null;
+        if ("value" in node && typeof node.value === "string" && /^(INPUT|TEXTAREA)$/.test(node.tagName)) return "value";
+        if (node.isContentEditable === true) return "contenteditable";
+        return null;
+      };
+      let el = uid ? (state && state.elements ? state.elements[uid] : null) : null;
+      if (uid && (!el || !el.isConnected)) el = null;
+      if (!el && selector) el = document.querySelector(selector);
+      const active = document.activeElement;
+      // The uid/selector can name a wrapper (role=textbox, label) rather than the element that
+      // receives text. Prefer the focused carrier in that case so we do not report a false "" -> "".
+      if (!carrierOf(el) && carrierOf(active)) el = active;
+      const carrier = carrierOf(el);
+      if (!carrier) return { found: false };
+      const raw = carrier === "value" ? el.value : String(el.textContent || "");
+      const attr = (name) => (el.getAttribute ? el.getAttribute(name) : null);
+      const type = String(el.type || attr("type") || "").toLowerCase();
+      const haystack = [type, el.name, attr("name"), el.id, attr("autocomplete"), attr("aria-label"), attr("placeholder"), attr("data-testid")].filter(Boolean).join(" ").toLowerCase();
+      const sensitive = type === "password" || /password|passwd|\bpwd\b|secret|token|bearer|api[-_ ]?key|access[-_ ]?key|auth[-_ ]?code|one[-_ ]?time|otp|2fa|mfa|verification[-_ ]?code|recovery[-_ ]?code|credit[-_ ]?card|card[-_ ]?number|cc-number|cc-csc|cvc|cvv|security[-_ ]?code|ssn|social[-_ ]?security/.test(haystack);
+      let selectionStart = null;
+      let selectionEnd = null;
+      try {
+        if (typeof el.selectionStart === "number") selectionStart = el.selectionStart;
+        if (typeof el.selectionEnd === "number") selectionEnd = el.selectionEnd;
+      } catch {}
+      let caretOffset = null;
+      if (carrier === "contenteditable") {
+        try {
+          const selection = window.getSelection && window.getSelection();
+          if (selection && selection.rangeCount > 0 && selection.anchorNode && el.contains(selection.anchorNode)) {
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            range.setEnd(selection.anchorNode, selection.anchorOffset);
+            caretOffset = range.toString().length;
+            if (!selection.isCollapsed) selectionEnd = caretOffset + String(selection.toString()).length;
+          }
+        } catch {}
+      }
+      return {
+        found: true,
+        carrier,
+        value: sensitive ? undefined : raw.slice(0, 120),
+        valueLength: raw.length,
+        valueRedacted: sensitive ? true : undefined,
+        selectionStart,
+        selectionEnd,
+        caretOffset,
+      };
+    },
+    args: [params.selector ?? null, params.uid ?? null],
+  }, `read input value in tab ${tabId}`);
+  const v = results?.[0]?.result;
+  return v && typeof v === "object" ? v : { found: false };
+}
+
+// Where typed text landed relative to the field's existing contents.
+function inputInsertPosition(before) {
+  const length = before.valueLength ?? 0;
+  if (length === 0) return "empty";
+  if (typeof before.selectionStart === "number" && typeof before.selectionEnd === "number") {
+    if (before.selectionEnd > before.selectionStart) {
+      return before.selectionStart === 0 && before.selectionEnd >= length ? "replaced-all" : "replaced-selection";
+    }
+    return before.selectionStart < length ? "caret-middle" : "caret-end";
   }
-  return { input: "chrome", length: text.length };
+  if (typeof before.caretOffset === "number") {
+    if (typeof before.selectionEnd === "number" && before.selectionEnd > before.caretOffset) {
+      return before.caretOffset === 0 && before.selectionEnd >= length ? "replaced-all" : "replaced-selection";
+    }
+    return before.caretOffset < length ? "caret-middle" : "caret-end";
+  }
+  return undefined;
+}
+
+function inputValueEvidence(before, after, { replaced = false } = {}) {
+  const hasBefore = Boolean(before?.found);
+  const hasAfter = Boolean(after?.found);
+  if (!hasBefore && !hasAfter) return replaced ? { replaced: true } : {};
+  const redacted = Boolean(before?.valueRedacted || after?.valueRedacted);
+  const evidence = {
+    existingTextLengthBefore: hasBefore ? before.valueLength : undefined,
+    valueLengthAfter: hasAfter ? after.valueLength : undefined,
+    insertedAt: replaced ? "replaced-all" : hasBefore ? inputInsertPosition(before) : undefined,
+  };
+  if (redacted) evidence.valueRedacted = true;
+  else {
+    if (hasBefore) evidence.valueBefore = before.value;
+    if (hasAfter) evidence.valueAfter = after.value;
+  }
+  if (replaced) evidence.replaced = true;
+  return evidence;
 }
 
 async function domFillFallback(tabId, params, cause) {
   if (!(params.selector || params.uid)) throw cause;
-  const results = await executeScriptTimed({
+  const results = await executeScriptWithFallback({
     target: { tabId, frameIds: [0] },
     world: "MAIN",
     func: async (selector, uid, text, submit) => {
@@ -818,9 +1258,10 @@ async function domFillFallback(tabId, params, cause) {
 
 async function chromeInputFill(params) {
   const tab = await getTabByParams(params);
-  if (params.foreground) await bringToFront(tab);
+  await bringToFront(tab, params);
   try {
     await attachDebugger(tab.id);
+    await assertTabVisibleForInput(tab, params, "chrome.fill");
     if (!(params.selector || params.uid)) throw new Error("chrome.fill: selector or uid required");
     const resolved = await resolveTargetInTab(tab.id, params);
     const point = resolved.rect ? pickInsideRect(resolved.rect) : { x: resolved.x, y: resolved.y };
@@ -832,14 +1273,20 @@ async function chromeInputFill(params) {
       await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", buttons: 0, clickCount: i, pointerType: "mouse" });
       await sleep(rng(20, 60));
     }
-    // Delete selection.
-    await cdp(tab.id, "Input.dispatchKeyEvent", { type: "keyDown", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46 });
-    await cdp(tab.id, "Input.dispatchKeyEvent", { type: "keyUp", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46 });
-    await sleep(rng(20, 60));
+    if (await contentEditableInTab(tab.id, params)) {
+      // The requested editor's whole contents are already selected; delete the selection.
+      await cdp(tab.id, "Input.dispatchKeyEvent", { type: "keyDown", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46 });
+      await cdp(tab.id, "Input.dispatchKeyEvent", { type: "keyUp", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46 });
+      await sleep(rng(20, 60));
+    } else {
+      // A triple-click selects only one line of a multi-line textarea. Select the whole value with
+      // Chrome's selectAll editing command before deleting.
+      await selectAllAndDelete(tab.id);
+    }
     const text = String(params.text || "");
-    for (const ch of Array.from(text)) await cdpTypeChar(tab.id, ch);
-    if (params.submit) await chromeInputKey({ ...params, key: "Enter" });
-    return { input: "chrome", length: text.length };
+    const typing = await typeTextInTab(tab.id, text, params.perCharacter);
+    if (params.submit) await chromeInputKey({ ...params, targetId: tab.id, key: "Enter" });
+    return { input: "chrome", length: text.length, typing };
   } catch (error) {
     if (params.domFallback === false) throw error;
     return domFillFallback(tab.id, params, error);
@@ -848,8 +1295,9 @@ async function chromeInputFill(params) {
 
 async function chromeInputScroll(params) {
   const tab = await getTabByParams(params);
-  if (params.foreground) await bringToFront(tab);
+  await bringToFront(tab, params);
   await attachDebugger(tab.id);
+  await assertTabVisibleForInput(tab, params, "chrome.scroll");
   const resolved = (params.selector || params.uid) ? await resolveTargetInTab(tab.id, params) : { x: 100, y: 100, rect: null };
   const x = resolved.rect ? resolved.rect.left + Math.min(resolved.rect.width, 800) / 2 : resolved.x;
   const y = resolved.rect ? resolved.rect.top + Math.min(resolved.rect.height, 600) / 2 : resolved.y;
@@ -898,8 +1346,9 @@ async function chromeInputScroll(params) {
 
 async function chromeInputTap(params) {
   const tab = await getTabByParams(params);
-  if (params.foreground) await bringToFront(tab);
+  await bringToFront(tab, params);
   await attachDebugger(tab.id);
+  await assertTabVisibleForInput(tab, params, "chrome.tap");
   const resolved = (params.selector || params.uid || (typeof params.x === "number" && typeof params.y === "number"))
     ? await resolveTargetInTab(tab.id, params)
     : null;
@@ -914,8 +1363,9 @@ async function chromeInputTap(params) {
 
 async function chromeInputDrag(params) {
   const tab = await getTabByParams(params);
-  if (params.foreground) await bringToFront(tab);
+  await bringToFront(tab, params);
   await attachDebugger(tab.id);
+  await assertTabVisibleForInput(tab, params, "chrome.drag");
   const from = await resolveTargetInTab(tab.id, { selector: params.fromSelector ?? null, uid: params.fromUid ?? null, x: params.fromX ?? null, y: params.fromY ?? null });
   const to = await resolveTargetInTab(tab.id, { selector: params.toSelector ?? null, uid: params.toUid ?? null, x: params.toX ?? null, y: params.toY ?? null });
   const fp = from.rect ? pickInsideRect(from.rect) : { x: from.x, y: from.y };
@@ -937,49 +1387,188 @@ async function chromeInputDrag(params) {
   return { input: "chrome", from: fp, to: tp, steps };
 }
 
+// Pending native file-chooser intercepts, keyed by tabId. chrome_upload_file uses these when the
+// target is an upload trigger (button/dropzone) rather than a persistent <input type=file>:
+// Page.setInterceptFileChooserDialog -> click the trigger -> Page.fileChooserOpened ->
+// DOM.setFileInputFiles(backendNodeId). No OS dialog is shown.
+const pendingFileChoosers = new Map();
+const FILE_CHOOSER_TIMEOUT_MS = 8_000;
+
+function fileChooserTabIdForSource(source) {
+  if (typeof source?.tabId === "number") return source.tabId;
+  if (source?.targetId) {
+    for (const [tabId, entry] of attachedTabs) if (entry?.debuggee?.targetId === source.targetId) return tabId;
+  }
+  return undefined;
+}
+
+function handleDebuggerEvent(source, method, params) {
+  if (method !== "Page.fileChooserOpened") return;
+  const tabId = fileChooserTabIdForSource(source);
+  const entry = tabId === undefined ? undefined : pendingFileChoosers.get(tabId);
+  if (!entry) return;
+  pendingFileChoosers.delete(tabId);
+  entry.resolve({ backendNodeId: params?.backendNodeId, mode: params?.mode });
+}
+
+if (chrome.debugger && chrome.debugger.onEvent) {
+  chrome.debugger.onEvent.addListener(handleDebuggerEvent);
+}
+
+function waitForFileChooser(tabId, timeoutMs) {
+  let entry;
+  const promise = new Promise((resolve, reject) => {
+    entry = { resolve, reject };
+    entry.timer = setTimeout(() => {
+      if (pendingFileChoosers.get(tabId) === entry) pendingFileChoosers.delete(tabId);
+      reject(new Error("chrome.upload: no file chooser opened after clicking the target. Pass the <input type=file> itself, or an element that opens the file picker when clicked."));
+    }, timeoutMs);
+  });
+  pendingFileChoosers.set(tabId, entry);
+  return { promise: promise.finally(() => clearTimeout(entry.timer)), cancel: () => { if (pendingFileChoosers.get(tabId) === entry) pendingFileChoosers.delete(tabId); clearTimeout(entry.timer); } };
+}
+
+// Resolve the upload target in the page. Selectors also search same-origin iframes (editors often
+// host their file input in one). A label for a file input, or a wrapper/dropzone containing exactly
+// one file input, resolves to that input so no click is needed.
+function uploadTargetExpression(selector, uid) {
+  return `(() => {
+    const selector = ${JSON.stringify(selector ?? null)};
+    const uid = ${JSON.stringify(uid ?? null)};
+    const state = window.__PI_CHROME_STATE__;
+    const findIn = (doc, depth) => {
+      let found = null;
+      try { found = doc.querySelector(selector); } catch (error) { throw new Error("Invalid selector: " + selector); }
+      if (found || depth >= 3) return found;
+      for (const frame of doc.querySelectorAll("iframe,frame")) {
+        let inner = null;
+        try { inner = frame.contentDocument; } catch {}
+        if (!inner) continue;
+        found = findIn(inner, depth + 1);
+        if (found) return found;
+      }
+      return null;
+    };
+    let el = uid ? state?.elements?.[uid] : (selector ? findIn(document, 0) : null);
+    if (uid && (!el || !el.isConnected)) throw new Error("snapshot uid " + uid + " is stale; refresh chrome_snapshot");
+    if (!el) throw new Error("chrome.upload: target not found: " + (uid || selector));
+    const isFile = (node) => node && node.tagName === "INPUT" && String(node.type).toLowerCase() === "file";
+    if (!isFile(el)) {
+      const control = el.tagName === "LABEL" && isFile(el.control) ? el.control : null;
+      const nested = control ? null : Array.from(el.querySelectorAll ? el.querySelectorAll("input[type=file]") : []);
+      if (control) el = control;
+      else if (nested && nested.length === 1) el = nested[0];
+    }
+    return el;
+  })()`;
+}
+
+const UPLOAD_TARGET_INFO_FN = `function() {
+  const isFile = this.tagName === "INPUT" && String(this.type).toLowerCase() === "file";
+  if (!isFile) this.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+  const r = this.getBoundingClientRect();
+  let x = r.left + r.width / 2, y = r.top + r.height / 2;
+  let win = this.ownerDocument.defaultView;
+  // Convert iframe-relative coordinates to top-level viewport coordinates (same-origin frames only).
+  while (win && win.frameElement) {
+    const frame = win.frameElement;
+    const fr = frame.getBoundingClientRect();
+    const cs = frame.ownerDocument.defaultView.getComputedStyle(frame);
+    x += fr.left + (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.paddingLeft) || 0);
+    y += fr.top + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.paddingTop) || 0);
+    win = win.parent === win ? null : win.parent;
+  }
+  return { tag: this.tagName, isFile, multiple: isFile ? this.multiple === true : undefined, inFrame: this.ownerDocument !== document, x, y, width: r.width, height: r.height };
+}`;
+
 async function chromeInputUpload(params) {
   const tab = await getTabByParams(params);
-  if (params.foreground) await bringToFront(tab);
+  await bringToFront(tab, params);
   await attachDebugger(tab.id);
   if (!(params.selector || params.uid)) throw new Error("chrome.upload: selector or uid required");
   const paths = Array.isArray(params.paths) ? params.paths.map(String) : [];
   if (!paths.length) throw new Error("chrome.upload: no file paths provided");
-  const expression = `(() => {
-    const selector = ${JSON.stringify(params.selector ?? null)};
-    const uid = ${JSON.stringify(params.uid ?? null)};
-    const state = window.__PI_CHROME_STATE__;
-    const el = uid && state && state.elements ? state.elements[uid] : (selector ? document.querySelector(selector) : null);
-    if (!el || el.tagName !== "INPUT" || el.type !== "file") throw new Error("Target must be <input type=file>");
-    el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
-    return el;
-  })()`;
-  const evaluated = await cdp(tab.id, "Runtime.evaluate", { expression, objectGroup: "pi-chrome-upload", includeCommandLineAPI: false, returnByValue: false });
-  if (evaluated.exceptionDetails) throw new Error(evaluated.exceptionDetails.text || "Could not resolve file input");
+  const evaluated = await cdp(tab.id, "Runtime.evaluate", { expression: uploadTargetExpression(params.selector, params.uid), objectGroup: "pi-chrome-upload", includeCommandLineAPI: false, returnByValue: false });
+  if (evaluated.exceptionDetails) throw new Error(cdpExceptionText(evaluated.exceptionDetails) || "Could not resolve upload target");
   const objectId = evaluated.result?.objectId;
-  if (!objectId) throw new Error("Could not resolve file input object");
-  await cdp(tab.id, "DOM.enable", {}).catch(() => undefined);
-  const requested = await cdp(tab.id, "DOM.requestNode", { objectId });
-  if (!requested.nodeId) throw new Error("Could not resolve file input node");
-  await cdp(tab.id, "DOM.setFileInputFiles", { nodeId: requested.nodeId, files: paths });
-  await cdp(tab.id, "Runtime.callFunctionOn", {
-    objectId,
-    functionDeclaration: `function() { this.dispatchEvent(new Event("input", { bubbles: true })); this.dispatchEvent(new Event("change", { bubbles: true })); return this.files ? this.files.length : 0; }`,
-    returnByValue: true,
-  }).catch(() => undefined);
-  await cdp(tab.id, "Runtime.releaseObject", { objectId }).catch(() => undefined);
-  return { input: "chrome", uploaded: paths.map((path) => ({ path })) };
+  if (!objectId) throw new Error("Could not resolve upload target object");
+  try {
+    const infoResult = await cdp(tab.id, "Runtime.callFunctionOn", { objectId, functionDeclaration: UPLOAD_TARGET_INFO_FN, returnByValue: true });
+    const info = infoResult?.result?.value || {};
+    if (info.isFile) {
+      if (paths.length > 1 && info.multiple === false) throw new Error(`chrome.upload: the file input accepts one file but ${paths.length} paths were given`);
+      await cdp(tab.id, "DOM.enable", {}).catch(() => undefined);
+      // Some DOM agents return nodeId:0 (or reject conversion) for a valid remote
+      // element. CDP accepts that same objectId directly, before any file mutation.
+      const requested = await cdp(tab.id, "DOM.requestNode", { objectId }).catch(() => null);
+      const target = requested?.nodeId ? { nodeId: requested.nodeId } : { objectId };
+      // Chrome's setFileInputFiles normally fires input/change itself. Watch for that and only
+      // dispatch our own events when it did not, so apps never see a duplicate change (double upload).
+      await cdp(tab.id, "Runtime.callFunctionOn", {
+        objectId,
+        functionDeclaration: `function() { const el = this; el.__piChromeChangeSeen = false; el.addEventListener("change", () => { el.__piChromeChangeSeen = true; }, { once: true, capture: true }); }`,
+      }).catch(() => undefined);
+      await cdp(tab.id, "DOM.setFileInputFiles", { ...target, files: paths });
+      const notified = await cdp(tab.id, "Runtime.callFunctionOn", {
+        objectId,
+        functionDeclaration: `function() { const seen = this.__piChromeChangeSeen === true; delete this.__piChromeChangeSeen; if (seen) return "native"; this.dispatchEvent(new Event("input", { bubbles: true })); this.dispatchEvent(new Event("change", { bubbles: true })); return "dispatched"; }`,
+        returnByValue: true,
+      }).catch(() => null);
+      const events = notified?.result?.value;
+      return { input: "chrome", mode: "file-input", events: typeof events === "string" ? events : undefined, inFrame: info.inFrame || undefined, uploaded: paths.map((path) => ({ path })) };
+    }
+    return await uploadViaFileChooser(tab, params, paths, objectId, info);
+  } finally {
+    await cdp(tab.id, "Runtime.releaseObject", { objectId }).catch(() => undefined);
+  }
+}
+
+// The target opens the native picker when clicked. Intercept the chooser so no OS dialog appears,
+// then attach the files to the input Chrome reports. The click is trusted Chrome input when the page
+// is visible; a hidden page drops trusted input, so there we call element.click() with a CDP user
+// gesture instead (an untrusted event, like chrome_click's DOM fallback) unless domFallback:false.
+async function uploadViaFileChooser(tab, params, paths, objectId, info) {
+  const hidden = (await pageVisibilityState(tab.id)) === "hidden";
+  if (hidden && params.domFallback === false) await assertTabVisibleForInput(tab, params, "chrome.upload");
+  await cdp(tab.id, "Page.enable", {});
+  await cdp(tab.id, "Page.setInterceptFileChooserDialog", { enabled: true });
+  const chooser = waitForFileChooser(tab.id, FILE_CHOOSER_TIMEOUT_MS);
+  let trigger;
+  try {
+    if (!hidden && typeof info.x === "number" && typeof info.y === "number" && info.width > 0 && info.height > 0) {
+      trigger = "chrome";
+      await cdpMoveTo(tab.id, info.x, info.y);
+      await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mousePressed", x: info.x, y: info.y, button: "left", buttons: 1, clickCount: 1, pointerType: "mouse" });
+      await sleep(rng(40, 110));
+      await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mouseReleased", x: info.x, y: info.y, button: "left", buttons: 0, clickCount: 1, pointerType: "mouse" });
+    } else {
+      trigger = "activation-click";
+      await cdp(tab.id, "Runtime.callFunctionOn", { objectId, functionDeclaration: "function() { this.click(); }", userGesture: true, awaitPromise: false });
+    }
+    const opened = await chooser.promise;
+    if (typeof opened.backendNodeId !== "number") throw new Error("chrome.upload: file chooser opened without an input node");
+    if (paths.length > 1 && opened.mode === "selectSingle") throw new Error(`chrome.upload: the file chooser accepts one file but ${paths.length} paths were given`);
+    await cdp(tab.id, "DOM.enable", {}).catch(() => undefined);
+    await cdp(tab.id, "DOM.setFileInputFiles", { backendNodeId: opened.backendNodeId, files: paths });
+    return {
+      input: "chrome",
+      mode: "file-chooser",
+      trigger,
+      reason: trigger === "activation-click" ? "target tab is hidden; Chrome drops trusted input to hidden pages" : undefined,
+      inFrame: info.inFrame || undefined,
+      uploaded: paths.map((path) => ({ path })),
+    };
+  } finally {
+    chooser.cancel();
+    await cdp(tab.id, "Page.setInterceptFileChooserDialog", { enabled: false }).catch(() => undefined);
+  }
 }
 // ===============================================================
 
 
-function armKeepaliveAlarm() {
-  chrome.alarms.create("pi-bridge-keepalive", { periodInMinutes: 0.5 });
-  ensureOffscreenDocument().catch(() => {});
-}
-
-// Pi Chrome Connector — Always: keep an offscreen document alive so the
+// Pi Chrome Connector - Always: keep an offscreen document alive so the
 // MV3 service worker gets a second wakeup path beyond long-poll + alarms.
-// No Heavy computation; offscreen.js only pings /status every 30s.
+// No heavy computation; offscreen.js only pings /status every 30s.
 async function ensureOffscreenDocument() {
   try {
     if (!chrome.offscreen?.createDocument) return;
@@ -992,13 +1581,18 @@ async function ensureOffscreenDocument() {
       });
     }
   } catch {
-    // Offscreen unsupported (older Chrome) — alarms + long-poll still work.
+    // Offscreen unsupported (older Chrome) - alarms + long-poll still work.
   }
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "pi-always-keepalive") void pollLoop();
 });
+
+function armKeepaliveAlarm() {
+  chrome.alarms.create("pi-bridge-keepalive", { periodInMinutes: 0.5 });
+  ensureOffscreenDocument().catch(() => {});
+}
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.action.setBadgeText({ text: "pi" });
@@ -1008,6 +1602,8 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onStartup.addListener(() => {
+  // A new browser run: tab ids from the last run mean nothing now.
+  Promise.resolve(chrome.storage?.local?.remove?.([AUTOMATION_STORAGE_KEY, SESSION_TABS_STORAGE_KEY])).catch(() => {});
   armKeepaliveAlarm();
   void pollLoop();
 });
@@ -1032,18 +1628,16 @@ async function pollLoop() {
   polling = true;
   try {
     while (true) {
-      const response = await fetch(`${BRIDGE_URL}/next?name=${encodeURIComponent(CLIENT_NAME)}`, {
+      const response = await fetchWithTimeout(`${BRIDGE_URL}/next?name=${encodeURIComponent(CLIENT_NAME)}`, {
         cache: "no-store",
-      });
+      }, POLL_REQUEST_TIMEOUT_MS, "bridge /next");
       if (!response.ok) throw new Error(`bridge /next HTTP ${response.status}`);
       const expected = response.headers.get("x-pi-chrome-version");
       const ours = chrome.runtime.getManifest().version;
       if (expected && expected !== ours && isVersionOlder(ours, expected)) {
-        // Pi Chrome Always: do NOT auto-reload on version drift. The upstream
-        // pi-chrome reports its own version (e.g. 0.15.46) while this fork
-        // versions independently (0.1.0), so the upstream reload-on-mismatch
-        // logic would loop forever. Warn and keep serving instead.
-        console.warn(`[pi-chrome-always] extension v${ours} vs bridge v${expected} (version drift tolerated; reload manually if needed)`);
+        console.warn(`[pi-chrome] extension v${ours} behind pi-chrome v${expected}; reloading extension`);
+        try { chrome.runtime.reload(); } catch {}
+        return;
       }
       const payload = await response.json();
       if (payload.type === "command") await handleCommand(payload.command);
@@ -1055,26 +1649,70 @@ async function pollLoop() {
   }
 }
 
+// fetch() with an abort deadline that covers connecting and receiving response headers. The timer is
+// cleared as soon as headers arrive so a late abort can never fail an already-delivered response.
+async function fetchWithTimeout(url, options, timeoutMs, label) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...(options || {}), signal: controller.signal });
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error(`${label || "fetch"} timed out after ${timeoutMs}ms`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function commandTimeoutMs(action, params) {
+  if (action !== "cdp.call") return COMMAND_TIMEOUT_MS;
+  // Let the inner CDP deadline fire first so callers see "CDP <method> timed out" instead of the
+  // generic command wrapper timeout.
+  return Math.max(COMMAND_TIMEOUT_MS, cdpCallTimeoutMs(params) + CDP_CALL_GRACE_MS);
+}
+
 async function handleCommand(command) {
+  let payload;
   try {
     const result = await withTimeout(
       dispatch(command.action, command.params ?? {}),
-      COMMAND_TIMEOUT_MS,
+      commandTimeoutMs(command.action, command.params ?? {}),
       command.action || "Chrome command",
       () => detachAll(),
     );
-    await postResult({ id: command.id, ok: true, result });
+    payload = { id: command.id, ok: true, result };
   } catch (error) {
-    await postResult({ id: command.id, ok: false, error: error?.message ?? String(error) });
+    payload = { id: command.id, ok: false, error: error?.message ?? String(error) };
+  }
+  // Post exactly one result. A failed success-post used to fall into the catch above and post a
+  // second (error) result for the same command id.
+  try {
+    await postResult(payload);
+  } catch (error) {
+    console.warn(`[pi-chrome] failed to post result for ${command.action}: ${error?.message ?? String(error)}`);
   }
 }
 
 async function postResult(result) {
-  await fetch(`${BRIDGE_URL}/result`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(result),
-  });
+  const body = JSON.stringify(result);
+  let lastError;
+  for (let attempt = 1; attempt <= RESULT_POST_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetchWithTimeout(`${BRIDGE_URL}/result`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      }, RESULT_REQUEST_TIMEOUT_MS, "bridge /result");
+      // 4xx is final: the bridge no longer knows this command (it already timed out) or rejected
+      // the request. Retrying cannot help.
+      if (response.ok || (response.status >= 400 && response.status < 500)) return;
+      lastError = new Error(`bridge /result HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt < RESULT_POST_ATTEMPTS) await sleep(250 * attempt);
+  }
+  throw lastError;
 }
 
 function isVersionOlder(a, b) {
@@ -1140,10 +1778,14 @@ async function groupTab(tab, title, color) {
   const groupTitle = cleanGroupTitle(title);
   let groupId = tab.groupId;
   if (typeof groupId !== "number" || groupId < 0) {
-    const existing = await findGroupByTitle(tab.windowId, groupTitle);
+    // Some browsers omit windowId on freshly created tabs; read it back instead of guessing.
+    const windowId = typeof tab.windowId === "number" ? tab.windowId : (await chrome.tabs.get(tab.id).catch(() => null))?.windowId;
+    const existing = await findGroupByTitle(windowId, groupTitle);
+    // Without createProperties.windowId Chrome creates the group in the *current* (user's) window
+    // and moves the tab there, pulling Pi's automation tab out of its own window as a hidden tab.
     groupId = existing !== null
       ? await chrome.tabs.group({ groupId: existing, tabIds: [tab.id] })
-      : await chrome.tabs.group({ tabIds: [tab.id] });
+      : await chrome.tabs.group(typeof windowId === "number" ? { tabIds: [tab.id], createProperties: { windowId } } : { tabIds: [tab.id] });
   }
   await chrome.tabGroups.update(groupId, { title: groupTitle, color: cleanGroupColor(color), collapsed: false });
   const grouped = await chrome.tabs.get(tab.id);
@@ -1158,38 +1800,74 @@ async function dispatch(action, params) {
         extensionVersion: chrome.runtime.getManifest().version,
         bridgeUrl: BRIDGE_URL,
         userAgent: navigator.userAgent,
+        capabilities: { hardBackground: true },
       };
     case "tab.list": {
       const tabs = await chrome.tabs.query({});
       return Promise.all(tabs.map(formatTab));
     }
+    case "tab.new.background":
+    case "page.screenshot.background":
+      // Older workers reject these action names before touching tabs. Do not replace this with
+      // a capability probe followed by an old action: a reload/profile change can race the probe.
+      return dispatch(action.slice(0, -".background".length), { ...params, background: true, foreground: false });
     case "tab.new": {
       // Every Pi-opened tab must join a tab group. There is intentionally no opt-out: an ungrouped
       // Pi-created tab is easy to lose among user tabs. If grouping fails after creation, close the
       // tab best-effort before surfacing the error so tab.new never leaves an ungrouped Pi tab.
       const groupTitle = params.groupTitle || "Pi";
       const existingGroup = await findGroupRecordByTitle(groupTitle);
-      const createParams = { url: params.url || "about:blank", active: true };
+      const createParams = { url: params.url || "about:blank", active: foregroundRequested(params) };
       if (existingGroup && typeof existingGroup.windowId === "number") createParams.windowId = existingGroup.windowId;
-      const tab = await chrome.tabs.create(createParams);
+      // Register the creation as in flight until the tab is tracked, so early capture (which only
+      // runs in tracked tabs) waits for it instead of skipping the new tab's first page load.
+      const creation = (async () => {
+        const created = await chrome.tabs.create(createParams);
+        await trackSessionTab(sessionKeyOf(params), created.id, true);
+        return created;
+      })();
+      pendingTabCreations.add(creation);
+      let tab;
       try {
-        return await groupTab(tab, groupTitle, params.groupColor);
+        tab = await creation;
+      } finally {
+        pendingTabCreations.delete(creation);
+      }
+      try {
+        await bringToFront(tab, params);
+        const grouped = await groupTab(tab, groupTitle, params.groupColor);
+        // chrome.tabs.create returns the t=0 tab ({url:"", status:"loading"}), which reads as "the
+        // URL never loaded". Wait (bounded, never throwing) and report the settled tab instead.
+        if (!params.url || params.url === "about:blank") return grouped;
+        const started = Date.now();
+        const settled = await waitForTabSettled(tab.id, SNAPSHOT_NAVIGATION_WAIT_MS);
+        const latest = await chrome.tabs.get(tab.id).catch(() => null);
+        return {
+          ...grouped,
+          tab: latest ? await formatTab(latest) : grouped.tab,
+          loadStatus: settled ? "complete" : "timedOut",
+          waitedMs: Date.now() - started,
+        };
       } catch (error) {
         if (typeof tab.id === "number") await chrome.tabs.remove(tab.id).catch(() => {});
         throw error;
       }
     }
     case "tab.activate": {
+      if (!foregroundRequested(params)) {
+        throw new Error("Tab activation is blocked by background mode. Ask the user to run /chrome background off to allow foreground work.");
+      }
       // Management actions never auto-create an automation target (createOwnedTarget:false): with
       // no explicit target they act on an owned target if one exists, else error — they must never
       // fall back to (or spawn a tab just to touch) the user's active tab.
       const tab = await getTabByParams(params, { createOwnedTarget: false });
-      await chrome.windows.update(tab.windowId, { focused: true });
-      return formatTab(await chrome.tabs.update(tab.id, { active: true }));
+      return formatTab(await bringToFront(tab, params));
     }
     case "tab.group": {
       const tab = await getTabByParams(params, { createOwnedTarget: false });
-      return groupTab(tab, params.groupTitle || "Pi", params.groupColor);
+      const grouped = await groupTab(tab, params.groupTitle || "Pi", params.groupColor);
+      if (!(tab.groupId >= 0)) await trackSessionTab(sessionKeyOf(params), tab.id, false, grouped.group?.id);
+      return grouped;
     }
     case "tab.ungroup": {
       const tab = await getTabByParams(params, { createOwnedTarget: false });
@@ -1239,7 +1917,7 @@ async function dispatch(action, params) {
       // Poll from the service worker via CDP (bypasses CSP). The old approach ran the polling
       // loop in-page with new Function() for expression checks, which fails under strict CSP.
       const tab = await getTabByParams(params);
-      if (params.foreground) await bringToFront(tab);
+      await bringToFront(tab, params);
       const timeoutMs = params.timeoutMs || 10000;
       const intervalMs = params.intervalMs || 250;
       const started = Date.now();
@@ -1263,7 +1941,7 @@ async function dispatch(action, params) {
       return executeInTab(params, probePage, []);
     case "page.navigate": {
       const tab = await getTabByParams(params);
-      if (params.foreground) await bringToFront(tab);
+      await bringToFront(tab, params);
       if (params.initScript) {
         // Register a one-shot document_start content script. We register, navigate, wait, then unregister.
         await registerInitScript(tab.id, params.initScript);
@@ -1279,12 +1957,71 @@ async function dispatch(action, params) {
     }
     case "page.screenshot":
       return takeScreenshot(params);
+    case "cdp.targets": {
+      // Diagnostics: CDP targets anchored to the resolved tab, including foreign overlay targets
+      // (password managers, autofill, DevTools front-ends) that explain "Detached while handling
+      // command" failures. Never creates an automation window. Only the resolved tab's targets are
+      // echoed; targets on other tabs are counted, not listed.
+      const hasSelector = params.targetId !== undefined || Boolean(params.urlIncludes) || Boolean(params.titleIncludes);
+      const tab = await getTabByParams(params, { createOwnedTarget: false }).catch((error) => {
+        if (hasSelector) throw error;
+        return null;
+      });
+      const allTargets = await new Promise((resolve) => chrome.debugger.getTargets((t) => resolve(t || []))).catch(() => []);
+      const targets = tab ? allTargets.filter((t) => t.tabId === tab.id) : [];
+      return {
+        tab: tab ? { id: tab.id, windowId: tab.windowId, url: tab.url, title: tab.title } : null,
+        targets: targets.map((t) => ({ id: t.id, tabId: t.tabId, type: t.type, url: t.url, title: t.title, attached: t.attached, extensionId: t.extensionId })),
+        otherTabTargetCount: allTargets.filter((t) => typeof t.tabId === "number" && t.tabId !== tab?.id).length,
+      };
+    }
+    case "cdp.call": {
+      // Validate before touching the debugger: a clear error beats Chrome's opaque
+      // "Invalid parameters" for a missing method or non-object params.
+      if (typeof params.method !== "string" || !params.method.trim()) {
+        throw new Error('cdp.call requires a non-empty string "method" (for example "Runtime.evaluate" or "DOM.getDocument").');
+      }
+      if (params.params !== undefined && params.params !== null && (typeof params.params !== "object" || Array.isArray(params.params))) {
+        throw new Error('cdp.call "params" must be a plain object of CDP parameters when provided.');
+      }
+      const method = params.method.trim();
+      // Background mode is a hard policy. Raw CDP must not become a way around it.
+      if (!foregroundRequested(params) && CDP_FOCUS_METHODS.has(method)) {
+        throw new Error(`${method} is blocked by background mode because it focuses or activates a tab. Ask the user to run /chrome background off to allow foreground work.`);
+      }
+      const tab = await getTabByParams(params);
+      await bringToFront(tab, params);
+      await attachDebugger(tab.id);
+      return await cdp(tab.id, method, params.params ?? {}, { timeoutMs: cdpCallTimeoutMs(params) });
+    }
     case "automation.status": {
       // Report this session's owned automation target (ids only). Used for diagnostics/tests.
       await hydrateAutomationTargets();
       const t = automationTargets.get(sessionKeyOf(params));
-      return { windowId: t?.windowId ?? null, tabId: t?.tabId ?? null };
+      const status = { windowId: t?.windowId ?? null, tabId: t?.tabId ?? null };
+      if (!params.includeVisibility || !t) return status;
+      // For /chrome doctor: is this session's own tab visible? Never creates or activates anything.
+      const tab = await chrome.tabs.get(t.tabId).catch(() => null);
+      if (!tab) return { ...status, tabId: null };
+      const results = await executeScriptWithFallback({
+        target: { tabId: tab.id, frameIds: [0] },
+        world: "MAIN",
+        func: () => document.visibilityState,
+      }, `read visibility of tab ${tab.id}`).catch(() => null);
+      const visibility = typeof results?.[0]?.result === "string" ? results[0].result : "unknown";
+      const win = typeof chrome.windows?.get === "function" ? await chrome.windows.get(tab.windowId).catch(() => null) : null;
+      return {
+        ...status,
+        visibility,
+        url: tab.url,
+        hiddenReason: visibility === "hidden" ? hiddenTabReason(tab, win) : undefined,
+      };
     }
+    case "automation.cleanup":
+      // Close recorded creations, and only ungroup user tabs still in their adopted group.
+      // Group titles are not ownership evidence.
+      return cleanupSessionTabs(sessionKeyOf(params));
+    // ---- pi-chrome-always: owned-window diagnostics ----------------------
     case "automation.windowState": {
       // Read-only diagnostics: window state/bounds for THIS session's owned window.
       // Does not touch user windows; used to verify owned windows start windowed.
@@ -1309,11 +2046,7 @@ async function dispatch(action, params) {
       const after = await chrome.windows.get(t.windowId).catch(() => null);
       return { windowId: t.windowId, tabId: t.tabId ?? null, before: { left: cur.left ?? null, top: cur.top ?? null, state: cur.state }, after: after ? { left: after.left ?? null, top: after.top ?? null, state: after.state } : null };
     }
-    case "automation.cleanup":
-      // Close only THIS session's pi-chrome-owned window/tab. Never touches user tabs/windows or
-      // another Pi session's target.
-      return cleanupAutomationTarget(sessionKeyOf(params));
-    // ---- Pi Chrome Always: broader-permissions data actions (max-useful set) ----
+    // ---- pi-chrome-always: broader-permissions data actions --------------
     // These use the expanded manifest permissions (cookies/bookmarks/history/
     // downloads/management). They are opt-in via the Pi-side chrome_always_data
     // tool; pi-chrome's own chrome_* tools never send these actions.
@@ -1457,18 +2190,19 @@ async function getTabByParams(params, { createOwnedTarget = true } = {}) {
   // which tabs Pi is driving. We only adopt *ungrouped* tabs — never hijack a tab the user (or
   // another Pi session) already grouped, since groupTab would otherwise rename that group.
   if (params.joinSessionGroup && params.sessionGroupTitle) {
-    await joinSessionGroup(tab, params.sessionGroupTitle);
+    await joinSessionGroup(tab, params.sessionGroupTitle, sessionKeyOf(params));
   }
   return tab;
 }
 
 // Add an ungrouped tab to the session's tab group (reusing it by title, else creating it).
 // No-op when the tab is already grouped or tabGroups is unavailable.
-async function joinSessionGroup(tab, title) {
+async function joinSessionGroup(tab, title, sessionKey) {
   if (!chrome.tabGroups || typeof tab.id !== "number") return;
   if (typeof tab.groupId === "number" && tab.groupId >= 0) return;
   try {
-    await groupTab(tab, title);
+    const grouped = await groupTab(tab, title);
+    await trackSessionTab(sessionKey, tab.id, false, grouped.group?.id);
   } catch {
     // Grouping is best-effort; never block the actual page action on a grouping failure.
   }
@@ -1505,7 +2239,7 @@ const HELPER_FUNCS = [
 
 async function executeInTab(params, func, args) {
   const tab = await getTabByParams(params);
-  if (params.foreground) await bringToFront(tab);
+  await bringToFront(tab, params);
 
   // Phase 1: define the helpers and the action function as page globals via CDP
   // Runtime.evaluate. This bypasses page CSP (no `eval`/`new Function`), which is the
@@ -1522,7 +2256,7 @@ async function executeInTab(params, func, args) {
   // Phase 2: run the action via chrome.scripting.executeScript. The `func:` form is
   // injected by Chrome itself (not `new Function`), so it is CSP-safe, and it lets Chrome
   // serialize the invocation args. The wrapper references window.__piAction defined above.
-  const results = await executeScriptTimed({
+  const results = await executeScriptWithFallback({
     target: { tabId: tab.id },
     world: "MAIN",
     func: async (invocationArgs) => {
@@ -1572,7 +2306,7 @@ function piEvalStringify(v) {
 // pages that ship `script-src 'self'` without `'unsafe-eval'` (which blocks `eval`/`new Function`).
 async function evaluateInTab(params) {
   const tab = await getTabByParams(params);
-  if (params.foreground) await bringToFront(tab);
+  await bringToFront(tab, params);
   const expression = String(params.expression ?? "");
   const stringifySrc = `(${piEvalStringify.toString()})`;
   // Wrap the user expression so the result is run through piEvalStringify in-page before it
@@ -1604,13 +2338,45 @@ async function evaluateInTab(params) {
   return v;
 }
 
+// Run an input action, then optionally snapshot. An action that starts a navigation (Enter submits a
+// form, a click follows a link) used to be snapshotted immediately, so the snapshot described the
+// OUTGOING document and read as "the action did nothing". Anchor the tab's url/status first; when
+// the action plausibly started a load, wait (bounded) for it before snapshotting and report
+// navigation {from, to, settled, waitedMs}. A timeout never fails the action. A tab that was already
+// loading with the same URL is reported but not waited on, so a hanging subresource cannot add a wait
+// to every action.
+const SNAPSHOT_NAVIGATION_WAIT_MS = 5_000;
 async function withOptionalSnapshot(params, actionFn) {
-  const result = await actionFn(params);
-  if (params.includeSnapshot) {
-    const snapshot = await snapshotInTab({ ...params, foreground: false });
-    return { result, snapshot };
+  if (!params.includeSnapshot) return actionFn(params);
+  let anchor = null;
+  try {
+    const tab = await getTabByParams(params);
+    if (tab && typeof tab.id === "number") {
+      anchor = { tabId: tab.id, params: { ...params, targetId: String(tab.id) }, url: String(tab.url ?? ""), status: String(tab.status ?? "") };
+    }
+  } catch {
+    anchor = null; // Let the action surface the targeting error itself.
   }
-  return result;
+  const result = await actionFn(anchor ? anchor.params : params);
+  let navigation;
+  if (anchor) {
+    const after = await chrome.tabs.get(anchor.tabId).catch(() => null);
+    const afterUrl = String(after?.url ?? "");
+    const urlChanged = Boolean(afterUrl && afterUrl !== anchor.url);
+    const loading = after?.status === "loading";
+    if (urlChanged || loading) {
+      const started = Date.now();
+      const startedLoading = loading && (urlChanged || anchor.status === "complete");
+      let settled = !loading;
+      if (startedLoading) {
+        settled = await waitForTabSettled(anchor.tabId, SNAPSHOT_NAVIGATION_WAIT_MS);
+      }
+      const finalTab = await chrome.tabs.get(anchor.tabId).catch(() => after);
+      navigation = { from: anchor.url, to: String(finalTab?.url ?? afterUrl), settled, waitedMs: Date.now() - started };
+    }
+  }
+  const snapshot = await snapshotInTab({ ...(anchor ? anchor.params : params), foreground: false });
+  return navigation ? { result, snapshot, navigation } : { result, snapshot };
 }
 
 // Snapshot/inspect run from a packaged MAIN-world script (snapshot_injected.js) injected via
@@ -1619,7 +2385,7 @@ async function withOptionalSnapshot(params, actionFn) {
 // It shares window.__PI_CHROME_STATE__ (same el- uid scheme) with the CDP-injected input helpers.
 async function snapshotInTab(params) {
   const tab = await getTabByParams(params);
-  if (params.foreground) await bringToFront(tab);
+  await bringToFront(tab, params);
   const args = [
     params.maxElements || 80,
     params.containingText ?? null,
@@ -1629,12 +2395,12 @@ async function snapshotInTab(params) {
     params.query ?? null,
     params.maxTextChars ?? null,
   ];
-  await executeScriptTimed({
+  await executeScriptWithFallback({
     target: { tabId: tab.id, frameIds: [0] },
     world: "MAIN",
     files: ["snapshot_injected.js"],
   }, `inject snapshot script in tab ${tab.id}`);
-  const results = await executeScriptTimed({
+  const results = await executeScriptWithFallback({
     target: { tabId: tab.id, frameIds: [0] },
     world: "MAIN",
     func: async (invocationArgs) => {
@@ -1663,14 +2429,14 @@ async function snapshotInTab(params) {
 async function inspectInTab(params) {
   if (!params.uid && !params.selector) throw new Error("chrome_inspect requires uid or selector");
   const tab = await getTabByParams(params);
-  if (params.foreground) await bringToFront(tab);
+  await bringToFront(tab, params);
   const args = [params.uid ?? null, params.selector ?? null, params.scrollIntoView === true];
-  await executeScriptTimed({
+  await executeScriptWithFallback({
     target: { tabId: tab.id, frameIds: [0] },
     world: "MAIN",
     files: ["snapshot_injected.js"],
   }, `inject inspect script in tab ${tab.id}`);
-  const results = await executeScriptTimed({
+  const results = await executeScriptWithFallback({
     target: { tabId: tab.id, frameIds: [0] },
     world: "MAIN",
     func: async (invocationArgs) => {
@@ -1715,14 +2481,26 @@ async function unregisterInitScript(tabId) {
   await cdp(tabId, "Page.removeScriptToEvaluateOnNewDocument", { identifier }).catch(() => undefined);
 }
 
-// Always inject early console/network capture at document_start on every navigation.
-// Catches console messages, errors, and network requests that fire during page load,
-// before chrome_snapshot or chrome_evaluate install the instrumentation normally.
-// The function installEarlyCapture sets __piChromeWrapped flags so the post-hoc
-// installPiChromeInstrumentation() call is idempotent.
+// Inject early console/network capture at document_start, but only into tabs Pi owns or has used
+// (its automation tab and tabs tracked for a session). Your other tabs are never patched. Catches
+// console messages, errors, and network requests that fire during page load, before chrome_snapshot
+// or chrome_evaluate install the instrumentation normally. installEarlyCapture sets __piChromeWrapped
+// flags so the post-hoc installPiChromeInstrumentation() call is idempotent.
+const pendingTabCreations = new Set(); // in-flight Pi tab creations, resolved once tracked
+
+async function isPiTrackedTab(tabId) {
+  await Promise.all([hydrateAutomationTargets(), hydrateSessionTabs()]);
+  // A tab Pi is creating right now can commit its first page before tab.new has tracked it.
+  if (pendingTabCreations.size) await Promise.allSettled([...pendingTabCreations]);
+  if (isPiChromeOwnedTarget(tabId)) return true;
+  for (const tabs of sessionTabs.values()) if (tabs.has(tabId)) return true;
+  return false;
+}
+
 if (chrome.webNavigation && chrome.webNavigation.onCommitted) {
-  chrome.webNavigation.onCommitted.addListener((details) => {
+  chrome.webNavigation.onCommitted.addListener(async (details) => {
     if (details.frameId !== 0) return;
+    if (!(await isPiTrackedTab(details.tabId).catch(() => false))) return;
     chrome.scripting.executeScript({
       target: { tabId: details.tabId, frameIds: [0] },
       world: "MAIN",
@@ -1733,9 +2511,15 @@ if (chrome.webNavigation && chrome.webNavigation.onCommitted) {
   });
 }
 
-async function bringToFront(tab) {
+function foregroundRequested(params) {
+  // Fail quiet when unspecified, and let background veto even a contradictory foreground flag.
+  return params?.foreground === true && params.background !== true;
+}
+
+async function bringToFront(tab, params) {
+  if (!foregroundRequested(params)) return tab;
   await chrome.windows.update(tab.windowId, { focused: true });
-  await chrome.tabs.update(tab.id, { active: true });
+  return chrome.tabs.update(tab.id, { active: true });
 }
 
 function waitForTabComplete(tabId, timeoutMs) {
@@ -1755,50 +2539,76 @@ function waitForTabComplete(tabId, timeoutMs) {
   });
 }
 
-async function takeScreenshot(params) {
-  const tab = await getTabByParams(params);
-  if (params.foreground) await bringToFront(tab);
-  let previousActiveId;
-  if (!tab.active) {
-    const activeBefore = await chrome.tabs.query({ active: true, windowId: tab.windowId });
-    previousActiveId = activeBefore[0]?.id;
-    await chrome.tabs.update(tab.id, { active: true });
-  }
+// Like waitForTabComplete, but for a load that may already be underway (or already finished):
+// re-checks the tab after subscribing so a completion between the caller's read and the listener
+// registration is not missed. Resolves true when complete, false on timeout; never throws.
+function waitForTabSettled(tabId, timeoutMs) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (value) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    const listener = (updatedTabId, changeInfo) => {
+      if (updatedTabId === tabId && changeInfo.status === "complete") finish(true);
+    };
+    chrome.tabs.onUpdated.addListener(listener);
+    chrome.tabs.get(tabId).then((tab) => {
+      if (!tab) finish(false);
+      else if (tab.status === "complete") finish(true);
+    }, () => finish(false));
+  });
+}
+
+async function captureTabScreenshot(tabId, params) {
+  const format = params.format || "png";
   try {
-    if (params.fullPage) {
-      // Tile-stitched full page capture: scroll, capture, paste, repeat.
-      const tiles = await executeInTab({ ...params, foreground: false }, captureFullPageTiles, []);
-      // captureFullPageTiles only computes scroll positions / metrics; we capture per scroll here
-      // (chrome.tabs.captureVisibleTab can't be called from MAIN world).
-      const captured = [];
-      for (const tile of tiles.tiles) {
-        await executeInTab({ ...params, foreground: false }, scrollToY, [tile.scrollY]);
-        // Small settle delay; many sites have on-scroll animations / lazy-load.
-        await sleep(120);
-        const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
-          format: params.format || "png",
-          quality: params.format === "jpeg" ? params.quality : undefined,
-        });
-        captured.push({ y: tile.y, dataUrl });
-      }
-      await executeInTab({ ...params, foreground: false }, scrollToY, [tiles.originalScrollY]);
-      return {
-        fullPage: true,
-        tab: await formatTab(tab),
-        dimensions: { width: tiles.width, height: tiles.height, viewportHeight: tiles.viewportHeight, dpr: tiles.dpr },
-        tiles: captured,
-      };
-    }
-    const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
-      format: params.format || "png",
-      quality: params.format === "jpeg" ? params.quality : undefined,
-    });
-    return { dataUrl, tab: await formatTab(tab) };
-  } finally {
-    if (previousActiveId !== undefined && previousActiveId !== tab.id) {
-      await chrome.tabs.update(previousActiveId, { active: true }).catch(() => undefined);
-    }
+    await attachDebugger(tabId);
+    const captureParams = { format, fromSurface: true, captureBeyondViewport: false };
+    if (format === "jpeg" && params.quality !== undefined) captureParams.quality = params.quality;
+    const result = await cdp(tabId, "Page.captureScreenshot", captureParams);
+    if (typeof result?.data !== "string" || !result.data) throw new Error("CDP returned no screenshot data");
+    return `data:image/${format};base64,${result.data}`;
+  } catch (error) {
+    // captureVisibleTab requires activation and can race with the user switching tabs. Never
+    // use it as a fallback, even when debugger attachment or background rendering fails.
+    throw new Error(`Chrome screenshot via CDP failed; no tab-activation fallback was attempted. ${error?.message || error}`);
   }
+}
+
+async function takeScreenshot(params) {
+  const tab = await bringToFront(await getTabByParams(params), params);
+  if (params.fullPage) {
+    // Preserve the existing tile + manifest contract. Every tile captures the same resolved tab,
+    // without activation; selector/title changes during capture must not retarget later tiles.
+    const targetParams = { ...params, targetId: tab.id, foreground: false };
+    const tiles = await executeInTab(targetParams, captureFullPageTiles, []);
+    const captured = [];
+    try {
+      for (const tile of tiles.tiles) {
+        await executeInTab(targetParams, scrollToY, [tile.scrollY]);
+        await sleep(120); // Let scroll/lazy-load handlers settle.
+        captured.push({ y: tile.y, dataUrl: await captureTabScreenshot(tab.id, params) });
+      }
+    } finally {
+      // A failed tile must not strand the page at a new scroll position. Restore both axes
+      // best-effort, without masking the capture error if the tab/debugger is gone.
+      await executeInTab(targetParams, scrollToY, [tiles.originalScrollY, tiles.originalScrollX]).catch(() => undefined);
+    }
+    return {
+      fullPage: true,
+      method: "cdp",
+      tab: await formatTab(tab),
+      dimensions: { width: tiles.width, height: tiles.height, viewportHeight: tiles.viewportHeight, dpr: tiles.dpr },
+      tiles: captured,
+    };
+  }
+  const dataUrl = await captureTabScreenshot(tab.id, params);
+  return { dataUrl, method: "cdp", tab: await formatTab(tab) };
 }
 
 // ---------------------------------------------------------------------------
@@ -1982,15 +2792,9 @@ function installPiChromeInstrumentation() {
       level,
       timestamp: Date.now(),
       url: location.href,
-      args: Array.from(args).map((arg) => {
-        try {
-          if (typeof arg === "string") return arg;
-          if (arg instanceof Error) return { name: arg.name, message: arg.message, stack: arg.stack };
-          return JSON.parse(JSON.stringify(arg));
-        } catch {
-          return String(arg);
-        }
-      }),
+      // Keep the raw values and serialize only when Pi lists messages. Serializing here reads every
+      // logged object (getters, toString), which is exactly what anti-DevTools checks watch for.
+      args: Array.from(args),
     });
     if (state.console.length > 500) state.console.splice(0, state.console.length - 500);
   };
@@ -2105,15 +2909,7 @@ function installEarlyCapture() {
       level: level,
       timestamp: Date.now(),
       url: location.href,
-      args: Array.from(args).map(function(arg) {
-        try {
-          if (typeof arg === "string") return arg;
-          if (arg instanceof Error) return { name: arg.name, message: arg.message, stack: arg.stack };
-          return JSON.parse(JSON.stringify(arg));
-        } catch (e) {
-          return String(arg);
-        }
-      }),
+      args: Array.from(args), // raw; serialized on read (see listConsoleMessages)
     });
     if (state.console.length > 500) state.console.splice(0, state.console.length - 500);
   }
@@ -2225,8 +3021,7 @@ function probePage() {
 }
 
 function captureFullPageTiles() {
-  // Returns the *plan* for tile capture; the actual chrome.tabs.captureVisibleTab calls happen
-  // in the SW. We just report the scroll positions and metrics.
+  // Returns the plan for CDP tile capture in the worker: scroll positions and page metrics.
   const html = document.documentElement;
   const body = document.body;
   const width = Math.max(html.scrollWidth, body ? body.scrollWidth : 0, innerWidth);
@@ -2234,17 +3029,18 @@ function captureFullPageTiles() {
   const viewportHeight = innerHeight;
   const dpr = window.devicePixelRatio || 1;
   const originalScrollY = scrollY;
+  const originalScrollX = scrollX;
   const tiles = [];
   let y = 0;
   while (y < height) {
     tiles.push({ y, scrollY: y });
     y += viewportHeight;
   }
-  return { width, height, viewportHeight, dpr, originalScrollY, tiles };
+  return { width, height, viewportHeight, dpr, originalScrollY, originalScrollX, tiles };
 }
 
-function scrollToY(y) {
-  window.scrollTo({ top: y, left: 0, behavior: "instant" });
+function scrollToY(y, x = 0) {
+  window.scrollTo({ top: y, left: x, behavior: "instant" });
   return { scrollY };
 }
 
@@ -2307,7 +3103,7 @@ async function clickPage(selector, uid, x, y) {
       // Inspect recent console errors for activation-gate rejections.
       const recent = (state.console || []).slice(-8);
       const hit = recent.find((e) => /NotAllowedError|Document is not focused|requires transient activation|gesture is required/.test(
-        (e.args || []).map((a) => typeof a === "string" ? a : (a && a.message) || JSON.stringify(a)).join(" ")
+        (e.args || []).map((a) => typeof a === "string" ? a : a instanceof Error ? a.message : "").join(" ")
       ));
       if (hit) { suggestChromeInput = true; suggestReason = "recent console error indicates user-activation gate"; }
     }
@@ -2675,7 +3471,85 @@ async function pressKeyInPage(key) {
 function listConsoleMessages(clear) {
   installPiChromeInstrumentation();
   const state = getPiChromeState();
-  const messages = state.console.slice();
+  // Serialize without running page code. Anti-DevTools checks log objects with getters or a custom
+  // toString and treat any call as "DevTools is open" (issue #9). Copy data properties only, report
+  // accessors as "[getter]" without calling them, and describe built-ins through native getters.
+  const nativeSource = Function.prototype.toString;
+  const isNative = (fn) => { try { return typeof fn === "function" && nativeSource.call(fn).includes("[native code]"); } catch { return false; } };
+  const protoGetter = (proto, key) => { try { return Object.getOwnPropertyDescriptor(proto, key)?.get; } catch { return undefined; } };
+  const callGetter = (proto, key, value) => { const get = protoGetter(proto, key); return get ? get.call(value) : undefined; };
+  const dataProp = (value, key) => {
+    for (let obj = value, hops = 0; obj && hops < 20; obj = Object.getPrototypeOf(obj), hops++) {
+      const desc = Object.getOwnPropertyDescriptor(obj, key);
+      if (!desc) continue;
+      if ("value" in desc) return { ok: true, value: desc.value };
+      return isNative(desc.get) ? { ok: true, value: desc.get.call(value) } : { ok: false };
+    }
+    return { ok: true, value: undefined };
+  };
+  const serialize = (value, depth = 0, seen = new Set()) => {
+    try {
+      const type = typeof value;
+      if (value === null || type === "string" || type === "boolean") return value;
+      if (type === "number") return Number.isFinite(value) ? value : String(value);
+      if (type === "undefined") return "undefined";
+      if (type === "bigint") return `${BigInt.prototype.toString.call(value)}n`;
+      if (type === "symbol") return Symbol.prototype.toString.call(value);
+      if (type === "function") {
+        const name = dataProp(value, "name");
+        return `[function ${name.ok && typeof name.value === "string" && name.value ? name.value : "anonymous"}]`;
+      }
+      if (seen.has(value)) return "[circular]";
+      if (value instanceof Error) {
+        const out = {};
+        for (const key of ["name", "message"]) {
+          const prop = dataProp(value, key);
+          out[key] = prop.ok ? (typeof prop.value === "string" ? prop.value : serialize(prop.value, depth + 1, seen)) : "[getter]";
+        }
+        // V8 formats `stack` lazily from name/message, so only read it when both are plain data.
+        const stack = out.name !== "[getter]" && out.message !== "[getter]" ? dataProp(value, "stack") : { ok: false };
+        out.stack = stack.ok ? (typeof stack.value === "string" ? stack.value : undefined) : "[getter]";
+        return out;
+      }
+      if (value instanceof Date) return Date.prototype.toISOString.call(value);
+      if (value instanceof RegExp) return `/${callGetter(RegExp.prototype, "source", value)}/${callGetter(RegExp.prototype, "flags", value)}`;
+      if (typeof Node !== "undefined" && value instanceof Node) {
+        const name = String(callGetter(Node.prototype, "nodeName", value) || "node").toLowerCase();
+        if (typeof Element === "undefined" || !(value instanceof Element)) return `<${name}>`;
+        const id = callGetter(Element.prototype, "id", value);
+        const cls = String(callGetter(Element.prototype, "className", value) || "").trim().split(/\s+/).filter(Boolean).slice(0, 3);
+        return `<${name}${id ? `#${id}` : ""}${cls.map((c) => `.${c}`).join("")}>`;
+      }
+      if (value instanceof Map) return `[Map(${callGetter(Map.prototype, "size", value)})]`;
+      if (value instanceof Set) return `[Set(${callGetter(Set.prototype, "size", value)})]`;
+      if (depth >= 4) return Array.isArray(value) ? "[array]" : "[object]";
+      seen.add(value);
+      if (Array.isArray(value)) {
+        const length = dataProp(value, "length");
+        const n = length.ok ? Math.min(Number(length.value) || 0, 50) : 0;
+        const out = [];
+        for (let i = 0; i < n; i++) {
+          const item = dataProp(value, String(i));
+          out.push(item.ok ? serialize(item.value, depth + 1, seen) : "[getter]");
+        }
+        if (length.ok && length.value > 50) out.push(`[${length.value - 50} more]`);
+        seen.delete(value);
+        return out;
+      }
+      const out = {};
+      const keys = Object.keys(value);
+      for (const key of keys.slice(0, 50)) {
+        const desc = Object.getOwnPropertyDescriptor(value, key);
+        out[key] = desc && "value" in desc ? serialize(desc.value, depth + 1, seen) : "[getter]";
+      }
+      if (keys.length > 50) out["…"] = `${keys.length - 50} more keys`;
+      seen.delete(value);
+      return out;
+    } catch {
+      return "[unserializable]";
+    }
+  };
+  const messages = state.console.map((entry) => ({ ...entry, args: Array.from(entry.args || [], (arg) => serialize(arg)) }));
   if (clear) state.console = [];
   return { messages, count: messages.length };
 }
