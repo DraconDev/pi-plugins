@@ -65,20 +65,23 @@ run_checks() {
 		emit "  ERROR  no bridge answering at $BRIDGE_URL (is Chrome running with the extension loaded?)"
 		emit "         the live half of this audit cannot run; the static checks below still apply"
 	else
-		printf '%s' "$status" | python3 -c '
+		local live_summary
+		live_summary="$(printf '%s' "$status" | python3 -c '
 import json,sys
 d=json.load(sys.stdin)
 print("  owner    :", "always-on daemon (ours)" if d.get("daemon") else "in-Pi session server (upstream pi-chrome)")
 print("  connected:", d.get("connected"))
 print("  client   :", d.get("clientName"))
 print("  tokenRequired:", d.get("tokenRequired", "field absent => not enforced by this server"))
-' | while IFS= read -r line; do emit "$line"; done
+')"
+		while IFS= read -r line; do emit "$line"; done <<< "$live_summary"
 		poller="$(printf '%s' "$status" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("clientName") or "")')"
 		poller_id="${poller##* }"
 		if [ -z "$poller_id" ]; then
 			emit "  FINDING  the bridge reports no polling client name, so the serving worker cannot be identified"
 		else
-			python3 - "$poller_id" "$INSTALLED_FORK/browser-extension" "$HERE/browser-extension" "$UPSTREAM_ROOT" <<-'PY' | while IFS= read -r line; do emit "$line"; done
+			local identity_report
+			identity_report="$(python3 - "$poller_id" "$INSTALLED_FORK/browser-extension" "$HERE/browser-extension" "$UPSTREAM_ROOT" <<-'PY'
 			import hashlib, string, sys
 			from pathlib import Path
 			poller, staged, repo, upstream = sys.argv[1:5]
@@ -125,6 +128,8 @@ print("  tokenRequired:", d.get("tokenRequired", "field absent => not enforced b
 			    else:
 			        print("  ok       live worker implements every action the upstream package does")
 			PY
+			)"
+			while IFS= read -r line; do emit "$line"; done <<< "$identity_report"
 		fi
 		say ""
 	fi
@@ -136,7 +141,8 @@ print("  tokenRequired:", d.get("tokenRequired", "field absent => not enforced b
 	elif [ ! -f "$FORK_WORKER" ]; then
 		emit "  ERROR  fork worker missing at $FORK_WORKER"
 	else
-		python3 - "$FORK_WORKER" "$UPSTREAM_ROOT/service_worker.js" "$AI_REPO" <<-'PY' | while IFS= read -r line; do emit "$line"; done
+		local parity_report
+		parity_report="$(python3 - "$FORK_WORKER" "$UPSTREAM_ROOT/service_worker.js" "$AI_REPO" <<-'PY'
 		import re, sys
 		from pathlib import Path
 		fork_path, upstream_path, ai_repo = sys.argv[1:4]
@@ -162,11 +168,14 @@ print("  tokenRequired:", d.get("tokenRequired", "field absent => not enforced b
 		        print(f"  FINDING  {ai_repo}/scripts/_bridge_cdp.py calls " + ", ".join(needed))
 		        print("           so loading our fork in place of upstream breaks that caller")
 		PY
+		)"
+		while IFS= read -r line; do emit "$line"; done <<< "$parity_report"
 	fi
 	say ""
 
 	say "-- static: manifest permissions vs actual use --"
-	python3 - "$FORK_MANIFEST" "$HERE/browser-extension" <<-'PY' | while IFS= read -r line; do emit "$line"; done
+	local permission_report
+	permission_report="$(python3 - "$FORK_MANIFEST" "$HERE/browser-extension" <<-'PY'
 	import json, re, sys
 	from pathlib import Path
 	manifest_path, ext_dir = sys.argv[1:3]
@@ -187,6 +196,8 @@ print("  tokenRequired:", d.get("tokenRequired", "field absent => not enforced b
 	    print("  note     browser-data permissions present: " + ", ".join(broad))
 	    print("           these are the actions a local process can reach through /command")
 	PY
+	)"
+	while IFS= read -r line; do emit "$line"; done <<< "$permission_report"
 	say ""
 
 	say "-- static: token enforcement as installed --"
