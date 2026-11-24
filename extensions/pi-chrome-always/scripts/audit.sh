@@ -73,8 +73,28 @@ print("  owner    :", "always-on daemon (ours)" if d.get("daemon") else "in-Pi s
 print("  connected:", d.get("connected"))
 print("  client   :", d.get("clientName"))
 print("  tokenRequired:", d.get("tokenRequired", "field absent => not enforced by this server"))
+clients = d.get("pollingClients")
+if isinstance(clients, list):
+    print("  polling  :", len(clients), "extension(s) have polled this bridge")
+    for c in clients:
+        print("            -", c.get("name"))
 ')"
 		while IFS= read -r line; do emit "$line"; done <<< "$live_summary"
+		# More than one extension polling the same /next queue is the fork's
+		# central hazard: whichever polls first wins each command, so a fork
+		# that is not the poller silently answers with actions it lacks.
+		local polling_count
+		polling_count="$(printf '%s' "$status" | python3 -c '
+import json,sys
+clients = json.load(sys.stdin).get("pollingClients")
+print(len(clients) if isinstance(clients, list) else 0)
+' 2>/dev/null || echo 0)"
+		if [ "${polling_count:-0}" -gt 1 ]; then
+			emit "  FINDING  $polling_count extensions are polling this bridge"
+			emit "           they answer the same /next queue, so each command goes to whichever"
+			emit "           polls first: a data.* action can be answered by a worker that does"
+			emit "           not implement it (\"Unknown action\"). Disable one of them."
+		fi
 		poller="$(printf '%s' "$status" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("clientName") or "")')"
 		poller_id="${poller##* }"
 		if [ -z "$poller_id" ]; then
@@ -82,11 +102,26 @@ print("  tokenRequired:", d.get("tokenRequired", "field absent => not enforced b
 		else
 			local identity_report
 			identity_report="$(python3 - "$poller_id" "$INSTALLED_FORK/browser-extension" "$HERE/browser-extension" "$UPSTREAM_ROOT" <<-'PY'
-			import hashlib, string, sys
+			import base64, hashlib, json, re, string, sys
 			from pathlib import Path
 			poller, staged, repo, upstream = sys.argv[1:5]
 			alpha = string.ascii_lowercase + string.digits
 			def unpacked_id(path):
+			    # Chrome derives an UNPACKED extension's id from the absolute path
+			    # unless the manifest pins a "key", in which case the key wins and
+			    # the id is the same from every directory. Our fork pins one, so
+			    # compute the real id rather than guessing from the path.
+			    manifest = Path(path) / "manifest.json"
+			    try:
+			        key = json.loads(manifest.read_text()).get("key")
+			    except Exception:
+			        key = None
+			    if key:
+			        digest = hashlib.sha256(base64.b64decode(key)).digest()
+			        out = ""
+			        for byte in digest[:16]:
+			            out += alpha[byte >> 4] + alpha[byte & 15]
+			        return out
 			    digest = hashlib.sha256(path.encode()).digest()
 			    out = ""
 			    for byte in digest[:16]:
@@ -96,7 +131,6 @@ print("  tokenRequired:", d.get("tokenRequired", "field absent => not enforced b
 			    candidate = Path(root) / "service_worker.js"
 			    return candidate.read_text(errors="replace") if candidate.is_file() else ""
 			def actions(text):
-			    import re
 			    return set(re.findall(r'case "([a-z_]+\.[A-Za-z_]+)"', text))
 			up_text = worker_text(upstream)
 			staged_text = worker_text(staged)
@@ -107,7 +141,7 @@ print("  tokenRequired:", d.get("tokenRequired", "field absent => not enforced b
 			    "upstream pi-chrome package": unpacked_id(upstream),
 			}
 			# The worker that is actually answering /next is the one whose
-			# unpacked-path id equals the polling client id. Its action set is
+			# extension id equals the polling client id. Its action set is
 			# what a local caller can actually reach.
 			served_text = {
 			    "installed copy of our fork": staged_text,
@@ -225,22 +259,38 @@ print("  tokenRequired:", d.get("tokenRequired", "field absent => not enforced b
 	say ""
 
 	say "-- static: token enforcement as installed --"
-	if [ -f "$UNIT_PATH" ]; then
-		if grep -q 'PI_CHROME_ALWAYS_TOKEN' "$UNIT_PATH"; then
-			emit "  ok       the systemd unit sets PI_CHROME_ALWAYS_TOKEN, so /command requires the token"
+	# The daemon reads the token file (0600) and REQUIRES it for the browser-data
+	# actions (data.*), which reach the operator's cookies and history. Ordinary
+	# actions keep upstream's loopback-trust model so an upstream pi-chrome
+	# client and the book campaign's scripts/_bridge_cdp.py keep working.
+	if [ -f "$INSTALLED_FORK/token" ]; then
+		perm="$(stat -c '%a' "$INSTALLED_FORK/token" 2>/dev/null || echo '?')"
+		if [ "$perm" = "600" ]; then
+			emit "  ok       token file present (mode 600); the daemon requires it for data.* actions"
 		else
-			emit "  FINDING  the systemd unit does not set PI_CHROME_ALWAYS_TOKEN"
-			emit "           a token file exists but never enforces; the daemon accepts /command"
-			emit "           from any local process, including the browser-data actions"
+			emit "  FINDING  token file mode is $perm, expected 600"
+			emit "           the token is the only thing gating the browser-data actions, so it"
+			emit "           must not be readable by other local users"
+		fi
+		if grep -q 'TOKEN_GATED_ACTION_PREFIXES' "$HERE/daemon.mjs"; then
+			emit "  ok       the daemon gates the browser-data actions on the token"
+		else
+			emit "  FINDING  the daemon does not gate the browser-data actions on the token"
+			emit "           data.cookies.list / data.history.search / data.downloads.list are"
+			emit "           reachable from every local process"
+		fi
+	else
+		emit "  FINDING  no token file at $INSTALLED_FORK/token"
+		emit "           the browser-data actions are refused until install.sh generates one"
+	fi
+	if [ -f "$UNIT_PATH" ]; then
+		if grep -q 'PI_CHROME_ALWAYS_REQUIRE_TOKEN' "$UNIT_PATH"; then
+			emit "  note     the unit sets PI_CHROME_ALWAYS_REQUIRE_TOKEN (0 = data.* only, 1 = every action)"
+		else
+			emit "  note     the unit does not set PI_CHROME_ALWAYS_REQUIRE_TOKEN (data.* gating is the default)"
 		fi
 	else
 		emit "  note     no systemd unit at $UNIT_PATH"
-	fi
-	if [ -f "$INSTALLED_FORK/token" ]; then
-		perm="$(stat -c '%a' "$INSTALLED_FORK/token" 2>/dev/null || echo '?')"
-		emit "  note     token file present (mode $perm); the file alone does not enforce"
-	else
-		emit "  note     no token file"
 	fi
 	say ""
 
