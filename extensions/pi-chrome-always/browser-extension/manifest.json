@@ -4,6 +4,7 @@
   "short_name": "Pi Chrome Always",
   "version": "0.1.0",
   "description": "Always-on local connector: lets Pi (and any local tool) control tabs in your existing Chrome profile via a persistent loopback bridge at 127.0.0.1:17318. Fork of pi-chrome's companion with broader permissions and keepalive.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAm8zl5w8qSaQLktN64IQZwnwYmIwCvnQsWX0/gNtKYuXURwIq54LJ7pU4uVNPx82QwqE5vNmnN1QuDjI0p1FLymKtSourgbW+L3tV6pE0gCITx+bi+FlSBhwuSYQBvBhSl1/XjmwlWxIyXgSM/wgKRLtd+HLUjRsWfFpMgsDrLcfqQ29rtywWJW9cR+9Q1hh/Xiyoqy6H5B4fPL+GS7FQHLh5JHEpRNyWkymlUan9WDxi10sNsntzyCaj/sFTXBSZUXo8T59zwq8ch6tHNsBrbi41kgWVTw+HFSsAZV2AreORMmDqvGDSqzpJEUCibsGa7noOq2q1vR/3vhix6FR6LwIDAQAB",
   "permissions": [
     "tabs",
     "tabGroups",
@@ -18,8 +19,7 @@
     "history",
     "downloads",
     "management",
-    "notifications",
-    "desktopCapture"
+    "offscreen"
   ],
   "host_permissions": [
     "<all_urls>",
