@@ -58,13 +58,44 @@ const UPSTREAM_VERSION = readJsonVersion([
   join(HERE, "..", "pi-chrome", "package.json"),
 ]) ?? "unknown";
 
-// Optional token auth for /command (opt-in; default off for client compat).
-// Enforced ONLY when PI_CHROME_ALWAYS_TOKEN is set on the daemon process.
-// The token FILE (~/.local/share/pi-chrome-always/token) alone never
-// enforces — it is a distribution path for the same value; Pi-side tools
-// send X-Pi-Chrome-Token when the file exists, so setting the env on the
-// daemon completes the opt-in without breaking unauthenticated local callers.
-const REQUIRED_TOKEN = (process.env.PI_CHROME_ALWAYS_TOKEN ?? "").trim() || undefined;
+// Optional token auth for /command.
+//
+// The token is opt-in for ORDINARY actions (loopback trust, same as upstream:
+// cdp.call, evaluate, tab.*). It is MANDATORY for the fork's own browser-data
+// actions (data.cookies.*, data.history.*, data.downloads.*, data.bookmarks.*,
+// data.extensions.*). Those reach the operator's session cookies and browsing
+// history, so they must not be open to every local process that can open a
+// socket to 127.0.0.1.
+//
+// The value comes from PI_CHROME_ALWAYS_TOKEN, or from the token file that
+// install.sh generates next to this daemon (0600, owner-only). Reading the
+// file is what makes the shipped token meaningful: previously the file alone
+// never enforced anything, so the browser-data actions were wide open.
+//
+// The fork's own Pi-side client (index.ts) sends the same value as the
+// X-Pi-Chrome-Token header, so chrome_always_data keeps working, and it
+// forwards the header to this daemon when it is in client mode.
+const REQUIRED_TOKEN = (() => {
+  const env = (process.env.PI_CHROME_ALWAYS_TOKEN ?? "").trim();
+  if (env) return env;
+  // The token file lives beside the installed daemon; fall back to the
+  // well-known install location so a repo-local run also finds it.
+  for (const candidate of [join(HERE, "token"), join(process.env.HOME ?? "", ".local/share/pi-chrome-always/token")]) {
+    try {
+      const value = readFileSync(candidate, "utf8").trim();
+      if (value) return value;
+    } catch {}
+  }
+  return undefined;
+})();
+
+// Actions that need the token even though the rest of the bridge is on
+// loopback trust. Prefix-matched so a new data.* action is gated by default.
+const TOKEN_GATED_ACTION_PREFIXES = ["data."];
+
+function isTokenGatedAction(action) {
+  return TOKEN_GATED_ACTION_PREFIXES.some((prefix) => action.startsWith(prefix));
+}
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -141,6 +172,7 @@ class ChromeProfileBridge {
       queuedCommands: this.queue.length,
       pendingCommands: this.pending.size,
       tokenRequired: Boolean(REQUIRED_TOKEN),
+      tokenGatedActions: TOKEN_GATED_ACTION_PREFIXES,
     };
   }
   start() {
@@ -222,9 +254,6 @@ class ChromeProfileBridge {
       if (!isLocalProcessRequest(req)) {
         return sendJson(res, 403, { ok: false, error: "Chrome commands accepted only from local processes" });
       }
-      if (REQUIRED_TOKEN && req.headers["x-pi-chrome-token"] !== REQUIRED_TOKEN) {
-        return sendJson(res, 403, { ok: false, error: "invalid or missing X-Pi-Chrome-Token" });
-      }
       let body;
       try {
         body = JSON.parse(await readBody(req));
@@ -232,6 +261,24 @@ class ChromeProfileBridge {
         return sendJson(res, 400, { ok: false, error: "invalid JSON" });
       }
       if (!body.action) return sendJson(res, 400, { ok: false, error: "Missing command action" });
+      // Browser-data actions are privileged: they read the operator's cookies,
+      // history, downloads and bookmarks, so they always need the token even
+      // when the rest of the bridge runs on loopback trust.
+      if (isTokenGatedAction(body.action)) {
+        if (!REQUIRED_TOKEN) {
+          return sendJson(res, 403, {
+            ok: false,
+            error:
+              `${body.action} requires the bridge token, but no token is configured. ` +
+              `Run install.sh to generate one, or set PI_CHROME_ALWAYS_TOKEN on the daemon.`,
+          });
+        }
+        if (req.headers["x-pi-chrome-token"] !== REQUIRED_TOKEN) {
+          return sendJson(res, 403, { ok: false, error: "invalid or missing X-Pi-Chrome-Token" });
+        }
+      } else if (REQUIRED_TOKEN && req.headers["x-pi-chrome-token"] !== REQUIRED_TOKEN) {
+        return sendJson(res, 403, { ok: false, error: "invalid or missing X-Pi-Chrome-Token" });
+      }
       try {
         const result = await this.sendLocal(body.action, body.params ?? {}, body.timeoutMs ?? DEFAULT_TIMEOUT_MS);
         return sendJson(res, 200, { ok: true, result });
