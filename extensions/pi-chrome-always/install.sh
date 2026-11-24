@@ -17,20 +17,45 @@ mkdir -p "${HOME}/.config/systemd/user"
 
 cp "$SRC_DIR/daemon.mjs" "$INSTALL_DIR/daemon.mjs"
 cp "$SRC_DIR/package.json" "$INSTALL_DIR/package.json"
-mkdir -p "$INSTALL_DIR/browser-extension"
+mkdir -p "$INSTALL_DIR/browser-extension/icons"
 cp "$SRC_DIR/browser-extension/manifest.json" "$INSTALL_DIR/browser-extension/"
 cp "$SRC_DIR/browser-extension/service_worker.js" "$INSTALL_DIR/browser-extension/"
 cp "$SRC_DIR/browser-extension/snapshot_injected.js" "$INSTALL_DIR/browser-extension/"
 cp "$SRC_DIR/browser-extension/offscreen.html" "$INSTALL_DIR/browser-extension/"
 cp "$SRC_DIR/browser-extension/offscreen.js" "$INSTALL_DIR/browser-extension/"
+cp "$SRC_DIR"/browser-extension/icons/* "$INSTALL_DIR/browser-extension/icons/" 2>/dev/null || true
 echo "✓ daemon + extension staged at $INSTALL_DIR"
 echo "  (Load unpacked expects: $INSTALL_DIR/browser-extension)"
 
-# Token: generate only if missing (0600). Daemon reads it only when
-# PI_CHROME_ALWAYS_TOKEN is set or PI_CHROME_ALWAYS_ENFORCE_TOKEN=1; the
-# Pi extension sends X-Pi-Chrome-Token when the file exists. Default
-# pi-chrome client mode sends no token, so token enforcement is OPT-IN:
-# unset by default to avoid breaking upstream clients.
+# The manifest pins an extension id via its "key" field, so the fork has the
+# SAME id no matter which directory it is loaded from. That is what makes the
+# fork identifiable in chrome://extensions and in the bridge's /status, and it
+# is what stops "which worker is really serving" from being unanswerable.
+FORK_EXT_ID=""
+if [ -f "$INSTALL_DIR/browser-extension/manifest.json" ]; then
+  FORK_EXT_ID="$(python3 - "$INSTALL_DIR/browser-extension/manifest.json" <<'PY'
+import base64, hashlib, json, sys
+manifest = json.load(open(sys.argv[1]))
+key = manifest.get("key")
+if not key:
+    print("")
+    raise SystemExit(0)
+digest = hashlib.sha256(base64.b64decode(key)).digest()
+alphabet = "abcdefghijklmnop"
+print("".join(alphabet[b >> 4] + alphabet[b & 15] for b in digest[:16]))
+PY
+)"
+fi
+if [ -n "$FORK_EXT_ID" ]; then
+	echo "✓ fork extension id (pinned by the manifest key): $FORK_EXT_ID"
+	echo "  In chrome://extensions the fork's card shows that id; upstream's card"
+	echo "  shows a different one. Only ONE of them should be enabled."
+fi
+
+# Token: generate only if missing (0600). The daemon reads this file, so the
+# browser-data actions (data.cookies.*, data.history.*, data.downloads.*,
+# data.bookmarks.*, data.extensions.*) always require X-Pi-Chrome-Token.
+# Ordinary actions keep upstream's loopback-trust model.
 TOKEN_FILE="${HOME}/.local/share/pi-chrome-always/token"
 if [ ! -f "$TOKEN_FILE" ]; then
   head -c 32 /dev/urandom | base64 | tr -d '\n' > "$TOKEN_FILE"
@@ -39,10 +64,9 @@ if [ ! -f "$TOKEN_FILE" ]; then
 else
   echo "• token exists: $TOKEN_FILE (left untouched)"
 fi
-echo "  NOTE: token file alone does not enforce. To require it, set in the"
-echo "  systemd unit: Environment=PI_CHROME_ALWAYS_TOKEN=<value from token file> (not printed)"
-echo "  (value redacted; edit the unit + daemon restart). Upstream pi-chrome"
-echo "  clients do not send the token, so enforcing breaks them — see README."
+echo "  The daemon enforces this token for the data.* actions only."
+echo "  To require it for EVERY action, set PI_CHROME_ALWAYS_REQUIRE_TOKEN=1"
+echo "  in the systemd unit (that breaks upstream pi-chrome clients)."
 
 # systemd unit
 cp "$SERVICE_SRC" "$SERVICE_DST"
