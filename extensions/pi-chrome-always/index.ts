@@ -1759,7 +1759,7 @@ Usage rules:
 			host: Type.Optional(Type.String()),
 			port: Type.Optional(Type.Number()),
 		}),
-		async execute(_id, params, signal): Promise<ToolTextResult> {
+		async execute(_id, params, signal, _onUpdate, ctx: ExtensionContext): Promise<ToolTextResult> {
 			const value = await authorizedBridgeSend("page.evaluate", params, DEFAULT_TIMEOUT_MS, signal);
 			const cwd = workspaceCwd(ctx);
 			const capped = capEvaluateOutput(value, { capBytes: EVALUATE_OUTPUT_CAP_BYTES, sidecarDir: join(cwd, EVALUATE_SIDECAR_DIR) });
