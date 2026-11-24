@@ -6,10 +6,19 @@ Documentation=file:///home/dracon/Dev/pi-plugins/extensions/pi-chrome-always/REA
 [Service]
 Type=simple
 ExecStart=/usr/bin/env node /home/dracon/.local/share/pi-chrome-always/daemon.mjs
-Restart=on-failure
+Restart=always
 RestartSec=2
 Environment=PI_CHROME_BRIDGE_HOST=127.0.0.1
 Environment=PI_CHROME_BRIDGE_PORT=17318
+# The browser-data actions (data.cookies.*, data.history.*, data.downloads.*,
+# data.bookmarks.*, data.extensions.*) always require X-Pi-Chrome-Token. The
+# daemon reads the token from /home/dracon/.local/share/pi-chrome-always/token
+# (0600, owner-only), so no secret has to live in this unit file.
+#
+# Set PI_CHROME_ALWAYS_REQUIRE_TOKEN=1 to additionally require the token for
+# EVERY action. That is off by default: upstream pi-chrome clients and the
+# book campaign's scripts/_bridge_cdp.py speak the raw protocol with no token.
+Environment=PI_CHROME_ALWAYS_REQUIRE_TOKEN=0
 WorkingDirectory=/home/dracon/.local/share/pi-chrome-always
 StandardOutput=journal
 StandardError=journal
