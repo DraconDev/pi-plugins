@@ -152,6 +152,12 @@ class ChromeProfileBridge {
     this.waiters = [];
     this.lastSeenAt = undefined;
     this.clientName = undefined;
+    // Every extension that has polled /next, by clientName. Chrome derives an
+    // unpacked extension's id from its absolute path, so the fork and upstream
+    // are DIFFERENT extensions that both answer the same queue -- whichever
+    // polls first wins each command. Recording all of them makes that
+    // conflict observable instead of silent.
+    this.pollingClients = new Map();
   }
   get url() {
     return `http://${this.host}:${this.port}`;
@@ -169,6 +175,7 @@ class ChromeProfileBridge {
       connected: this.connected,
       lastSeenAt: this.lastSeenAt,
       clientName: this.clientName,
+      pollingClients: [...this.pollingClients.entries()].map(([name, seenAt]) => ({ name, lastSeenAt: seenAt })),
       queuedCommands: this.queue.length,
       pendingCommands: this.pending.size,
       tokenRequired: Boolean(REQUIRED_TOKEN),
@@ -276,7 +283,10 @@ class ChromeProfileBridge {
         if (req.headers["x-pi-chrome-token"] !== REQUIRED_TOKEN) {
           return sendJson(res, 403, { ok: false, error: "invalid or missing X-Pi-Chrome-Token" });
         }
-      } else if (REQUIRED_TOKEN && req.headers["x-pi-chrome-token"] !== REQUIRED_TOKEN) {
+      } else if (REQUIRED_TOKEN && process.env.PI_CHROME_ALWAYS_REQUIRE_TOKEN === "1" && req.headers["x-pi-chrome-token"] !== REQUIRED_TOKEN) {
+        // Opt-in blanket lockdown for EVERY action (PI_CHROME_ALWAYS_REQUIRE_TOKEN=1).
+        // Off by default: upstream pi-chrome clients and the campaign's
+        // scripts/_bridge_cdp.py speak the raw protocol without a token.
         return sendJson(res, 403, { ok: false, error: "invalid or missing X-Pi-Chrome-Token" });
       }
       try {
@@ -290,6 +300,7 @@ class ChromeProfileBridge {
       if (!isBrowserOriginAllowed(req)) return sendJson(res, 403, { ok: false, error: "browser origin not allowed" });
       this.lastSeenAt = Date.now();
       this.clientName = url.searchParams.get("name") ?? undefined;
+      if (this.clientName) this.pollingClients.set(this.clientName, this.lastSeenAt);
       let aborted = false;
       let activeWaiter;
       req.once("close", () => {
