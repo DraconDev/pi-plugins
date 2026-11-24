@@ -46,9 +46,17 @@ Verify:
 curl -s http://127.0.0.1:17318/status
 systemctl --user status pi-chrome-always --no-pager
 ./extensions/pi-chrome-always/scripts/doctor.sh
+./extensions/pi-chrome-always/scripts/audit.sh
 ```
 
 In Pi: `/chrome doctor` (trace daemon + extension + versions).
+
+`doctor.sh` reports whether the bridge answers. `audit.sh` reports whether the
+extension answering it is THIS fork, whether it implements every action the upstream
+package implements, whether the permissions this fork adds are used by its code, and
+whether the token is actually enforced as installed. It is read-only and exits
+non-zero on any finding; the findings of the 2026-11-24 run are in
+[AUDIT-2026-11-24.md](./AUDIT-2026-11-24.md).
 
 ## Commands
 

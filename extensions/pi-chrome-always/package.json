@@ -1,35 +1,36 @@
 {
-	"name": "pi-chrome-always",
-	"version": "0.1.0",
-	"description": "Self-contained always-on Chrome bridge for Pi: forked bridge + 19 chrome_* tools + chrome_always_data, systemd daemon on 127.0.0.1:17318, indefinite auto-auth, forked companion extension with broad permissions and offscreen keepalive. No npm:pi-chrome required at runtime (MIT fork of upstream pi-chrome).",
-	"type": "module",
-	"main": "index.ts",
-	"scripts": {
-		"clean": "echo 'nothing to clean'",
-		"build": "echo 'nothing to build'",
-		"check": "tsc --noEmit",
-		"doctor": "./scripts/doctor.sh"
-	},
-	"keywords": [
-		"pi",
-		"pi-package",
-		"pi-extension",
-		"extension",
-		"pi-chrome",
-		"chrome",
-		"browser",
-		"browser-automation",
-		"always-on",
-		"systemd",
-		"loopback-bridge"
-	],
-	"author": {
-		"name": "DraconDev"
-	},
-	"license": "MIT",
-	"pi": {
-		"extensions": [
-			"./index.ts"
-		]
-	}
+  "name": "pi-chrome-always",
+  "version": "0.1.0",
+  "description": "Self-contained always-on Chrome bridge for Pi: forked bridge + 19 chrome_* tools + chrome_always_data, systemd daemon on 127.0.0.1:17318, indefinite auto-auth, forked companion extension with broad permissions and offscreen keepalive. No npm:pi-chrome required at runtime (MIT fork of upstream pi-chrome).",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "clean": "echo 'nothing to clean'",
+    "build": "echo 'nothing to build'",
+    "check": "tsc --noEmit",
+    "doctor": "./scripts/doctor.sh",
+    "audit": "./scripts/audit.sh"
+  },
+  "keywords": [
+    "pi",
+    "pi-package",
+    "pi-extension",
+    "extension",
+    "pi-chrome",
+    "chrome",
+    "browser",
+    "browser-automation",
+    "always-on",
+    "systemd",
+    "loopback-bridge"
+  ],
+  "author": {
+    "name": "DraconDev"
+  },
+  "license": "MIT",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
 }
