@@ -106,9 +106,17 @@ print("  tokenRequired:", d.get("tokenRequired", "field absent => not enforced b
 			    "our fork in the repo": unpacked_id(repo),
 			    "upstream pi-chrome package": unpacked_id(upstream),
 			}
+			# The worker that is actually answering /next is the one whose
+			# unpacked-path id equals the polling client id. Its action set is
+			# what a local caller can actually reach.
+			served_text = {
+			    "installed copy of our fork": staged_text,
+			    "our fork in the repo": fork_text,
+			    "upstream pi-chrome package": up_text,
+			}.get(match_label := next((label for label, ident in ids.items() if ident == poller), ""), "")
 			for label, ident in ids.items():
 			    print(f"  id       : {ident}  {label}")
-			match = next((label for label, ident in ids.items() if ident == poller), None)
+			match = match_label or None
 			if match is None:
 			    print(f"  poller   : {poller} (not any path this audit knows)")
 			    print("  FINDING  the extension actually polling is not a copy of our fork")
@@ -120,13 +128,15 @@ print("  tokenRequired:", d.get("tokenRequired", "field absent => not enforced b
 			            print("           so every data.* action this fork adds is unreachable: a local")
 			            print("           caller gets \"Unknown action\" instead of browser data, and the")
 			            print("           fork's own doctor.sh reports a healthy bridge it never served")
-			    served = actions(staged_text or fork_text)
-			    print(f"  actions served by the live worker: {len(served)}")
-			    missing = sorted(actions(up_text) - served) if up_text else []
+			    served = actions(served_text)
+			    print(f"  actions the live worker implements: {len(served)}")
+			    wanted = sorted(actions(fork_text) | actions(up_text))
+			    missing = sorted(set(wanted) - served)
 			    if missing:
 			        print("  FINDING  the live worker does not implement: " + ", ".join(missing))
+			        print("           a local caller of those actions gets \"Unknown action\"")
 			    else:
-			        print("  ok       live worker implements every action the upstream package does")
+			        print("  ok       live worker implements every action either copy declares")
 			PY
 			)"
 			while IFS= read -r line; do emit "$line"; done <<< "$identity_report"
@@ -175,22 +185,36 @@ print("  tokenRequired:", d.get("tokenRequired", "field absent => not enforced b
 
 	say "-- static: manifest permissions vs actual use --"
 	local permission_report
-	permission_report="$(python3 - "$FORK_MANIFEST" "$HERE/browser-extension" <<-'PY'
+	permission_report="$(python3 - "$FORK_MANIFEST" "$HERE/browser-extension" "$UPSTREAM_ROOT/manifest.json" <<-'PY'
 	import json, re, sys
 	from pathlib import Path
-	manifest_path, ext_dir = sys.argv[1:3]
+	manifest_path, ext_dir, upstream_manifest_path = sys.argv[1:4]
 	manifest = json.loads(Path(manifest_path).read_text())
 	sources = "\n".join(p.read_text(errors="replace") for p in sorted(Path(ext_dir).glob("*.js")))
 	declared = list(manifest.get("permissions") or [])
-	used = [p for p in declared if re.search(rf"chrome\.{re.escape(p)}\.", sources)]
-	unused = [p for p in declared if p not in used]
-	print(f"  declared: {len(declared)}   referenced in code: {len(used)}")
-	if unused:
-	    print("  FINDING  declared but never used: " + ", ".join(unused))
+	# A permission is "used" when the code calls its API. `activeTab` has no
+	# chrome.activeTab.* API (it is a grant consumed implicitly by
+	# chrome.scripting), so it is judged against the upstream manifest: a
+	# permission upstream also declares is inherited, not something this fork
+	# added on its own.
+	upstream_declared = []
+	try:
+	    upstream_declared = list(json.loads(Path(upstream_manifest_path).read_text()).get("permissions") or [])
+	except Exception:
+	    pass
+	def calls(permission):
+	    return bool(re.search(rf"chrome\.{re.escape(permission)}\.", sources))
+	unused_added = [
+	    p for p in declared
+	    if not calls(p) and p not in upstream_declared
+	]
+	print(f"  declared: {len(declared)}   upstream declares: {len(upstream_declared)}")
+	if unused_added:
+	    print("  FINDING  this fork declares but never uses: " + ", ".join(unused_added))
 	    print("           these grant the extension reach it never takes; the operator's")
 	    print("           signed-in profile is exposed to that reach for nothing")
 	else:
-	    print("  ok       every declared permission is used by the extension code")
+	    print("  ok       every permission this fork adds on top of upstream is used by its code")
 	broad = [p for p in declared if p in ("cookies", "history", "bookmarks", "downloads", "management")]
 	if broad:
 	    print("  note     browser-data permissions present: " + ", ".join(broad))
