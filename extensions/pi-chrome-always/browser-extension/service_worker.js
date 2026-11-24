@@ -1,5 +1,9 @@
 const BRIDGE_URL = "http://127.0.0.1:17318";
-const CLIENT_NAME = `Pi Chrome Connector ${chrome.runtime.id}`;
+// pi-chrome-always identifies itself distinctly from upstream pi-chrome, whose
+// worker uses the same "Pi Chrome Connector <id>" name. The bridge reports the
+// polling clientName, so a distinct prefix is what makes "which worker is
+// actually serving" answerable from /status alone.
+const CLIENT_NAME = `Pi Chrome Always ${chrome.runtime.id}`;
 const POLL_ERROR_BACKOFF_MS = 2000;
 // /next is a server-side long poll held for up to 25s (see waitForCommand in index.ts). A fetch that
 // outlives this deadline means the socket is half-open (the owning Pi process died, the machine
