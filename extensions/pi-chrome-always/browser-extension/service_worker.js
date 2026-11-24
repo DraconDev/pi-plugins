@@ -1602,13 +1602,50 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.action.setBadgeText({ text: "pi" });
   chrome.action.setBadgeBackgroundColor({ color: "#4f46e5" });
   armKeepaliveAlarm();
+  void disableRivalConnectors();
   void pollLoop();
 });
+
+// pi-chrome-always: two Pi Chrome connectors must never both answer the same
+// /next queue.
+//
+// Chrome derives an unpacked extension's id from its absolute path, so our fork
+// and upstream's npm package are DIFFERENT extensions that both poll the same
+// queue -- whichever polls first wins each command. That is not a benign race:
+// a data.* action answered by upstream's worker comes back "Unknown action",
+// and the fork's own doctor reports a healthy bridge it never served.
+//
+// This fork declares the "management" permission, so it can disable the rival
+// itself instead of asking the operator to untick it by hand. Upstream's
+// connector is the one to disable: this fork is a strict superset of it, so
+// nothing upstream can do is lost.
+//
+// It is safe to re-enable upstream's connector in chrome://extensions at any
+// time; it will be disabled again on the next worker start.
+const RIVAL_CONNECTOR_NAMES = new Set(["Pi Chrome Connector"]);
+
+async function disableRivalConnectors() {
+  try {
+    if (!chrome.management?.getAll || !chrome.management?.setEnabled) return;
+    const exts = await chrome.management.getAll();
+    for (const ext of exts) {
+      if (ext.type !== "extension") continue;
+      if (ext.id === chrome.runtime.id) continue;
+      if (!RIVAL_CONNECTOR_NAMES.has(ext.name)) continue;
+      if (!ext.enabled) continue;
+      await chrome.management.setEnabled(ext.id, false).catch(() => undefined);
+    }
+  } catch {
+    // Management API unavailable (or permission not granted): the operator can
+    // still untick the rival by hand. Not fatal.
+  }
+}
 
 chrome.runtime.onStartup.addListener(() => {
   // A new browser run: tab ids from the last run mean nothing now.
   Promise.resolve(chrome.storage?.local?.remove?.([AUTOMATION_STORAGE_KEY, SESSION_TABS_STORAGE_KEY])).catch(() => {});
   armKeepaliveAlarm();
+  void disableRivalConnectors();
   void pollLoop();
 });
 
