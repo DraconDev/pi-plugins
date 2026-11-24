@@ -93,6 +93,17 @@ const EVALUATE_CAP_ENV = Number(process.env.PI_CHROME_EVALUATE_OUTPUT_CAP);
 const EVALUATE_OUTPUT_CAP_BYTES = Number.isFinite(EVALUATE_CAP_ENV) && EVALUATE_CAP_ENV > 0 ? EVALUATE_CAP_ENV : EVALUATE_CAP_DEFAULT_BYTES;
 const EVALUATE_SIDECAR_DIR = join(".pi", "chrome-evaluate-sidecars");
 
+// pi-chrome-always: the browser-data actions are privileged (they read the
+// operator's session cookies and browsing history), so they always require the
+// bridge token. Every other action keeps upstream's loopback-trust model, so an
+// upstream pi-chrome client and the campaign's scripts/_bridge_cdp.py (which
+// speaks the raw protocol without a token) keep working unchanged.
+const TOKEN_GATED_ACTION_PREFIXES = ["data."];
+
+function isTokenGatedAction(action: string): boolean {
+	return TOKEN_GATED_ACTION_PREFIXES.some((prefix) => action.startsWith(prefix));
+}
+
 function truncateText(text: string, maxChars = MAX_TEXT_CHARS): string {
 	if (text.length <= maxChars) return text;
 	return `${text.slice(0, maxChars)}\n\n[truncated ${text.length - maxChars} characters]`;
@@ -706,6 +717,25 @@ class ChromeProfileBridge {
 			if (!body.action) {
 				sendJson(response, 400, { ok: false, error: "Missing command action" });
 				return;
+			}
+			// Browser-data actions read the operator's cookies, history, downloads
+			// and bookmarks, so they always require the bridge token. Ordinary
+			// actions keep upstream's loopback-trust model.
+			if (isTokenGatedAction(body.action)) {
+				const expected = readBridgeToken();
+				if (!expected) {
+					sendJson(response, 403, {
+						ok: false,
+						error:
+							`${body.action} requires the bridge token, but no token is configured. ` +
+							`Run install.sh to generate one, or set PI_CHROME_ALWAYS_TOKEN.`,
+					});
+					return;
+				}
+				if (request.headers["x-pi-chrome-token"] !== expected) {
+					sendJson(response, 403, { ok: false, error: "invalid or missing X-Pi-Chrome-Token" });
+					return;
+				}
 			}
 			try {
 				const result = await this.sendLocal(body.action, body.params ?? {}, body.timeoutMs ?? DEFAULT_TIMEOUT_MS);
