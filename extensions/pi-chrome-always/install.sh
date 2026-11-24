@@ -71,8 +71,11 @@ echo "  in the systemd unit (that breaks upstream pi-chrome clients)."
 # systemd unit
 cp "$SERVICE_SRC" "$SERVICE_DST"
 echo "✓ systemd unit: $SERVICE_DST"
-systemctl --user daemon-reload
-systemctl --user enable --now pi-chrome-always || true
+# The user manager can be busy with an unrelated long-running job, which makes
+# daemon-reload/enable take a very long time. Bound them so an install never
+# appears to hang; the daemon itself keeps retrying for the port either way.
+timeout 60 systemctl --user daemon-reload || echo "  (daemon-reload slow or timed out; continuing)"
+timeout 60 systemctl --user enable --now pi-chrome-always || echo "  (enable --now slow or timed out; continuing)"
 echo "✓ systemctl --user enable --now pi-chrome-always"
 
 echo
