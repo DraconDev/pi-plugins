@@ -1,0 +1,12 @@
+{
+  "name": "pi-codex-multi-account",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Run several ChatGPT/Codex accounts side by side in pi: one provider slot per account, each with its own stored OAuth credential.",
+  "scripts": {
+    "typecheck": "node scripts/typecheck.mjs"
+  },
+  "pi": {
+    "extensions": ["./extensions/index.ts"]
+  }
+}
