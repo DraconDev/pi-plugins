@@ -131,7 +131,7 @@ print(len(clients) if isinstance(clients, list) else 0)
 			    candidate = Path(root) / "service_worker.js"
 			    return candidate.read_text(errors="replace") if candidate.is_file() else ""
 			def actions(text):
-			    return set(re.findall(r'case "([a-z_]+\.[A-Za-z_]+)"', text))
+			    return set(re.findall(r'case "([a-z_]+(?:\.[A-Za-z_]+)+)"', text))
 			up_text = worker_text(upstream)
 			staged_text = worker_text(staged)
 			fork_text = worker_text(repo)
@@ -192,7 +192,7 @@ print(len(clients) if isinstance(clients, list) else 0)
 		fork_path, upstream_path, ai_repo = sys.argv[1:4]
 		def actions(path):
 		    text = Path(path).read_text(errors="replace")
-		    return set(re.findall(r'case "([a-z_]+\.[A-Za-z_]+)"', text))
+		    return set(re.findall(r'case "([a-z_]+(?:\.[A-Za-z_]+)+)"', text))
 		fork = actions(fork_path)
 		upstream = actions(upstream_path)
 		missing = sorted(upstream - fork)

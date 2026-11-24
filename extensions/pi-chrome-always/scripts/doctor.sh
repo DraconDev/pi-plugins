@@ -15,7 +15,21 @@ except Exception as e:
     print(f"Invalid status JSON: {e}"); raise SystemExit(0)
 print(f" daemon: {s.get('daemon','?')} v{s.get('bridgeVersion','?')} (upstream {s.get('upstreamPiChromeVersion','?')})")
 print(f" connected: {s.get('connected')} client: {s.get('clientName','-')}")
-print(f" token auth: {'on' if s.get('tokenRequired') else 'off (loopback trust)'}")
+print(f" token auth: {'on' if s.get('tokenRequired') else 'off (loopback trust)'}  gated: {s.get('tokenGatedActions','-')}")
+clients = s.get("pollingClients")
+if isinstance(clients, list) and clients:
+    print(f" polling extensions ({len(clients)}):")
+    for c in clients:
+        print(f"   - {c.get('name')}")
+    if len(clients) > 1:
+        print("   WARNING: more than one extension is polling the same /next queue.")
+        print("   Each command goes to whichever polls first, so a data.* action can be")
+        print("   answered by a worker that does not implement it. Disable one of them.")
+client = s.get("clientName") or ""
+if client and not client.startswith("Pi Chrome Always"):
+    print("   NOTE: the serving worker is NOT this fork (fork announces 'Pi Chrome Always ...').")
+    print("   The fork's browser-data actions (data.*) are unreachable while it is the poller.")
+    print("   Load the fork unpacked and disable upstream's connector (see install.sh).")
 PY
 else
   echo "✗ no bridge listening at $BRIDGE_URL"
@@ -34,7 +48,20 @@ echo "== extension fork =="
 EXT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/browser-extension"
 if [ -f "$EXT_DIR/manifest.json" ]; then
   echo "✓ $EXT_DIR/manifest.json present"
-  python3 -c "import json; m=json.load(open('$EXT_DIR/manifest.json')); print(f\"   name={m.get('name')} v{m.get('version')}\"); print(f\"   permissions={', '.join(m.get('permissions', []))}\"); print(f\"   host_permissions={', '.join(m.get('host_permissions', []))}\")"
+  python3 -c "
+import base64, hashlib, json
+m = json.load(open('$EXT_DIR/manifest.json'))
+print(f\"   name={m.get('name')} v{m.get('version')}\")
+print(f\"   permissions={', '.join(m.get('permissions', []))}\")
+print(f\"   host_permissions={', '.join(m.get('host_permissions', []))}\")
+key = m.get('key')
+if key:
+    d = hashlib.sha256(base64.b64decode(key)).digest()
+    a = 'abcdefghijklmnop'
+    eid = ''.join(a[b >> 4] + a[b & 15] for b in d[:16])
+    print(f\"   pinned extension id: {eid}\")
+    print('   (the manifest key pins this id, so it is the same from every install path)')
+"
 else
   echo "✗ missing $EXT_DIR/manifest.json"
 fi
