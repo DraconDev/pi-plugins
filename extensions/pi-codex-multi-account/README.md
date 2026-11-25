@@ -43,6 +43,11 @@ node scripts/login.ts codex-seat2 --device   # device code flow
 Writes the credential straight into `~/.pi/agent/auth.json` under the slot id.
 Start pi (or `/reload`) afterwards to pick it up.
 
+## Day-to-day use
+
+See `GUIDE.md` for the practical cheat sheet (pool vs direct slots, per-seat onboarding,
+troubleshooting). In pi, `/codex-guide` prints the short version.
+
 ## Notes
 
 - The browser flow listens on `127.0.0.1:1455` (the same port the Codex CLI

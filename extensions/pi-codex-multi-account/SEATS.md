@@ -72,6 +72,8 @@ account, not four.
 
 ## Wiring each seat into your tools
 
+Day-to-day commands live in `GUIDE.md` (also `/codex-guide` inside pi).
+
 Every accepted seat is just another ChatGPT login. Two layers consume them:
 
 | Layer | What it is | Use it for |
