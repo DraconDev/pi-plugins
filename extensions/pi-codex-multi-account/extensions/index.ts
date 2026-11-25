@@ -115,12 +115,23 @@ export default function (pi: ExtensionAPI) {
 
 	const poolKey = readPoolKey();
 	if (poolKey) {
+		// The pool speaks the standard Responses API, not the Codex-lite dialect.
+		// Pi sends Codex's "additional_tools" bundle when a model declares
+		// supportsAdditionalTools; codex-lb then takes the Codex-lite lane, whose
+		// upstream requires parallel_tool_calls=false. Dropping the Codex-only
+		// compat flags keeps pi on the plain Responses path.
+		const poolModels = (models as Record<string, unknown>[]).map(model => {
+			const compat = { ...((model.compat as Record<string, unknown>) ?? {}) };
+			delete compat.supportsAdditionalTools;
+			delete compat.supportsToolSearch;
+			return { ...model, compat };
+		});
 		pi.registerProvider("codex-pool", {
 			name: "OpenAI Codex Pool (codex-lb, all accounts)",
 			baseUrl: POOL_BASE_URL,
 			api: POOL_API,
 			apiKey: poolKey,
-			models: models as never[],
+			models: poolModels as never[],
 		});
 	}
 
