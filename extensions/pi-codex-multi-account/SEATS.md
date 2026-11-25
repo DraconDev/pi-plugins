@@ -37,19 +37,25 @@ for any additional seats needed."* Turn it off once you are at 5 seats.
 
 | Option | Cost | Notes |
 |---|---|---|
-| Gmail `+tags` (`adamnadrac+s1@gmail.com`) | free | Distinct addresses, one inbox. Risk: OpenAI may treat `+tag` addresses as one mailbox — **test one first** before doing all four |
-| Free alias service (SimpleLogin / Addy / Proton) | free tier | Cleanest separation from Google, separate domains |
+| **Proton plus aliases** (`you+seat2@proton.me`) | free | **Recommended.** Proton gives unlimited plus aliases on any plan, no setup. Different domain from Gmail, one inbox, and the address looks like a normal person's mailbox (unlike random hide-my-email aliases, which resemble burner mail) |
+| Proton hide-my-email aliases | free (10 on Free) | Randomized addresses; forward-only. Works, but random strings trip disposable-domain heuristics more often |
+| Gmail `+tags` (`adamnadrac+s1@gmail.com`) | free | **Does work** — OpenAI does not merge `+tag` addresses at signup, each becomes a genuinely separate account. The downside is not account separation: every variant is one Gmail mailbox on one domain, which is exactly what anti-abuse heuristics group on |
 | Real secondary mailboxes | ~free | Fewest surprises, most signup friction |
+
+Free tier summary: Proton Free = 1 address + 10 hide-my-email aliases + **unlimited
+plus aliases**. Full additional addresses (own identity, can send) need a paid
+plan and are not needed here.
 
 Phone verification is *not* generally required to create a ChatGPT account, but
 Codex sign-in may ask for it. A phone number can only be used for phone
 verification up to **3 times**, so expect to need a second number if all four
-new accounts ask.
+new accounts ask. Multiple new accounts from one device/IP are the usual
+trigger for those prompts.
 
-**Test one alias first**: invite `adamnadrac+s1@gmail.com`, complete the
-onboarding, and confirm the Members list shows a *separate* member (not a merge
-into the existing one). If OpenAI canonicalises the alias, switch to an alias
-service.
+**Do the first one, then check.** Invite seat 2 only, complete its onboarding,
+and confirm the Members list shows a *separate* member with its own seat. Only
+then send the remaining three — that way a signup-flow surprise costs you one
+account, not four.
 
 ## Wiring each seat into your tools
 
