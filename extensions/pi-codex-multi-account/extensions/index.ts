@@ -156,7 +156,59 @@ export default function (pi: ExtensionAPI) {
 				}
 				lines.push(`${account.id.padEnd(14)} ${status.padEnd(13)} ${account.label}${detail ? `  ${detail}` : ""}`);
 			}
+
+			// Pool view (codex-lb): the accounts the Codex CLI draws from.
+			try {
+				const response = await fetch("http://127.0.0.1:2455/api/accounts", {
+					signal: AbortSignal.timeout(3000),
+				});
+				const data = (await response.json()) as {
+					accounts?: {
+						email?: string;
+						status?: string;
+						planType?: string;
+						resetAtPrimary?: string;
+						resetAtSecondary?: string;
+					}[];
+				};
+				lines.push("", "pool (codex-lb):");
+				for (const account of data.accounts ?? []) {
+					lines.push(
+						`  ${String(account.email ?? "?").padEnd(32)} ${String(account.status ?? "?").padEnd(9)} ` +
+							`plan:${String(account.planType ?? "?").padEnd(6)} ` +
+							`5h→${String(account.resetAtPrimary ?? "?").slice(5, 16)} ` +
+							`weekly→${String(account.resetAtSecondary ?? "?").slice(5, 16)}`,
+					);
+				}
+			} catch {
+				lines.push("", "pool (codex-lb): not reachable on 127.0.0.1:2455 — systemctl --user status codex-lb");
+			}
+
 			ctx.ui.notify(lines.join("\n"));
+		},
+	});
+
+	pi.registerCommand("codex-guide", {
+		description: "Cheat sheet for using the ChatGPT account pool and per-account slots",
+		handler: async (_args: string, ctx: ExtensionContext) => {
+			ctx.ui.notify(
+				[
+					"codex            run the Codex CLI via the pool (it picks the account with quota left)",
+					"cxacct seat3     run codex pinned to one account, bypassing the pool",
+					"cxacct pool      every account: status, plan, 5h + weekly reset times",
+					"cxacct list      every account: email, plan, account id",
+					"cxacct login s4  sign an account in   |   cxacct import s4  add it to the pool",
+					"",
+					"in pi:",
+					"  /model codex-seat3/gpt-6.2-sol   pin a task to one account",
+					"  /fanout <task>                   run the task on every account in parallel",
+					"  /login codex-seat3               sign an account into its own slot",
+					"  /codex-accounts                  slots + pool, with reset times",
+					"  /codex-pool                      one provider backed by the whole pool",
+					"",
+					"dashboard: http://127.0.0.1:2455   full guide: GUIDE.md next to this extension",
+				].join("\n"),
+			);
 		},
 	});
 }
