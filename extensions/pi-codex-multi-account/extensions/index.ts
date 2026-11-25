@@ -164,6 +164,8 @@ export default function (pi: ExtensionAPI) {
 				});
 				const data = (await response.json()) as {
 					accounts?: {
+						accountId?: string;
+						alias?: string | null;
 						email?: string;
 						status?: string;
 						planType?: string;
@@ -174,11 +176,31 @@ export default function (pi: ExtensionAPI) {
 				lines.push("", "pool (codex-lb):");
 				for (const account of data.accounts ?? []) {
 					lines.push(
-						`  ${String(account.email ?? "?").padEnd(32)} ${String(account.status ?? "?").padEnd(9)} ` +
+						`  ${String(account.alias ?? account.email ?? "?").padEnd(32)} ${String(account.status ?? "?").padEnd(9)} ` +
 							`plan:${String(account.planType ?? "?").padEnd(6)} ` +
 							`5h→${String(account.resetAtPrimary ?? "?").slice(5, 16)} ` +
 							`weekly→${String(account.resetAtSecondary ?? "?").slice(5, 16)}`,
 					);
+				}
+
+				// Who actually served the most recent pooled requests.
+				try {
+					const logs = await fetch("http://127.0.0.1:2455/api/request-logs?limit=3", {
+						signal: AbortSignal.timeout(3000),
+					}).then(r => r.json()) as { requests?: { requestedAt?: string; accountId?: string; status?: string }[] };
+					const byId = new Map((data.accounts ?? []).map(a => [a.accountId, a.alias ?? a.email]));
+					const recent = (logs.requests ?? []).slice(0, 3);
+					if (recent.length > 0) {
+						lines.push("", "last served by the pool:");
+						for (const request of recent) {
+							lines.push(
+								`  ${String(request.requestedAt ?? "").slice(11, 19)}  ` +
+									`${String(byId.get(request.accountId ?? "") ?? "?").padEnd(32)} ${request.status ?? ""}`,
+							);
+						}
+					}
+				} catch {
+					/* request log unavailable */
 				}
 			} catch {
 				lines.push("", "pool (codex-lb): not reachable on 127.0.0.1:2455 — systemctl --user status codex-lb");
