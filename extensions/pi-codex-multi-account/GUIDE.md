@@ -83,6 +83,27 @@ and a Business workspace under one address). That is why every pool account has
 an **alias** — set them from Accounts → account → Details, or:
 `curl -X PUT http://127.0.0.1:2455/api/accounts/<id>/alias -d '{"alias":"..."}'`.
 
+## Where the quota numbers come from (and where they lie)
+
+- `cxacct pool` / the dashboard read each account's **own upstream quota**, so they
+  are true for the whole account — including usage spent through a pi direct
+  slot. This is the number to trust.
+- codex CLI's own `/usage` reports the CLI's **local login** (`adamnadrac@gmail.com`),
+  not the account that actually served your request. When the pool routes to a
+  Proton seat, that indicator describes an account you were not using.
+- pi shows no quota at all — ask `/codex-accounts`, or read `cxacct pool`.
+
+## Clients wired to the pool
+
+| Client | How | Auth |
+|---|---|---|
+| Codex CLI | `~/.codex/config.toml` → `model_provider = "codex-lb"` | literal `http_headers` Authorization in the config, so no env var is needed anywhere |
+| pi | `codex-pool` provider (whole pool), or a per-account slot | `~/.pi/agent/auth.json` / settings env |
+| OpenCode | provider `codex-lb` in `~/.config/opencode/opencode.json` | literal key in the config |
+
+The pool enforces API-key auth, so a request without a valid pool key is
+rejected — nothing else on the box can spend your accounts.
+
 ## Adding a seat
 
 ```bash
