@@ -72,31 +72,42 @@ account, not four.
 
 ## Wiring each seat into your tools
 
-Every accepted seat is just another ChatGPT login.
+Every accepted seat is just another ChatGPT login. Two layers consume them:
 
-**pi** — one provider slot per account, already registered by the
-`pi-codex-multi-account` extension:
+| Layer | What it is | Use it for |
+|---|---|---|
+| **codex-lb pool** | Local proxy (systemd service) that owns account selection. It understands the ChatGPT quota model natively: 5-hour primary window + weekly secondary window, per-account percent remaining, reset times, sticky threads, capacity-weighted routing | The **Codex CLI** and any other OpenAI-compatible client. Plain `codex` already points at it |
+| **pi slots** | One provider per account (`codex-owner`, `codex-seat2`, ...), direct OAuth, no proxy in the request path | Pinning a specific seat to a task, per-account attribution, and working even when the proxy is down |
 
-```
-/login codex-seat2        # browser or device-code login, pick the Business workspace
-/codex-accounts           # shows which slots are signed in, with email + plan
-```
-
-**Codex CLI** — one `CODEX_HOME` per account, shared with the
-`codex-multi-account` tool:
+Per seat, three commands:
 
 ```
-cxacct login seat2        # sign in account "seat2" (browser or device code)
-cxacct list               # every account: email, plan, account id
-cx quota                  # live weekly quota bar + reset time per account
-cx                        # run codex, auto-selecting the account with quota left
-cxr                       # resume the last conversation
+cxacct login seat2      # 1. sign that account in (browser or device code)
+cxacct import seat2     # 2. add it to the codex-lb pool
+/login codex-seat2      # 3. (in pi) sign the same account into its own pi slot
 ```
 
-Homes live in `~/.codex-account-<name>` (owner, seat2..seat5, personal) and
-share session history through `~/.codex`, so `codex resume` sees every chat.
-`cx` re-picks the account automatically when one hits its limit, so you never
-manually rotate. Inside Codex, `/usage` shows the active account's allowance.
+Helpers:
+
+```
+cxacct list             # every account: email, plan, account id
+cxacct pool             # the pool: each account's 5h + weekly reset times
+cxacct seat2            # run codex directly as seat2, bypassing the pool
+codex                   # run codex through the pool (picks the account with quota left)
+```
+
+The pool dashboard is at http://127.0.0.1:2455 — per-account usage, request
+logs, routing strategy, quota planner.
+
+### How the pool decides
+
+`codex-lb` picks the account per request: **capacity weighted** by default
+(prefers the account with the most usable headroom), with sticky threads so a
+session stays on one account to keep the prompt cache warm, and latency
+weighting so a slow account is used less. Round-robin, fill-first, drain and
+single-account are also available from **Settings → Routing** without a restart.
+A thread whose continuation state belongs to one account stays bound to it; a
+fresh request routes normally.
 
 ## Running all accounts at once, hands-off
 
