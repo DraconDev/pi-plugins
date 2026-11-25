@@ -34,7 +34,7 @@ const API = "openai-codex-responses";
 // When it is running, "codex-pool" is one provider backed by every account in
 // the pool — useful for "just use whatever has quota left" work. The per-account
 // slots below stay direct (no proxy in the request path).
-const POOL_BASE_URL = "http://127.0.0.1:2455/v1";
+const POOL_BASE_URL = process.env.CODEX_LB_BASE_URL ?? "http://127.0.0.1:2455/v1";
 const POOL_API = "openai-responses";
 const POOL_KEY_PATHS = [
 	join(homedir(), ".config", "codex-lb", "api.key"),
