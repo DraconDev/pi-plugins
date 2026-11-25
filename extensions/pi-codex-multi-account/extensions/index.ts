@@ -30,6 +30,30 @@ import {
 const BASE_URL = "https://chatgpt.com/backend-api";
 const API = "openai-codex-responses";
 
+// Optional: the local codex-lb pool (a proxy that owns account selection).
+// When it is running, "codex-pool" is one provider backed by every account in
+// the pool — useful for "just use whatever has quota left" work. The per-account
+// slots below stay direct (no proxy in the request path).
+const POOL_BASE_URL = "http://127.0.0.1:2455/v1";
+const POOL_API = "openai-responses";
+const POOL_KEY_PATHS = [
+	join(homedir(), ".config", "codex-lb", "api.key"),
+	join(homedir(), ".codex-lb", "api.key"),
+];
+
+function readPoolKey(): string | undefined {
+	for (const path of POOL_KEY_PATHS) {
+		if (!existsSync(path)) continue;
+		try {
+			const key = readFileSync(path, "utf8").trim();
+			if (key) return key;
+		} catch {
+			/* ignore unreadable key file */
+		}
+	}
+	return process.env.CODEX_LB_API_KEY?.trim() || undefined;
+}
+
 interface AccountSpec {
 	id: string;
 	label: string;
@@ -86,6 +110,17 @@ export default function (pi: ExtensionAPI) {
 				refreshToken: async (credential: Credential, signal?: AbortSignal) => refreshToken(credential, signal),
 				getApiKey: (credential: Credential) => credential.access,
 			},
+		});
+	}
+
+	const poolKey = readPoolKey();
+	if (poolKey) {
+		pi.registerProvider("codex-pool", {
+			name: "OpenAI Codex Pool (codex-lb, all accounts)",
+			baseUrl: POOL_BASE_URL,
+			api: POOL_API,
+			apiKey: poolKey,
+			models: models as never[],
 		});
 	}
 
