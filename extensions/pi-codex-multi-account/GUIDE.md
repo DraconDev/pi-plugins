@@ -83,6 +83,32 @@ and a Business workspace under one address). That is why every pool account has
 an **alias** — set them from Accounts → account → Details, or:
 `curl -X PUT http://127.0.0.1:2455/api/accounts/<id>/alias -d '{"alias":"..."}'`.
 
+## How the pool spends and routes
+
+**Live config:** strategy `capacity_weighted`, sticky threads ON, `preferEarlierResetAccounts` OFF.
+
+Per request the pool:
+
+1. filters accounts (paused, error backoff, over threshold, exhausted, wrong plan for the model);
+2. would narrow to soonest-resetting accounts **if `preferEarlierResetAccounts` were on** — it is
+   OFF on purpose: it restricted the pool to the two personal Plus accounts (weekly resets Nov 30)
+   and left all four Business seats (Dec 2) invisible. With it on, every request went to one account;
+   with it off, 12 parallel requests spread over 5 accounts;
+3. ranks the rest by remaining headroom on **both** windows (5-hour and weekly), inflated by
+   in-flight and leased-token pressure;
+4. keeps a session on its account (sticky threads) so the upstream prompt cache stays warm — it
+   moves only if that account is unavailable or passes 95% used;
+5. never migrates a request carrying continuation state — it stays bound to its owning account.
+
+Strategies available in **Settings → Routing**: capacity weighted (default), relative availability,
+usage weighted, round robin, fill first, sequential drain, reset drain, single account.
+
+**Spending is measured in credits**: 225 per 5-hour window and 7,560 per week per seat. The
+dashboard's *account burn projection* is your consumption **rate** in account-equivalents — 1.0
+means one account's worth of throughput; with 7 accounts you can push it toward 7 if you saturate
+them all. If it reads 1.0 while working hard, you are on one account.
+
+
 ## Where the quota numbers come from (and where they lie)
 
 - `cxacct pool` / the dashboard read each account's **own upstream quota**, so they
