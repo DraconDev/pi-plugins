@@ -82,15 +82,49 @@ Every accepted seat is just another ChatGPT login.
 /codex-accounts           # shows which slots are signed in, with email + plan
 ```
 
-**Codex CLI** — one `CODEX_HOME` per account:
+**Codex CLI** — one `CODEX_HOME` per account, shared with the
+`codex-multi-account` tool:
 
 ```
-cx login seat2            # sign in account "seat2"
-cx seat2                  # run codex as seat2
-cx list                   # all accounts, their email, plan and account id
+cxacct login seat2        # sign in account "seat2" (browser or device code)
+cxacct list               # every account: email, plan, account id
+cx quota                  # live weekly quota bar + reset time per account
+cx                        # run codex, auto-selecting the account with quota left
+cxr                       # resume the last conversation
 ```
 
-Inside Codex, `/usage` shows that account's remaining allowance.
+Homes live in `~/.codex-account-<name>` (owner, seat2..seat5, personal) and
+share session history through `~/.codex`, so `codex resume` sees every chat.
+`cx` re-picks the account automatically when one hits its limit, so you never
+manually rotate. Inside Codex, `/usage` shows the active account's allowance.
+
+## Running all accounts at once, hands-off
+
+Two layers, both already wired:
+
+**Parallel — `/fanout <task>`** (pi prompt template). Runs the same task on
+every signed-in account at the same time: one parallel `subagent` workflow, one
+child per account, each pinned to `<slot>/gpt-6.2-sol`. Each account has its
+own 5-hour window, so this is 5x the throughput, not 5x the same window.
+`/codex-accounts` shows which slots are currently signed in.
+
+**Failover — the auto-fallback router** (`pi-auto-fallback-router`, enabled).
+The chain in `~/.pi/agent/fallback-router.json` is all seven accounts; when one
+returns an error (quota exhausted, 401, timeout), pi switches to the next
+account and re-sends the prompt automatically. Verified end to end: a broken
+credential on the Business seat handed the same prompt to the personal Plus
+account and the work continued in ~3s.
+
+Two settings make that fast, and both were wrong before:
+
+| Setting | Was | Now | Why |
+|---|---|---|---|
+| `retry.provider.maxRetries` | 2 | **0** | Provider-level retries delay Pi from handling quota errors (Pi's own docs say keep it at 0) |
+| `retry.maxRetries` | 15 | **2** | 15 agent-level retries meant a dead account was hammered for minutes before any fallback could fire |
+
+Tuning: `skipFailingForMs` is 6h (≈ the 5-hour window, so an exhausted account
+is skipped until its window resets) and `promoteWhenHealthy` puts it back in
+rotation automatically. `/fallback` opens the chain editor.
 
 ## Policy note (read once, then decide)
 
