@@ -62,6 +62,27 @@ Inside pi: `/codex-accounts` — slots and pool side by side.
 
 Inside codex: `/usage` shows the active account's allowance.
 
+## Your accounts today
+
+| Alias | Email | Plan | Pool |
+|---|---|---|---|
+| `business-seat1 (owner)` | adamnadrac@gmail.com | Business seat | 5h resets 04:08, weekly Dec 1 |
+| `personal-plus (gmail)` | adamnadrac@gmail.com | ChatGPT Plus (personal workspace of the same address) | 5h resets 08:04, weekly Nov 30 |
+| `personal-plus (dracon.uk)` | adam@dracon.uk | ChatGPT Plus | 5h resets 05:32, weekly Nov 30 |
+
+Three independent pools, and they count separately — the Business seat and the
+personal Plus plan of the same email are different subscriptions with different
+allowances.
+
+pi slots: `codex-owner` (Business seat), `codex-personal` (Plus, gmail),
+`openai-codex` (Plus, dracon.uk — pi's built-in provider), plus `codex-seat2`
+… `codex-seat5` as they land. `codex-pool` is the whole pool as one provider.
+
+A note on the dashboard: the same email can appear twice (a personal workspace
+and a Business workspace under one address). That is why every pool account has
+an **alias** — set them from Accounts → account → Details, or:
+`curl -X PUT http://127.0.0.1:2455/api/accounts/<id>/alias -d '{"alias":"..."}'`.
+
 ## Adding a seat
 
 ```bash
