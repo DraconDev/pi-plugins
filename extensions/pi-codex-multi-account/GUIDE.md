@@ -129,3 +129,20 @@ Then in pi: `/login codex-seat4` to give it a direct slot too.
 | `~/.pi/agent/auth.json` | pi's per-slot OAuth credentials |
 | `~/.pi/agent/fallback-router.json` | The failover chain (all accounts) |
 | `~/.pi/agent/codex-multi-account.json` | Which pi slots exist |
+
+## If `codex` ever complains about a missing key
+
+`~/.local/bin/codex` is a wrapper that exports the pool key before execing the
+real binary (which lives at `~/.codex/packages/standalone/current/bin/codex`).
+If `codex update` replaces the wrapper with a symlink again, restore it:
+
+```bash
+rm ~/.local/bin/codex && cat > ~/.local/bin/codex <<'SH'
+#!/usr/bin/env bash
+if [ -z "${CODEX_LB_API_KEY:-}" ] && [ -r "$HOME/.config/codex-lb/api.key" ]; then
+  export CODEX_LB_API_KEY="$(cat "$HOME/.config/codex-lb/api.key")"
+fi
+exec "$HOME/.codex/packages/standalone/current/bin/codex" "$@"
+SH
+chmod 755 ~/.local/bin/codex
+```
