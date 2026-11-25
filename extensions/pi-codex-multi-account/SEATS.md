@@ -46,6 +46,19 @@ Free tier summary: Proton Free = 1 address + 10 hide-my-email aliases + **unlimi
 plus aliases**. Full additional addresses (own identity, can send) need a paid
 plan and are not needed here.
 
+**Decision (2026-11-24): four Proton addresses.** Plus aliases on one Proton
+account, e.g. `<proton-name>+seat2@proton.me` … `+seat5`. No setup needed —
+just type them into the signup form; Proton delivers them to the same inbox.
+Keep the four addresses separate in every detail: **different password and
+different 2FA per account**, since they are four separate identities.
+
+Two mailboxes that already exist on this machine could take seats 2 and 3
+instead, which means two fewer fresh signups (and fewer phone-verification
+prompts): `dracsharp@gmail.com` and `drcshrp@gmail.com`.
+
+The invite list is templated in `seat-invites.csv` — fill in the four addresses
+and upload it via Members → Invite member → Upload CSV.
+
 Phone verification is *not* generally required to create a ChatGPT account, but
 Codex sign-in may ask for it. A phone number can only be used for phone
 verification up to **3 times**, so expect to need a second number if all four

@@ -1,0 +1,12 @@
+email,role,seat type
+# Invite these four addresses to the ChatGPT Business workspace "xxx's Workspace".
+# Format per OpenAI: email,role,seat type  (role: member|admin|owner|analytics_viewer,
+# seat type: standard|premium). Fill in the four Proton addresses, then use
+# Workspace settings -> Members -> Invite member -> Upload CSV.
+#
+# Proton plus aliases are zero-setup: type <your-proton-name>+seat2@proton.me
+# in the signup form and it lands in your Proton inbox.
+bob+seat2@proton.me,member,standard
+bob+seat3@proton.me,member,standard
+bob+seat4@proton.me,member,standard
+bob+seat5@proton.me,member,standard
