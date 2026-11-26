@@ -244,7 +244,12 @@ export function checkBaseResp(payload) {
   const msg = baseResp?.status_msg || "unknown error";
   const hint = BASE_RESP_HINTS[code];
   const trace = payload?.trace_id ? ` (trace_id: ${payload.trace_id})` : "";
-  throw new Error(`MiniMax API error ${code}: ${msg}${trace}${hint ? `\nHint: ${hint}` : ""}`);
+  // statusCode lets the caller tell an ACCOUNT-level refusal (1008/2153)
+  // from a request-level failure, which decides whether another backend may
+  // be tried at all.
+  const error = new Error(`MiniMax API error ${code}: ${msg}${trace}${hint ? `\nHint: ${hint}` : ""}`);
+  error.statusCode = code;
+  throw error;
 }
 
 /** Pull the audio out of a music_generation response. Returns { kind: 'url'|'hex', value }. */
@@ -283,4 +288,210 @@ export function extensionForFormat(format) {
   if (f === "wav") return "wav";
   if (f === "pcm") return "pcm";
   return "mp3";
+}
+
+// ---------------------------------------------------------------------------
+// MCode connector backend
+// ---------------------------------------------------------------------------
+//
+// The public music API above is billed against the pay-as-you-go balance of
+// the account, and MiniMax closed it to accounts without a paying music
+// entitlement (HTTP 410 / status_code 2153). The MiniMax Code hosted
+// connector reaches the same music-3.0 model through the Token Plan instead,
+// so it keeps working when the pay-as-you-go balance is empty.
+//
+// The connector has a smaller wire contract than the public API:
+//   - at most 5 requests per call
+//   - prompt <= 300 characters
+//   - lyrics  <= 600 characters  (the public API allows 3500)
+//   - format mp3 or wav (pcm cannot carry the AIGC metadata)
+// A long song is therefore rendered as several MOVEMENTS - one request each,
+// each with its own section direction - and the movements are crossfaded
+// back into one continuous file. That is how a 3500-character lyric sheet
+// becomes a multi-minute track.
+
+export const CONNECTOR_MUSIC_TOOL = "connector__matrix__batch_text_to_music";
+export const CONNECTOR_MAX_REQUESTS = 5;
+export const CONNECTOR_MAX_PROMPT_CHARS = 300;
+export const CONNECTOR_MAX_LYRICS_CHARS = 600;
+export const CONNECTOR_FORMATS = ["mp3", "wav"];
+
+/** Status codes that mean "this account cannot use the public music API". */
+export const ACCOUNT_BLOCKED_CODES = [1008, 2153];
+
+/** True when the provider refuses the account rather than the request. */
+export function isAccountBlocked(statusCode) {
+  return ACCOUNT_BLOCKED_CODES.includes(Number(statusCode));
+}
+
+/** The direction handed to the model for one movement of a multi-part song. */
+export function movementDirection(index, total) {
+  if (total <= 1) return "one continuous movement";
+  if (index === 0) return "intro and main theme";
+  if (index === total - 1) return "resolve and outro";
+  return "develop the theme";
+}
+
+/**
+ * Split a lyric sheet into movements that each fit the connector's
+ * 600-character limit. Sections are kept together where possible and the
+ * split never crosses a line inside a section unless that section alone is
+ * too long.
+ */
+export function planMovements(lyrics, options = {}) {
+  const maxChars = Math.max(1, options.maxChars ?? CONNECTOR_MAX_LYRICS_CHARS);
+  const maxMovements = Math.max(1, options.maxMovements ?? CONNECTOR_MAX_REQUESTS);
+  const text = str(lyrics).trim();
+  if (!text) return [];
+
+  const pieces = [];
+  for (const block of splitLyricBlocks(text)) {
+    for (const piece of splitOversized(block, maxChars)) pieces.push(piece);
+  }
+
+  const chunks = [];
+  let current = "";
+  for (const piece of pieces) {
+    const candidate = current ? `${current}\n\n${piece}` : piece;
+    if (current && candidate.length > maxChars) {
+      chunks.push(current);
+      current = piece;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) chunks.push(current);
+
+  const kept = chunks.slice(0, maxMovements);
+  const total = kept.length;
+  return kept.map((chunk, index) => ({
+    index,
+    total,
+    direction: movementDirection(index, total),
+    lyrics: chunk.slice(0, maxChars),
+  }));
+}
+
+/** Split lyrics into tagged sections. A line like "[Verse]" starts a section. */
+function splitLyricBlocks(text) {
+  const blocks = [];
+  let tag = "";
+  let lines = [];
+  const flush = () => {
+    const body = lines.join("\n").trim();
+    if (tag || body) blocks.push(tag ? [tag, ...lines].join("\n").trim() : body);
+    tag = "";
+    lines = [];
+  };
+  for (const raw of text.split(/\r?\n/)) {
+    const tagMatch = /^\s*(\[[^\]]+\])\s*$/.exec(raw);
+    if (tagMatch) {
+      flush();
+      tag = tagMatch[1];
+    } else {
+      lines.push(raw.trimEnd());
+    }
+  }
+  flush();
+  return blocks.filter(Boolean);
+}
+
+/** Break a block that is longer than the limit into line-aligned pieces. */
+function splitOversized(block, maxChars) {
+  if (block.length <= maxChars) return [block];
+  const out = [];
+  let current = "";
+  for (const line of block.split("\n")) {
+    const candidate = current ? `${current}\n${line}` : line;
+    if (current && candidate.length > maxChars) {
+      out.push(current);
+      current = line;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) out.push(current);
+  return out.flatMap((piece) => (piece.length <= maxChars ? [piece] : hardSplit(piece, maxChars)));
+}
+
+function hardSplit(text, maxChars) {
+  const out = [];
+  for (let i = 0; i < text.length; i += maxChars) out.push(text.slice(i, i + maxChars));
+  return out;
+}
+
+/**
+ * Build the connector request list for one song.
+ *
+ * A vocal song is split into as many movements as its lyrics need (up to
+ * CONNECTOR_MAX_REQUESTS). An instrumental has no lyrics to split, so it
+ * uses `parts` movements. `parts` overrides the automatic count for either.
+ */
+export function buildConnectorRequests(params = {}) {
+  const prompt = str(params.prompt).trim();
+  if (!prompt) {
+    throw new Error("prompt is required for the connector backend: it describes style, mood and instrumentation.");
+  }
+  const instrumental = Boolean(params.is_instrumental);
+  const audio = normalizeAudioSetting(params.audio_setting);
+  if (!CONNECTOR_FORMATS.includes(audio.format)) {
+    throw new Error(`The connector backend supports ${CONNECTOR_FORMATS.join(", ")} only (got "${audio.format}"). PCM cannot carry the AIGC metadata.`);
+  }
+  const requested = params.parts == null ? null : Math.max(1, Math.min(CONNECTOR_MAX_REQUESTS, Number(params.parts)));
+
+  let movements;
+  if (instrumental) {
+    const count = requested ?? 1;
+    movements = Array.from({ length: count }, (_, index) => ({
+      index,
+      total: count,
+      direction: movementDirection(index, count),
+      lyrics: "",
+    }));
+  } else {
+    const lyrics = str(params.lyrics).trim();
+    if (!lyrics) {
+      throw new Error("lyrics is required for the connector backend (or use is_instrumental: true).");
+    }
+    movements = planMovements(lyrics, { maxMovements: requested ?? CONNECTOR_MAX_REQUESTS });
+    if (!movements.length) {
+      throw new Error("lyrics is required for the connector backend (or use is_instrumental: true).");
+    }
+  }
+
+  const total = movements.length;
+  const requests = movements.map((movement) => {
+    const prefix = total > 1
+      ? `Full-length music, at least 90 seconds. Part ${movement.index + 1} of ${total}: ${movement.direction}. `
+      : "Full-length music, at least 90 seconds. ";
+    const room = Math.max(0, CONNECTOR_MAX_PROMPT_CHARS - prefix.length);
+    const request = {
+      prompt: `${prefix}${prompt}`.slice(0, CONNECTOR_MAX_PROMPT_CHARS),
+      format: audio.format,
+      sample_rate: audio.sample_rate,
+      bitrate: audio.bitrate,
+      output_file: `part-${movement.index + 1}.${audio.format}`,
+    };
+    if (movement.lyrics) request.lyrics = movement.lyrics;
+    return request;
+  });
+
+  return { requests, movements };
+}
+
+/**
+ * The ffmpeg filter graph that crossfades N movements into one file.
+ * Kept here (not in index.ts) so it can be unit-tested.
+ */
+export function buildCrossfadeFilter(count) {
+  if (count < 1) throw new Error(`buildCrossfadeFilter needs at least one movement (got ${count}).`);
+  if (count === 1) return "anull";
+  const filters = [];
+  let previous = "[0:a]";
+  for (let index = 1; index < count; index += 1) {
+    const output = index === count - 1 ? "[joined]" : `[a${index}]`;
+    filters.push(`${previous}[${index}:a]acrossfade=d=0.5:c1=tri:c2=tri${output}`);
+    previous = output;
+  }
+  return filters.join(";");
 }

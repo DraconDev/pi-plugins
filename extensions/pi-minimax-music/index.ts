@@ -29,9 +29,10 @@
  *   directory (override with the `out` parameter). output_format=url files
  *   are downloaded immediately — the links expire after 24h.
  */
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, extname, join, resolve } from "node:path";
-import { homedir } from "node:os";
+import { spawn, spawnSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
+import { homedir, tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 
 // typebox is provided to extensions by pi itself (bundled/virtual module).
@@ -42,18 +43,22 @@ import {
   ALL_MODELS,
   AUDIO_FORMATS,
   BITRATES,
+  CONNECTOR_MUSIC_TOOL,
   COVER_MODELS,
   DEFAULT_MODEL,
   GENERATE_MODELS,
   SAMPLE_RATES,
   MAX_AUDIO_FILE_BYTES,
+  buildConnectorRequests,
   buildCoverPreprocessBody,
+  buildCrossfadeFilter,
   buildLyricsBody,
   buildMusicBody,
   checkBaseResp,
   extensionForFormat,
   extractAudio,
   formatExtraInfo,
+  isAccountBlocked,
   resolveApiKey,
   resolveBaseUrl,
 } from "./music-core.mjs";
@@ -117,7 +122,14 @@ async function postJson(baseUrl: string, path: string, body: unknown, apiKey: st
   if (!response.ok) {
     const code = payload?.base_resp?.status_code;
     const msg = payload?.base_resp?.status_msg ?? text.slice(0, 300);
-    throw new Error(`MiniMax API HTTP ${response.status}${code !== undefined ? ` (base_resp ${code})` : ""}: ${msg}`);
+    // The account-level refusals arrive as a NON-OK HTTP status (410 for
+    // "not entitled"), not only as an HTTP 200 with a non-zero
+    // base_resp.status_code, so the status code has to be carried on the
+    // error here as well - otherwise the "auto" backend cannot tell an
+    // account refusal from a bad request and never falls back.
+    const error = new Error(`MiniMax API HTTP ${response.status}${code !== undefined ? ` (base_resp ${code})` : ""}: ${msg}`) as Error & { statusCode?: number };
+    if (code !== undefined) error.statusCode = code;
+    throw error;
   }
   return checkBaseResp(payload);
 }
@@ -175,6 +187,223 @@ async function downloadToFile(url: string, dest: string, signal?: AbortSignal): 
     throw new Error(`Unable to download generated audio: HTTP ${response.status}`);
   }
   writeFileSync(dest, Buffer.from(await response.arrayBuffer()));
+}
+
+// ---------------------------------------------------------------------------
+// MCode connector backend
+// ---------------------------------------------------------------------------
+
+/**
+ * Locate the MiniMax Code hosted connector.
+ *
+ * The connector is not a public HTTP endpoint: `mcode-tools` talks to a local
+ * broker socket that the running MCode app provides, and refuses to start
+ * unless five environment variables describe that broker. Pi launched from
+ * MCode inherits them; a plain pi shell has to discover them.
+ */
+function resolveConnectorHost(): { runtime: string; toolsJs: string; env: Record<string, string> } | null {
+  const env = process.env as Record<string, string | undefined>;
+  const home = homedir();
+
+  const runtime = env.__MAVIS_MCODE_TOOLS_RUNTIME_EXECUTABLE?.trim() || process.execPath;
+  if (!runtime || !isAbsolute(runtime)) return null;
+
+  const toolsJs = findConnectorEntry(home);
+  if (!toolsJs) return null;
+
+  let endpoint = env.__MAVIS_MCODE_TOOLS_BROKER_ENDPOINT?.trim() || "";
+  let capability = env.__MAVIS_MCODE_TOOLS_BROKER_CAPABILITY_FILE?.trim() || "";
+  let configDir = env.__MAVIS_MCODE_TOOLS_CONFIG_DIR?.trim() || "";
+  let region = env.__MAVIS_MCODE_TOOLS_REGION?.trim() || "";
+
+  if (!endpoint || !capability) {
+    const lease = findBrokerLease(home);
+    if (!lease) return null;
+    endpoint = endpoint || lease.socket;
+    capability = capability || lease.capability;
+  }
+  // mcode-tools only accepts these two region codes.
+  if (region !== "cn" && region !== "en") region = "en";
+  if (!configDir) {
+    configDir = join(home, ".minimax", "integrations", "mcode-tools", region);
+    if (!existsSync(configDir)) return null;
+  }
+
+  return {
+    runtime,
+    toolsJs,
+    env: {
+      ...process.env,
+      __MAVIS_MCODE_TOOLS_RUNTIME_EXECUTABLE: runtime,
+      __MAVIS_MCODE_TOOLS_BROKER_ENDPOINT: endpoint,
+      __MAVIS_MCODE_TOOLS_BROKER_CAPABILITY_FILE: capability,
+      __MAVIS_MCODE_TOOLS_CONFIG_DIR: configDir,
+      __MAVIS_MCODE_TOOLS_REGION: region,
+    } as Record<string, string>,
+  };
+}
+
+/** The mcode-tools entry script of the installed MCode release. */
+function findConnectorEntry(home: string): string | null {
+  try {
+    const release = readFileSync(join(home, ".minimax-code", "current"), "utf8").trim();
+    const candidate = join(home, ".minimax-code", "releases", release, "lib", "node_modules", "@minimax-ai", "code", "mcode-tools.js");
+    if (existsSync(candidate)) return candidate;
+  } catch {
+    /* no release pointer */
+  }
+  return null;
+}
+
+/** The broker socket the running MCode app published. */
+function findBrokerLease(home: string): { socket: string; capability: string } | null {
+  const runDir = join(home, ".minimax", "run");
+  let entries: string[] = [];
+  try {
+    entries = readdirSync(runDir);
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    const socket = join(runDir, entry, "mcode-auth-lease-v1.sock");
+    const capability = join(runDir, entry, "mcode-auth-lease-v1.cap");
+    if (existsSync(socket) && existsSync(capability)) return { socket, capability };
+  }
+  return null;
+}
+
+/** Run mcode-tools and capture its output. */
+function runConnectorTool(
+  host: { runtime: string; toolsJs: string; env: Record<string, string> },
+  args: string[],
+  timeoutMs = 900_000,
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(host.runtime, [host.toolsJs, ...args], { env: host.env });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      rejectPromise(new Error(`mcode-tools timed out after ${Math.round(timeoutMs / 1000)}s`));
+    }, timeoutMs);
+    child.stdout?.on("data", (chunk) => { stdout += String(chunk); });
+    child.stderr?.on("data", (chunk) => { stderr += String(chunk); });
+    child.on("error", (error) => { clearTimeout(timer); rejectPromise(error); });
+    child.on("close", (code) => { clearTimeout(timer); resolvePromise({ code: code ?? 0, stdout, stderr }); });
+  });
+}
+
+/** Locate a helper binary (ffmpeg) on PATH or in the usual NixOS locations. */
+function findBinary(name: string, extra: string[] = []): string | null {
+  const probe = spawnSync("sh", ["-c", `command -v ${name}`], { encoding: "utf8" });
+  const found = (probe.stdout || "").trim();
+  if (found) return found;
+  for (const candidate of extra) if (existsSync(candidate)) return candidate;
+  return null;
+}
+
+/** Crossfade the movements into one continuous file. */
+function joinMovements(files: string[], outPath: string, format: string): void {
+  const ffmpeg = findBinary("ffmpeg", [
+    join("/etc/profiles/per-user", basename(homedir()), "bin", "ffmpeg"),
+    "/run/current-system/sw/bin/ffmpeg",
+    "/usr/bin/ffmpeg",
+    "/usr/local/bin/ffmpeg",
+  ]);
+  if (!ffmpeg) {
+    throw new Error("ffmpeg is required to join the movements of a multi-part song into one file.");
+  }
+  const args: string[] = [];
+  for (const file of files) args.push("-i", file);
+  args.push("-filter_complex", buildCrossfadeFilter(files.length), "-map", "[joined]");
+  if (format === "wav") args.push("-c:a", "pcm_s16le");
+  else args.push("-c:a", "libmp3lame", "-b:a", "256k");
+  args.push("-ar", "44100", "-ac", "2", outPath);
+  const result = spawnSync(ffmpeg, ["-hide_banner", "-y", ...args], { encoding: "utf8" });
+  if (result.status !== 0) {
+    throw new Error(`ffmpeg could not join the movements: ${result.stderr || result.stdout}`);
+  }
+}
+
+/** Generate through the MiniMax Code hosted connector (Token Plan). */
+async function executeConnectorGenerate(params: any, signal?: AbortSignal, fallbackReason?: string) {
+  const host = resolveConnectorHost();
+  if (!host) {
+    throw new Error(
+      "The MiniMax Code connector is not reachable: no broker socket was found under ~/.minimax/run. " +
+      'Start the MCode app (or launch pi from it) and retry, or use backend: "api" with a funded key.',
+    );
+  }
+
+  const { requests, movements } = buildConnectorRequests({
+    prompt: params.prompt,
+    lyrics: params.lyrics,
+    is_instrumental: params.is_instrumental,
+    audio_setting: params.audio_setting,
+    parts: params.parts,
+  });
+  const format = requests[0].format as string;
+
+  const work = mkdtempSync(join(tmpdir(), "pi-music-connector-"));
+  try {
+    const argsFile = join(work, "requests.json");
+    writeFileSync(argsFile, JSON.stringify({ requests }));
+    const call = await runConnectorTool(host, ["connector", "call", CONNECTOR_MUSIC_TOOL, "--args-file", argsFile]);
+    if (call.code !== 0) throw new Error(`MiniMax Code connector failed: ${call.stderr || call.stdout}`);
+    let payload: any;
+    try {
+      payload = JSON.parse(call.stdout);
+    } catch {
+      throw new Error(`MiniMax Code connector returned non-JSON output: ${call.stdout.slice(0, 300)}`);
+    }
+    const items: any[] = payload?.success_items ?? [];
+    if (!items.length) {
+      throw new Error(`MiniMax Code connector returned no audio: ${JSON.stringify(payload?.failed_items ?? payload).slice(0, 400)}`);
+    }
+
+    const partsDir = join(work, "parts");
+    mkdirSync(partsDir, { recursive: true });
+    const downloaded: string[] = [];
+    for (const item of items) {
+      const urlCall = await runConnectorTool(host, ["get_asset_url", String(item.node_id)]);
+      if (urlCall.code !== 0) throw new Error(`Could not resolve the generated asset URL: ${urlCall.stderr || urlCall.stdout}`);
+      const asset = JSON.parse(urlCall.stdout);
+      const downloadUrl = asset.download_url || asset.url;
+      if (!downloadUrl) throw new Error(`The connector returned no download URL for node ${item.node_id}`);
+      const dest = join(partsDir, basename(String(item.file_name || `${item.node_id}.${format}`)));
+      await downloadToFile(downloadUrl, dest, signal);
+      downloaded.push(dest);
+    }
+
+    const outPath = resolveOutPath(params.out, extensionForFormat(format));
+    if (downloaded.length === 1) copyFileSync(downloaded[0], outPath);
+    else joinMovements(downloaded, outPath, format);
+
+    const reasonLine = fallbackReason ? `Provider: MiniMax Code connector - the public API could not be used (${fallbackReason.split("\n")[0]}).` : "Provider: MiniMax Code connector (Token Plan, no pay-as-you-go balance).";
+    const movementLine = movements.length > 1
+      ? `Movements: ${movements.length} (${movements.map((movement) => movement.direction).join("; ")}) - crossfaded into one file.`
+      : "Movements: 1.";
+    const lines = [
+      `Generated ${movements.length > 1 ? `${movements.length} movements` : "a song"} via the MiniMax Code connector saved to: ${fileLink(outPath)}`,
+      reasonLine,
+      movementLine,
+      `Node ids: ${items.map((item) => item.node_id).join(", ")}`,
+    ];
+
+    return {
+      content: [{ type: "text", text: lines.join("\n\n") }],
+      details: {
+        filePath: outPath,
+        provider: "mcode-connector",
+        model: "music-3.0",
+        movements: movements.length,
+        nodeIds: items.map((item) => item.node_id),
+        fallbackReason: fallbackReason ?? null,
+      },
+    };
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -247,9 +476,21 @@ const musicParams = Type.Object({
   out: Type.Optional(Type.String({
     description: "Output file path. Default: .pi/generated-music/music_<timestamp>.<ext> under the current working directory.",
   })),
+  backend: Type.Optional(Type.Union([Type.Literal("api"), Type.Literal("mcode"), Type.Literal("auto")], {
+    description:
+      'Which route generates the audio. "auto" (default) = the public MiniMax API, falling back to the MiniMax Code connector when the account is refused (1008 insufficient balance / 2153 not entitled). ' +
+      '"api" = the public API only. "mcode" = the MiniMax Code connector only (Token Plan - no pay-as-you-go balance needed, but the MCode app must be running).',
+  })),
+  parts: Type.Optional(Type.Integer({
+    description:
+      "Connector backend only: how many movements to render (1-5). Each movement is a separate generation and they are crossfaded into one file, so more movements make a longer track. " +
+      "Default: as many as the lyrics need (up to 5), or 1 for an instrumental.",
+    minimum: 1,
+    maximum: 5,
+  })),
 });
 
-async function executeMusicGenerate(_toolCallId: string, params: any, signal?: AbortSignal) {
+async function executeApiGenerate(_toolCallId: string, params: any, signal?: AbortSignal) {
   const { baseUrl, apiKey } = resolveAuth();
 
   // Resolve file-based conveniences into wire fields before validation.
@@ -291,6 +532,29 @@ async function executeMusicGenerate(_toolCallId: string, params: any, signal?: A
       extra_info: payload?.extra_info ?? null,
     },
   };
+}
+
+/**
+ * Dispatch to the requested backend.
+ *
+ * "auto" is the default: the public API is tried first and the connector
+ * takes over only when the ACCOUNT is refused (1008 insufficient balance,
+ * 2153 not entitled). A request-level failure (bad params, flagged content,
+ * a timeout) is never retried on the other backend - that would hide the
+ * real problem and spend the Token Plan quota on a broken request.
+ */
+async function executeMusicGenerate(_toolCallId: string, params: any, signal?: AbortSignal) {
+  const backend = String(params.backend ?? "auto").toLowerCase();
+  if (backend === "mcode") return executeConnectorGenerate(params, signal);
+  try {
+    return await executeApiGenerate(_toolCallId, params, signal);
+  } catch (error) {
+    const statusCode = (error as any)?.statusCode;
+    if (backend === "auto" && statusCode != null && isAccountBlocked(statusCode)) {
+      return executeConnectorGenerate(params, signal, `the API returned ${statusCode}: ${(error as Error).message}`);
+    }
+    throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -399,10 +663,13 @@ export default function (pi: any) {
     name: "minimax_music_generate",
     label: "MiniMax Music Generate",
     description:
-      "Generate a complete song via the MiniMax music API (POST /v1/music_generation) — the endpoint mmx no longer ships. " +
+      "Generate a complete song via the MiniMax music API (POST /v1/music_generation) — the endpoint mmx no longer ships — or via the MiniMax Code connector. " +
       "Modes: (1) text-to-music with your own lyrics, (2) is_instrumental: true for vocal-less tracks, (3) lyrics_optimizer: true to auto-write lyrics from the prompt, " +
       "(4) cover models with a reference audio (one-step) or a cover_feature_id from minimax_music_cover_preprocess (two-step, with lyrics edit). " +
       "Models: music-3.0 (default, paid plan), music-3.0-free, music-2.6, music-2.6-free, music-cover, music-cover-free. " +
+      "backend: 'auto' (default) uses the public API and falls back to the MiniMax Code connector when the account is refused (1008 balance / 2153 not entitled); " +
+      "'mcode' uses the connector directly (Token Plan, no pay-as-you-go balance, needs the MCode app running); 'api' uses the public API only. " +
+      "parts (1-5, connector only) renders several movements and crossfades them into one longer track. " +
       "Saves the audio to .pi/generated-music/ and returns the local path. " +
       "Auth: MINIMAX_API_KEY env, else the api_key in ~/.mmx/config.json (mmx auth login). Region: global (default) or cn via MINIMAX_REGION / mmx config.",
     parameters: musicParams,

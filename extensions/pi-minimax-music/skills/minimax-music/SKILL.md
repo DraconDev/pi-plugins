@@ -15,6 +15,10 @@ API. This plugin talks to the same public HTTP endpoints mmx used to call, direc
 | `minimax_music_generate` | `POST /v1/music_generation` | Generate a full song (text-to-music, instrumental, or cover) |
 | `minimax_music_cover_preprocess` | `POST /v1/music_cover_preprocess` | Extract cover features + lyrics for a two-step cover (free) |
 
+`minimax_music_generate` has a `backend` option: `api` (public HTTP API),
+`mcode` (MiniMax Code connector, Token Plan) or `auto` (default — the API,
+falling back to the connector when the account is refused with 1008/2153).
+
 ## Auth
 
 Uses the same credentials as mmx:
@@ -35,6 +39,22 @@ Region: `MINIMAX_REGION=global|cn` overrides `region` in `~/.mmx/config.json`
 2. `minimax_music_generate` with the returned `lyrics` and a `prompt` describing the
    target style (tempo, vocals, instrumentation, mood). `output_format` defaults to
    `"url"`; the tool downloads the audio immediately (links expire after 24h).
+
+### 1b) When the API says the account cannot pay
+
+If `minimax_music_generate` fails with `MiniMax API error 1008: insufficient
+balance` or `2153`, the account cannot use the public music API. Either
+top up the pay-as-you-go balance, or use `backend: "mcode"` — the MiniMax
+Code connector bills the Token Plan instead and needs no balance (the MCode
+app must be running). With the default `backend: "auto"` the tool does this
+fallback by itself and reports which route produced the file.
+
+### 1c) A longer track (connector backend)
+
+The connector caps lyrics at 600 characters per request, so a long lyric
+sheet is rendered as several **movements** — one generation each, with its
+own section direction — and the movements are crossfaded into one file.
+Pass `parts: 1–5` to control the count (more movements = a longer track).
 
 ### 2) Instrumental (BGM, theme music)
 
@@ -89,6 +109,8 @@ report that instead of retrying.
 - `aigc_watermark`: embed an AI-generated-content watermark
 - `lyrics_file` / `audio_file`: local-path conveniences (read + encoded automatically)
 - `out`: override the output path (default `.pi/generated-music/music_<timestamp>.<ext>`)
+- `backend`: `"api"` | `"mcode"` | `"auto"` (default `"auto"`)
+- `parts`: connector backend only — how many movements to render (1–5)
 
 ## Output
 

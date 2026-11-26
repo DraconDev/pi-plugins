@@ -3,14 +3,21 @@ import assert from "node:assert/strict";
 
 import {
   ALL_MODELS,
+  CONNECTOR_MAX_LYRICS_CHARS,
+  CONNECTOR_MAX_PROMPT_CHARS,
+  buildConnectorRequests,
   buildCoverPreprocessBody,
+  buildCrossfadeFilter,
   buildLyricsBody,
   buildMusicBody,
   checkBaseResp,
   extensionForFormat,
   extractAudio,
   formatExtraInfo,
+  isAccountBlocked,
+  movementDirection,
   normalizeAudioSetting,
+  planMovements,
   resolveApiKey,
   resolveBaseUrl,
 } from "../music-core.mjs";
@@ -213,4 +220,107 @@ test("formatExtraInfo tolerates both field namings; extensionForFormat", () => {
 
 test("normalizeAudioSetting defaults", () => {
   assert.deepEqual(normalizeAudioSetting(undefined), { format: "mp3", sample_rate: 44100, bitrate: 256000 });
+});
+
+// ------------------------------------------------------- mcode connector ----
+
+test("isAccountBlocked only matches account-level refusals", () => {
+  assert.equal(isAccountBlocked(1008), true); // insufficient balance
+  assert.equal(isAccountBlocked(2153), true); // not entitled
+  assert.equal(isAccountBlocked(2013), false); // invalid params - a request problem
+  assert.equal(isAccountBlocked(1026), false); // content flagged
+});
+
+test("checkBaseResp attaches the status code to the error", () => {
+  try {
+    checkBaseResp({ base_resp: { status_code: 1008, status_msg: "insufficient balance" } });
+    assert.fail("expected a throw");
+  } catch (error) {
+    assert.equal(error.statusCode, 1008);
+    assert.match(error.message, /insufficient balance/);
+  }
+});
+
+test("planMovements keeps a short lyric sheet in one movement", () => {
+  const movements = planMovements("[Verse]\nOne line\n\n[Chorus]\nAnother line");
+  assert.equal(movements.length, 1);
+  assert.equal(movements[0].total, 1);
+  assert.match(movements[0].lyrics, /\[Verse\]/);
+  assert.match(movements[0].lyrics, /\[Chorus\]/);
+});
+
+test("planMovements splits a long lyric sheet at section boundaries", () => {
+  const section = (tag, line) => `[${tag}]\n${line}\n${"word ".repeat(30).trim()}\n`;
+  const lyrics = ["Intro", "Verse", "Chorus", "Bridge", "Outro"].map((tag) => section(tag, tag)).join("\n\n");
+  assert.ok(lyrics.length > CONNECTOR_MAX_LYRICS_CHARS);
+
+  const movements = planMovements(lyrics);
+  assert.ok(movements.length > 1, "a long lyric sheet must become several movements");
+  assert.ok(movements.length <= 5, "the connector accepts at most 5 requests per call");
+  for (const movement of movements) {
+    assert.ok(movement.lyrics.length <= CONNECTOR_MAX_LYRICS_CHARS);
+    assert.equal(movement.total, movements.length);
+  }
+  assert.match(movements[0].direction, /intro/);
+  assert.match(movements[movements.length - 1].direction, /outro/);
+});
+
+test("movementDirection names the first, middle and last movement", () => {
+  assert.match(movementDirection(0, 3), /intro/);
+  assert.match(movementDirection(1, 3), /develop/);
+  assert.match(movementDirection(2, 3), /outro/);
+});
+
+test("buildConnectorRequests sends one request per movement, inside the wire limits", () => {
+  const section = (tag) => `[${tag}]\n${"la ".repeat(120).trim()}\n`;
+  const lyrics = ["Verse", "Chorus", "Bridge", "Outro"].map(section).join("\n\n");
+  const { requests } = buildConnectorRequests({
+    prompt: "cinematic downtempo electronic vocal, soulful female lead",
+    lyrics,
+    audio_setting: { format: "mp3", sample_rate: 44100, bitrate: 256000 },
+  });
+
+  assert.ok(requests.length >= 2);
+  assert.ok(requests.length <= 5);
+  for (const request of requests) {
+    assert.ok(request.prompt.length <= CONNECTOR_MAX_PROMPT_CHARS);
+    assert.ok(request.lyrics.length <= CONNECTOR_MAX_LYRICS_CHARS);
+    assert.equal(request.format, "mp3");
+    assert.equal(request.sample_rate, 44100);
+    assert.equal(request.bitrate, 256000);
+    assert.match(request.output_file, /^part-\d+\.mp3$/);
+  }
+});
+
+test("buildConnectorRequests honours an explicit parts count", () => {
+  const { requests } = buildConnectorRequests({
+    prompt: "dark ambient instrumental",
+    is_instrumental: true,
+    parts: 3,
+  });
+  assert.equal(requests.length, 3);
+  for (const request of requests) {
+    assert.equal(request.lyrics, undefined);
+    assert.ok(request.prompt.length <= CONNECTOR_MAX_PROMPT_CHARS);
+  }
+});
+
+test("buildConnectorRequests refuses an instrumental without a prompt and a vocal without lyrics", () => {
+  assert.throws(() => buildConnectorRequests({ is_instrumental: true }), /prompt is required/);
+  assert.throws(() => buildConnectorRequests({ prompt: "pop" }), /lyrics is required/);
+});
+
+test("buildConnectorRequests refuses pcm, which cannot carry the AIGC metadata", () => {
+  assert.throws(
+    () => buildConnectorRequests({ prompt: "pop", is_instrumental: true, audio_setting: { format: "pcm" } }),
+    /mp3, wav/,
+  );
+});
+
+test("buildCrossfadeFilter chains the movements into one output", () => {
+  assert.equal(buildCrossfadeFilter(1), "anull");
+  const two = buildCrossfadeFilter(2);
+  assert.match(two, /\[0:a\]\[1:a\]acrossfade=d=0\.5:c1=tri:c2=tri\[joined\]/);
+  const three = buildCrossfadeFilter(3);
+  assert.match(three, /\[a1\]\[2:a\]acrossfade=d=0\.5:c1=tri:c2=tri\[joined\]/);
 });
